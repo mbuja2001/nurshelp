@@ -1,0 +1,105 @@
+/* src/App.css
+   Global theme variables + base styles (light theme)
+   Avoids global div/span color overrides so components control their own color.
+*/
+
+:root{
+  /* Light theme palette */
+  --bg-primary: #ffffff;     /* page background */
+  --bg-surface: #f8f9fb;     /* card backgrounds */
+  --card: #ffffff;
+  --text-primary: #0f172a;   /* main text (dark navy) */
+  --text-secondary: #475569; /* lighter text */
+  --muted: #94a3b8;
+  --accent: #646cff;         /* primary accent */
+  --accent-600: #4f5bff;
+  --danger: #ef4444;
+  --success: #2ecc71;
+  --border: #e6e9ef;
+  --shadow: 0 6px 18px rgba(15,23,42,0.06);
+  --glass: rgba(255,255,255,0.6);
+  --max-width: 1200px;
+}
+
+/* Base/resets */
+* { box-sizing: border-box; }
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* App container */
+.app-container {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+/* Simple fade-in page transition */
+.page-transition { animation: fadeIn 240ms ease-in; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+/* Inputs and buttons should inherit text color and use explicit backgrounds */
+button, input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+/* Make form elements readable by default */
+input[type="text"], input[type="number"], textarea, select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-primary);
+}
+
+/* Links */
+a { color: var(--accent); text-decoration: none; }
+
+/* Utility container for app width */
+.container {
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Small helper classes */
+.text-muted { color: var(--muted); }
+.badge { display:inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; }
+
+/* Focus visible for keyboard accessibility */
+:focus { outline: 3px solid rgba(100,108,255,0.12); outline-offset: 2px; }
+
+/* Button defaults — components will override specifics */
+.btn {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+/* Small responsiveness helper */
+@media (max-width: 880px){
+  .container { padding: 0 12px; }
+}

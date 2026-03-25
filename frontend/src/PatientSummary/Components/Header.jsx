@@ -46,6 +46,7 @@ const backButtonStyle = {
   border: 'none',
   borderRadius: '4px',
   cursor: 'pointer'
+  
 };
 
 const intakeButtonStyle = {

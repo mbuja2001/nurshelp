@@ -6,6 +6,7 @@ import Dashboard from "./Dashboard/Dashboard.jsx";  // ensure exact filename
 import PS from "./PatientSummary/PS.jsx";          // ensure exact filename
 import VoiceIntake from "./Dashboard/VoiceIntake.jsx"; // ensure exact filename
 import PatientReport from "./PatientSummary/PatientReport.jsx";
+import ReferenceCase from "./PatientSummary/ReferenceCase.jsx";
 import "./App.css";
 
 /**
@@ -38,6 +39,9 @@ function App() {
 
           {/* REPORT (final page) ✅ */}
           <Route path="/summary/:id" element={<PatientReport />} />
+
+          {/* CASE DETAIL (reference case view) */}
+          <Route path="/summary/:encounterId/case/:caseId" element={<ReferenceCase />} />
 
           <Route path="/voice-intake" element={<VoiceIntakeRoute />} />
 

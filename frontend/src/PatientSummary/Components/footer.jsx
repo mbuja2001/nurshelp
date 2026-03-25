@@ -1,3 +1,5 @@
+import React, { useState } from "react";
+
 function Footer() {
   return (
     <footer style={footerStyle}>

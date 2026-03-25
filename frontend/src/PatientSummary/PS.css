@@ -1,0 +1,318 @@
+/* src/PatientSummary/PS.css
+   PS-specific styles, rewritten to use variables from App.css (light theme).
+   Removed global span/div color rules; components use own selectors.
+*/
+
+.ps-main-page-wrapper {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background: var(--bg-primary);
+}
+
+.main-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.dashboard-grid {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  gap: 15px;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* Each column allowed to shrink properly on narrow screens */
+.dashboard-grid > div {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Column layouts */
+.left-column-layout,
+.middle-column-layout,
+.right-column-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding-right: 5px;
+  box-sizing: border-box;
+}
+
+/* Block / cards */
+.block {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow);
+}
+
+.block:last-child { flex-grow: 1; }
+
+/* Small header block */
+.block-small {
+  flex: 0 0 60px;
+  background-color: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.block-small p {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Block titles */
+.block h4 {
+  font-size: 1.25rem;
+  color: var(--accent);
+  margin: 0 0 10px 0;
+  text-align: center;
+}
+
+/* content area */
+.block .content-area {
+  margin-top: 0rem;
+  font-size: 1rem;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Action group (edit + delete) */
+.action-group { display:flex; gap:12px; align-items:center; }
+
+.edit-action-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all .14s;
+  background: transparent;
+  color: var(--accent);
+}
+.edit-action-btn:hover {
+  background-color: rgba(100,108,255,0.12);
+  color: #fff;
+  border-color: rgba(100,108,255,0.12);
+}
+
+/* Delete button */
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 5px;
+  transition: transform .15s, color .15s;
+}
+.delete-btn:hover { transform: scale(1.1); color: #cc2b2b; }
+
+/* Textarea used in editor */
+.edit-textarea {
+  width: 100%;
+  height: 100px;
+  margin-top: 10px;
+  padding: 8px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 1rem;
+  resize: none;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: #fff;
+}
+
+/* Modal title color */
+.modal-title { color: var(--accent); margin-bottom: 10px; }
+
+/* Forms */
+.form-container { display:flex; flex-direction:column; gap:15px; margin:25px 0; text-align:left; }
+.form-group { display:flex; flex-direction:column; }
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+
+/* Vitals grid */
+.vitals-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 20px 0;
+  text-align: left;
+}
+
+/* Input styling for vitals (uses App.css default inputs) */
+.vitals-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-surface);
+  font-size: 1rem;
+  box-sizing: border-box;
+  color: var(--text-primary);
+}
+
+/* Vitals list display on right column */
+.vitals-display-list { display:flex; flex-direction:column; gap:12px; }
+.vital-item {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:1rem;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  padding-bottom:8px;
+  color: var(--text-secondary);
+}
+.vital-item span { color: var(--text-secondary); font-weight: 600; }
+.vital-item strong {
+  color: var(--accent);
+  font-size: 1.15rem;
+  font-family: 'Courier New', Courier, monospace;
+  letter-spacing: 0.6px;
+}
+
+/* Modal overlay & content */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(15,23,42,0.55);
+  display:flex; align-items:center; justify-content:center;
+  z-index: 9999;
+}
+.modal-content {
+  background: var(--card);
+  padding: 26px;
+  border-radius: 10px;
+  width: 420px; max-width: 92%;
+  box-shadow: 0 8px 30px rgba(15,23,42,0.08);
+}
+
+/* Modal actions */
+.modal-actions { display:flex; justify-content:center; gap: 12px; margin-top: 8px; }
+
+/* checklist items (assign bed / notify doctor) */
+.action-checklist { display:flex; flex-direction:column; gap:12px; margin-top: 6px; }
+.checklist-item {
+  display:flex; align-items:center; gap:12px; padding:12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer; transition: all .14s;
+  font-size: 1rem; font-weight: 700; color: var(--text-primary);
+  background: transparent;
+}
+.checklist-item input[type="checkbox"] { width: 20px; height:20px; cursor:pointer; }
+.checklist-item.completed {
+  background-color: rgba(46,204,113,0.08);
+  border-color: rgba(46,204,113,0.15);
+  color: var(--success);
+}
+
+/* Hover states */
+.checklist-item:hover { border-color: var(--accent); background: rgba(100,108,255,0.04); }
+
+/* Severity block (big circle) */
+.severity-block { display:flex; flex-direction:column; align-items:center; }
+.severity-circle {
+  width: 96px; height: 96px; border-radius: 50%;
+  display:flex; align-items:center; justify-content:center;
+  margin: 10px 0; color: white; font-weight:900; font-size:1rem;
+  box-shadow: 0 6px 18px rgba(15,23,42,0.08);
+  border: 5px solid var(--bg-primary);
+}
+.sev-high { background-color: var(--danger); }    /* red */
+.sev-mod  { background-color: #f1c40f; }         /* amber */
+.sev-low  { background-color: var(--success); }  /* green */
+
+/* Bottom action area and save button */
+.bottom-action { margin-top:auto; padding-top:12px; }
+.save-file-btn {
+  width: 100%;
+  padding: 14px;
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.save-file-btn:hover { transform: translateY(-2px); background-color: #0b1220; }
+
+/* Footer */
+footer {
+  height: 46px; flex-shrink:0; background: var(--card);
+  border-top: 1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+}
+
+/* Chat blocks styles */
+.chat-block { padding: 12px; border-radius: 8px; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
+.block-tag { font-size: 0.75rem; font-weight: 800; letter-spacing:1px; margin-bottom: 6px; display:block; }
+.q-block { background: var(--bg-surface); border-left: 4px solid #adb5bd; align-self:flex-start; width: 90%; }
+.q-block .block-tag { color: #6c757d; }
+.a-block { background: var(--card); border-left: 4px solid var(--accent); align-self:flex-end; width:95%; border:1px solid rgba(0,0,0,0.04); }
+.a-block .block-tag { color: var(--accent); }
+.block-text { margin:0; font-size: 1rem; line-height:1.4; color: var(--text-primary); }
+
+/* Editable answer focus */
+.editable-answer { width:100%; background: transparent; border: none; font-size: 1rem; color: var(--text-primary); min-height: 50px; }
+.editable-answer:focus { background: rgba(100,108,255,0.04); padding: 4px; border-radius: 4px; outline: none; }
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .dashboard-grid { flex-direction: column; gap: 12px; padding: 12px; }
+  .vitals-grid { grid-template-columns: 1fr; }
+  .modal-content { width: 92%; padding: 18px; }
+}
+
+/* Bright priority badges and chips */
+.chip {
+  display: inline-block;
+  padding: 6px 10px;
+  background: #eef2ff;
+  color: #1e293b;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid rgba(100, 103, 255, 0.12);
+}
+
+/* severity classes (if you want to attach to circles elsewhere) */
+.sev-critical { background: #ef4444; color: #fff; }
+.sev-high { background: #f97316; color: #fff; }
+.sev-mod { background: #f1c40f; color: #111; }
+.sev-low { background: #10b981; color: #fff; }
+.sev-unknown { background: #94a3b8; color: #fff; }
+
+/* small tweaks for the report layout */
+.patient-report-page .block-label { font-size: 1.1rem; color: #374151; }
+.patient-report-page .content-area { color: #334155; }
+.patient-report-page .vital-item span { color: #475569; }
+.patient-report-page .vital-item strong { color: #0f172a; font-weight: 800; }

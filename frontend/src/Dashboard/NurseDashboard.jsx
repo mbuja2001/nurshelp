@@ -20,9 +20,7 @@ const NurseDashboard = ({
     }
   }, [username, navigate, setView]);
 
-  const handleNewIntake = () => {
-    navigate("/summary/new");
-  };
+  const handleNewIntake = () => navigate("/summary/new");
 
   const severityColor = (sev) => {
     if (sev === 3) return "#ef4444";
@@ -30,9 +28,6 @@ const NurseDashboard = ({
     return "#10b981";
   };
 
-  // Patients logic:
-  // - pending/waiting: status !== "confirmed" && (isWaiting === true || status === "pending")
-  // - confirmed: status === "confirmed"
   const pendingPatients = sortedPatients.filter(p => (p.isWaiting === true) || (p.status === "pending"));
   const confirmedPatients = sortedPatients.filter(p => p.status === "confirmed");
 
@@ -60,7 +55,7 @@ const NurseDashboard = ({
           ))}
         </div>
 
-        {/* Pending (Waiting) Reports */}
+        {/* Pending / Waiting */}
         <div style={styles.queueBox}>
           <h3>Pending / Waiting Patients</h3>
           <table style={styles.table}>
@@ -78,7 +73,7 @@ const NurseDashboard = ({
                 <tr key={p._id || p.id} style={styles.tableRow}>
                   <td>#{String(p.id || (p._id || "")).padStart(3, "0")}</td>
                   <td>{getWaitTime(p)}</td>
-                  <td style={{ fontWeight: "bold", color: severityColor(p.severity || (p.triage?.severity)) }}>
+                  <td style={{ fontWeight: "bold", color: severityColor(p.severity || p.triage?.severity) }}>
                     {(p.severity || p.triage?.severity) === 3 ? "High" : ((p.severity || p.triage?.severity) === 2 ? "Med" : "Low")}
                   </td>
                   <td>
@@ -99,7 +94,7 @@ const NurseDashboard = ({
           </table>
         </div>
 
-        {/* Confirmed Reports */}
+        {/* Confirmed */}
         {confirmedPatients.length > 0 && (
           <div style={{ ...styles.queueBox, marginTop: 40 }}>
             <h3>Confirmed Patient Reports</h3>
