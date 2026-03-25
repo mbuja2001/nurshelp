@@ -1,0 +1,18 @@
+# Node modules (frontend)
+frontend/node_modules/
+
+# Python virtualenv
+.venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Model and large binary outputs
+backend/ML/models/
+backend/ML/*.pt
+*.index
+*.bin
+
+# OS files
+.DS_Store
