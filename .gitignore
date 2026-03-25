@@ -11,6 +11,11 @@ __pycache__/
 # Model and large binary outputs
 backend/ML/models/
 backend/ML/*.pt
+backend/ML/
+backend/*.log
+backend/*.sqlite
+backend/*.db
+backend/.venv/
 *.index
 *.bin
 
