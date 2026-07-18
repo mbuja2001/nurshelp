@@ -1,0 +1,46 @@
+/* TriageTabHeader.css */
+.triage-tab-header {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background-color: #ffffff;
+  border-bottom: 1px solid #ddd;
+}
+
+.triage-tab-container {
+  display: flex;
+  gap: 0;
+  padding: 0 40px;
+  margin-top: 0;
+  border-top: 1px solid #eee;
+  background-color: #f9f9f9;
+}
+
+.triage-tab {
+  padding: 12px 24px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+  color: #666;
+}
+
+.triage-tab:hover {
+  color: #333;
+  background-color: #f0f0f0;
+}
+
+.triage-tab.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+  background-color: white;
+  font-weight: 600;
+}
+
+.triage-tab.inactive {
+  color: #999;
+  border-bottom-color: transparent;
+}

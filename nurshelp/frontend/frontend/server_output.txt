@@ -1,0 +1,8 @@
+npm error code ENOENT
+npm error syscall open
+npm error path /home/wtc/Documents/living_compute_labs/nursehelp/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/home/wtc/Documents/living_compute_labs/nursehelp/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /home/wtc/.npm/_logs/2026-04-10T14_05_31_369Z-debug-0.log

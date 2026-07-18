@@ -1,0 +1,8 @@
+# Ignore machine learning directories and large model folders
+**/ML/
+**/ESI_Engine_Complete/
+nurshelp-clean/
+nurshelp_remote/
+nurshelp-fresh/
+nurshelp/.git
+

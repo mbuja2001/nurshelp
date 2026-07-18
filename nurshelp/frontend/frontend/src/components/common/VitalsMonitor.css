@@ -1,0 +1,382 @@
+/* Vitals Monitor - Real-Time Vital Signs Display */
+
+.vitals-monitor {
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.vitals-monitor.compact {
+  padding: 12px;
+}
+
+/* Alerts Section */
+.vitals-alerts {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alert-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.alert-item.critical {
+  background: #FEE2E2;
+  border-left: 3px solid #DC2626;
+  color: #7F1D1D;
+}
+
+.alert-item.warning {
+  background: #FEF3C7;
+  border-left: 3px solid #F59E0B;
+  color: #78350F;
+}
+
+.alert-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.alert-message {
+  flex: 1;
+}
+
+/* No Data State */
+.vitals-status {
+  text-align: center;
+  padding: 32px 16px;
+  color: #9CA3AF;
+}
+
+.status-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.status-message {
+  font-size: 14px;
+  color: #6B7280;
+}
+
+/* Vitals Grid */
+.vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* Vital Display Card */
+.vital-display {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  transition: all 0.3s ease;
+}
+
+.vital-display.normal {
+  border-color: #D1D5DB;
+  background: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
+}
+
+.vital-display.warning {
+  border-color: #FCD34D;
+  background: #FFFBEB;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+}
+
+.vital-display.critical {
+  border-color: #FCA5A5;
+  background: #FEF2F2;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.3);
+}
+
+.vital-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.vital-icon {
+  font-size: 18px;
+}
+
+.vital-name {
+  flex: 1;
+}
+
+/* Vital Content */
+.vital-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vital-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1F2937;
+  line-height: 1;
+}
+
+.vital-number .unit {
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+.normal-range {
+  font-size: 11px;
+  color: #9CA3AF;
+}
+
+/* Vital Bar (Indicator) */
+.vital-bar {
+  height: 4px;
+  background: #E5E7EB;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin-top: 4px;
+}
+
+.vital-indicator {
+  position: absolute;
+  height: 100%;
+  width: 2px;
+  border-radius: 1px;
+  top: 0;
+  border-left: 2px solid #9CA3AF;
+}
+
+.temp-indicator {
+  border-color: #F59E0B;
+}
+
+.hr-indicator {
+  border-color: #EF4444;
+}
+
+.rr-indicator {
+  border-color: #06B6D4;
+}
+
+.o2-indicator {
+  border-color: #10B981;
+}
+
+/* Mini Values (for BP) */
+.vital-mini-values {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.02);
+  padding: 6px;
+  border-radius: 4px;
+}
+
+.vital-mini-values .label {
+  color: #9CA3AF;
+  font-weight: 600;
+}
+
+.vital-mini-values .value {
+  color: #1F2937;
+  font-weight: 700;
+}
+
+/* Timestamp */
+.vitals-timestamp {
+  text-align: right;
+  font-size: 11px;
+  color: #9CA3AF;
+  padding-top: 8px;
+  border-top: 1px solid #E5E7EB;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .vitals-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .vital-display {
+    padding: 10px;
+  }
+
+  .vital-header {
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  .vital-icon {
+    font-size: 16px;
+  }
+
+  .vital-number {
+    font-size: 20px;
+  }
+
+  .normal-range {
+    font-size: 10px;
+  }
+
+  .alert-item {
+    font-size: 12px;
+    padding: 10px;
+  }
+
+  .alert-icon {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .vitals-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .vital-display {
+    padding: 8px;
+  }
+
+  .vital-header {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+
+  .vital-icon {
+    font-size: 14px;
+  }
+
+  .vital-number {
+    font-size: 18px;
+  }
+
+  .alert-item {
+    font-size: 11px;
+    padding: 8px;
+  }
+
+  .vital-mini-values {
+    font-size: 11px;
+    padding: 4px;
+  }
+}
+
+/* Compact View */
+.vitals-monitor.compact .vitals-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.vitals-monitor.compact .vital-display {
+  padding: 8px;
+}
+
+.vitals-monitor.compact .vital-number {
+  font-size: 18px;
+}
+
+.vitals-monitor.compact .vital-header {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.vitals-monitor.compact .vital-icon {
+  font-size: 14px;
+}
+
+.vitals-monitor.compact .normal-range {
+  display: none;
+}
+
+/* Animation for alerts */
+@keyframes pulse-alert {
+  0% {
+    box-shadow: 0 0 8px rgba(220, 38, 38, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(220, 38, 38, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 8px rgba(220, 38, 38, 0.3);
+  }
+}
+
+.vital-display.critical {
+  animation: pulse-alert 2s ease-in-out infinite;
+}
+
+/* Dark mode support (future) */
+@media (prefers-color-scheme: dark) {
+  .vitals-monitor {
+    background: #1F2937;
+    border-color: #374151;
+  }
+
+  .vital-display.normal {
+    background: linear-gradient(135deg, #111827 0%, #1F2937 100%);
+    border-color: #4B5563;
+  }
+
+  .vital-display.warning {
+    background: #7C2D12;
+    border-color: #9A3412;
+  }
+
+  .vital-display.critical {
+    background: #7F1D1D;
+    border-color: #991B1B;
+  }
+
+  .vital-header,
+  .vital-number {
+    color: #F9FAFB;
+  }
+
+  .normal-range {
+    color: #D1D5DB;
+  }
+
+  .vital-bar {
+    background: #4B5563;
+  }
+
+  .alert-item {
+    color: #FCA5A5;
+  }
+
+  .alert-item.critical {
+    background: #7F1D1D;
+    color: #FECACA;
+  }
+
+  .alert-item.warning {
+    background: #78350F;
+    color: #FDE047;
+  }
+
+  .vitals-timestamp {
+    color: #9CA3AF;
+  }
+}

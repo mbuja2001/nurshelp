@@ -1,0 +1,92 @@
+/* TriageTabContainer.css */
+
+.triage-tab-container {
+  background-color: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.tab-nav {
+  display: flex;
+  border-bottom: 2px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 16px 20px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border-bottom: 3px solid transparent;
+  color: #64748b;
+}
+
+.tab-button:hover {
+  color: #475569;
+  background-color: #ffffff;
+}
+
+.tab-button.active {
+  color: #2563eb;
+  background-color: white;
+  border-bottom-color: #2563eb;
+  font-weight: 600;
+}
+
+.tab-button.inactive {
+  color: #94a3b8;
+}
+
+.tab-content {
+  min-height: 600px;
+}
+
+.tab-pane {
+  animation: fadeIn 0.3s ease;
+}
+
+.coming-soon {
+  padding: 40px 24px;
+  text-align: center;
+  color: #64748b;
+}
+
+.coming-soon h3 {
+  margin-top: 0;
+  color: #1e293b;
+  font-size: 24px;
+}
+
+.coming-soon p {
+  font-size: 15px;
+  margin: 12px 0;
+}
+
+.coming-soon ul {
+  text-align: left;
+  display: inline-block;
+  padding: 16px 24px;
+  background-color: #f0f9ff;
+  border-radius: 6px;
+  border-left: 3px solid #0284c7;
+}
+
+.coming-soon li {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #475569;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

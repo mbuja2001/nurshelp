@@ -1,0 +1,118 @@
+/* DashboardRouter.css - Main router styling and states */
+
+.dashboard-router-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.dashboard-router-loading .spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid var(--border);
+  border-top: 3px solid var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.dashboard-router-loading p {
+  margin-top: 20px;
+  font-size: 16px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Error States */
+.dashboard-not-assigned,
+.dashboard-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg-surface);
+  padding: 20px;
+}
+
+.alert {
+  background: var(--bg-primary);
+  border-radius: 10px;
+  padding: 40px;
+  max-width: 500px;
+  box-shadow: var(--shadow);
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.alert h2 {
+  margin: 0 0 15px 0;
+  font-size: 24px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.alert p {
+  margin: 10px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.alert-warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.alert-danger {
+  border-left: 4px solid var(--danger);
+}
+
+.shift-info {
+  background: var(--bg-surface);
+  border-radius: 8px;
+  padding: 15px;
+  margin: 20px 0;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.shift-info p {
+  margin: 5px 0;
+}
+
+.contact-manager {
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin: 20px 0 !important;
+}
+
+.btn-retry {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 20px;
+  transition: all 200ms ease;
+}
+
+.btn-retry:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 108, 255, 0.15);
+}
+
+.btn-retry:active {
+  transform: translateY(0);
+}

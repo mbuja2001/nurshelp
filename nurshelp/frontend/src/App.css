@@ -1,0 +1,252 @@
+/* src/App.css
+   Global theme variables + base styles (light theme)
+   Fully responsive across all devices (mobile, tablet, desktop)
+   Avoids global div/span color overrides so components control their own color.
+*/
+
+:root{
+  /* Light theme palette */
+  --bg-primary: #ffffff;     /* page background */
+  --bg-surface: #f8f9fb;     /* card backgrounds */
+  --card: #ffffff;
+  --text-primary: #0f172a;   /* main text (dark navy) */
+  --text-secondary: #475569; /* lighter text */
+  --muted: #94a3b8;
+  --accent: #646cff;         /* primary accent */
+  --accent-600: #4f5bff;
+  --danger: #ef4444;
+  --success: #2ecc71;
+  --border: #e6e9ef;
+  --shadow: 0 6px 18px rgba(15,23,42,0.06);
+  --glass: rgba(255,255,255,0.6);
+  --max-width: 1200px;
+  
+  /* Responsive spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  
+  /* Typography */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  
+  /* Breakpoints (used in media queries) */
+  --breakpoint-xs: 320px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/* Base/resets */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: clamp(14px, 2vw, 16px);
+  line-height: 1.5;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* App container */
+.app-container {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+/* Simple fade-in page transition */
+.page-transition { animation: fadeIn 240ms ease-in; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+/* Inputs and buttons should inherit text color and use explicit backgrounds */
+button, input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+/* Make form elements readable by default */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="date"],
+input[type="time"],
+textarea,
+select {
+  width: 100%;
+  max-width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: inherit;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.1);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+/* Links */
+a { color: var(--accent); text-decoration: none; }
+
+/* Utility container for app width */
+.container {
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--spacing-md);
+}
+
+/* Responsive container variants */
+.container-sm {
+  max-width: 640px;
+}
+
+.container-md {
+  max-width: 768px;
+}
+
+.container-lg {
+  max-width: 1024px;
+}
+
+.container-xl {
+  max-width: 1280px;
+}
+
+/* Small helper classes */
+.text-muted { color: var(--muted); }
+.badge { display:inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; }
+
+/* Focus visible for keyboard accessibility */
+:focus { outline: 3px solid rgba(100,108,255,0.12); outline-offset: 2px; }
+
+/* Button defaults — components will override specifics */
+.btn {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  font-size: inherit;
+  transition: all 200ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  user-select: none;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.btn:hover {
+  background: var(--accent-600);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+}
+
+.btn-danger {
+  background: var(--danger);
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+.btn-success {
+  background: var(--success);
+}
+
+.btn-success:hover {
+  background: #27ae60;
+}
+
+.btn-small {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--text-sm);
+  min-height: 32px;
+}
+
+.btn-large {
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--text-lg);
+  min-height: 48px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Small responsiveness helper */
+@media (max-width: 880px){
+  .container { padding: 0 12px; }
+}
