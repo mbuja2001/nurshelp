@@ -27,6 +27,7 @@ import {
   exportInventoryCSV,
   getPendingMedicationRequests,
   updateMedicationRequestStatus
+  ,createMedicationRequest, createPharmacyMessage, getPendingPharmacyMessages
 } from '../controllers/pharmacy.controller.js';
 
 const router = express.Router();
@@ -107,6 +108,24 @@ router.get('/requests', protect, getPendingMedicationRequests);
  * Approve or decline a medication request
  */
 router.patch('/requests/:encounterId/:requestId', protect, updateMedicationRequestStatus);
+
+/**
+ * POST /api/pharmacy/requests
+ * Create a medication request (staff-facing)
+ */
+router.post('/requests', protect, createMedicationRequest);
+
+/**
+ * POST /api/pharmacy/messages
+ * Create a message to pharmacist (staff-facing)
+ */
+router.post('/messages', protect, createPharmacyMessage);
+
+/**
+ * GET /api/pharmacy/messages/pending
+ * Get pending messages for pharmacist dashboard
+ */
+router.get('/messages/pending', protect, getPendingPharmacyMessages);
 
 // ============================================================
 // PROTECTED ENDPOINTS (Manager/Admin only)

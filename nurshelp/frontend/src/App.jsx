@@ -23,8 +23,12 @@ import TriagedPatients from "./Dashboard/Pages/TriagedPatients.jsx";
 import BedsAllocation from "./Dashboard/Pages/BedsAllocation.jsx";
 import StaffScheduleManager from "./Dashboard/Pages/StaffScheduleManager.jsx";
 import Pharmacy from "./Dashboard/Pages/Pharmacy.jsx";
-import Radiology from "./Dashboard/Pages/Radiology.jsx";
-import Pathology from "./Dashboard/Pages/Pathology.jsx";
+import PharmacyPublic from "./Dashboard/Pages/PharmacyPublic.jsx";
+import { getUserFromToken } from './utils/jwt';
+import RadiologyDashboard from "./components/dashboards/RadiologyDashboard.jsx";
+import PathologyDashboard from "./components/dashboards/PathologyDashboard.jsx";
+import DashboardTools from "./Dashboard/Pages/DashboardTools.jsx";
+import StaffToPharmacist from "./Dashboard/Pages/StaffToPharmacist.jsx";
 import Settings from "./Dashboard/Pages/Settings.jsx";
 import TriageAnalytics from "./Dashboard/Pages/TriageAnalytics.jsx";
 import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
@@ -36,6 +40,8 @@ import ManagerApprovalPage from "./Dashboard/Pages/ManagerApprovalPage.jsx";
 import StatisticsPage from "./Dashboard/Pages/StatisticsPage.jsx";
 import AdminSettingsPage from "./Dashboard/Pages/AdminSettingsPage.jsx";
 import IntegratedSchedule from "./Dashboard/Pages/IntegratedSchedule.jsx";
+import PrescriptionReport from "./components/DashboardPages/PrescriptionReport.jsx";
+import OrderedMeds from "./Dashboard/Pages/OrderedMeds.jsx";
 import LandingPage from "./LandingPage.jsx";
 import Team from "./LandingPages/Team.jsx";
 import WhatWeDo from "./LandingPages/WhatWeDo.jsx";
@@ -113,9 +119,19 @@ function App() {
           {/* New sidebar pages */}
           <Route path="/profile" element={<Profile />} />
           <Route path="/ehr" element={<EHRRecords />} />
-          <Route path="/pharmacy" element={<Pharmacy />} />
-          <Route path="/radiology" element={<Radiology />} />
-          <Route path="/pathology" element={<Pathology />} />
+          <Route path="/pharmacy" element={
+            (() => {
+              const token = localStorage.getItem('token');
+              const user = getUserFromToken(token) || {};
+              return user.role === 'PHARMACIST' ? <Pharmacy /> : <PharmacyPublic />;
+            })()
+          } />
+          <Route path="/pharmacy-public" element={<PharmacyPublic />} />
+          <Route path="/staff-to-pharmacist" element={<StaffToPharmacist />} />
+          <Route path="/dashboard-tools" element={<DashboardTools />} />
+          <Route path="/ordered-meds" element={<OrderedMeds />} />
+          <Route path="/radiology" element={<RadiologyDashboard />} />
+          <Route path="/pathology" element={<PathologyDashboard />} />
           <Route path="/triaged" element={<TriagedPatients />} />
           <Route path="/beds" element={<BedsAllocation />} />
           <Route path="/schedule/staff" element={<StaffScheduleManager />} />
@@ -125,6 +141,7 @@ function App() {
           <Route path="/reference-cases" element={<ReferenceCases />} />
           <Route path="/help" element={<Help />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/prescription/:prescriptionId" element={<PrescriptionReport />} />
 
           {/* Clock Management Routes */}
           <Route path="/clock-in-out" element={<ClockInOutBoard token={localStorage.getItem('token')} user={JSON.parse(localStorage.getItem('user') || '{}')} />} />

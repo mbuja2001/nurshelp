@@ -3,8 +3,52 @@
  * Handles pharmaceutical inventory management with hospital isolation
  */
 
-import { Pharmaceutical } from '../models/pharmacy.model.js';
+import { Pharmaceutical, Medication, PharmacyInventory, Prescription } from '../models/pharmacy.model.js';
 import { Encounter } from '../models/encounter.model.js';
+import { Notification } from '../models/notification.model.js';
+import { PharmacyMessage } from '../models/pharmacyMessage.model.js';
+
+export const mapPrescriptionStatusForDecision = (status) => {
+  switch (String(status || '').toUpperCase()) {
+    case 'APPROVED':
+      return 'approved';
+    case 'DECLINED':
+      return 'cancelled';
+    case 'DISPENSED':
+      return 'dispensed';
+    default:
+      return 'submitted';
+  }
+};
+
+export const buildPendingRequestFromPrescription = (prescription) => {
+  if (!prescription) return null;
+
+  const firstItem = Array.isArray(prescription.items) && prescription.items.length > 0 ? prescription.items[0] : {};
+  const medicationName = prescription.medicationName || firstItem.medication_name || 'Medication';
+  const dosage = prescription.dosage || firstItem.dosage || '';
+  const frequency = prescription.frequency || firstItem.frequency || '';
+  const route = prescription.route || firstItem.route || '';
+  const indication = firstItem.indication || prescription.special_instructions || '';
+
+  return {
+    _id: prescription._id,
+    requestId: String(prescription._id),
+    encounterId: prescription.encounterId || null,
+    patientName: prescription.patient_details?.name || 'Patient',
+    patientId: prescription.patient_details?.id_number || prescription.patientId || null,
+    medicationName,
+    dosage,
+    frequency,
+    route,
+    indication,
+    requestedBy: prescription.prescriber?.name || 'Physician',
+    requestedAt: prescription.date_issued || prescription.createdAt || new Date(),
+    status: 'PENDING',
+    prescriptionId: String(prescription._id),
+    source: 'PRESCRIPTION'
+  };
+};
 
 // ============ BATCH CREATE PHARMACEUTICALS ============
 export const createPharmaceuticalsBatch = async (req, res) => {
@@ -42,27 +86,31 @@ export const createPharmaceuticalsBatch = async (req, res) => {
 
     console.log(`[PHARMACY BATCH] Creating ${pharmaceuticals.length} pharmaceutical records for hospital ${hospitalId}`);
 
-    // Add hospitalId to each pharmaceutical
-    const pharmsWithHospitalId = pharmaceuticals.map(pharm => ({
-      hospitalId,
-      name: pharm.name,
-      strength: pharm.strength,
-      form: pharm.form || 'tablet',
-      route: pharm.route || 'oral',
-      stock: pharm.stock || 0,
-      minStockLevel: pharm.minStockLevel || 10,
-      unitPrice: pharm.unitPrice || 0,
-      totalValue: (pharm.stock || 0) * (pharm.unitPrice || 0),
-      genericName: pharm.genericName,
-      classification: pharm.classification,
-      requiresPrescription: pharm.requiresPrescription !== false,
-      warnings: pharm.warnings || [],
-      contraindications: pharm.contraindications || [],
-      createdBy: req.user._id,
-    }));
+    const normalizedBatch = pharmaceuticals.map(pharm => {
+      const unitPrice = Number(pharm.unitPrice ?? pharm.price ?? 0);
+      const quantity = Number(pharm.stock ?? 0);
+      const minStockLevel = Number(pharm.minStockLevel ?? 10);
 
-    // Check for duplicates in request
-    const names = pharmsWithHospitalId.map(p => p.name.toLowerCase());
+      return {
+        hospitalId,
+        name: pharm.name,
+        strength: pharm.strength || 'N/A',
+        form: pharm.form || 'tablet',
+        route: pharm.route || 'oral',
+        stock: quantity,
+        minStockLevel,
+        unitPrice,
+        totalValue: quantity * unitPrice,
+        genericName: pharm.genericName,
+        classification: pharm.classification,
+        requiresPrescription: pharm.requiresPrescription !== false,
+        warnings: pharm.warnings || [],
+        contraindications: pharm.contraindications || [],
+        createdBy: req.user._id,
+      };
+    });
+
+    const names = normalizedBatch.map(p => p.name.toLowerCase());
     const duplicates = names.filter((name, idx) => names.indexOf(name) !== idx);
     if (duplicates.length > 0) {
       return res.status(400).json({
@@ -71,10 +119,9 @@ export const createPharmaceuticalsBatch = async (req, res) => {
       });
     }
 
-    // Check for existing drugs in this hospital
     const existingDrugs = await Pharmaceutical.find({
       hospitalId: hospitalIdForQuery,
-      name: { $in: pharmsWithHospitalId.map(p => p.name) }
+      name: { $in: normalizedBatch.map(p => p.name) }
     });
 
     if (existingDrugs.length > 0) {
@@ -84,16 +131,64 @@ export const createPharmaceuticalsBatch = async (req, res) => {
       });
     }
 
-    // Create pharmaceuticals
-    const createdPharms = await Pharmaceutical.insertMany(pharmsWithHospitalId);
+    const medicationDocs = [];
+    for (const item of normalizedBatch) {
+      let medication = await Medication.findOne({ name: item.name });
+      if (!medication) {
+        medication = new Medication({
+          name: item.name,
+          strength: item.strength,
+          dosageForm: item.form.toLowerCase(),
+          route: item.route.toLowerCase(),
+          genericName: item.genericName,
+          therapeuticClass: item.classification || 'General',
+          manufacturer: item.manufacturer || 'Unknown',
+          rxRequired: item.requiresPrescription,
+          warning: item.warnings || [],
+          contraindications: item.contraindications || [],
+          sideEffects: [],
+          dosageInstructions: 'See label',
+          maxDailyDose: null
+        });
+        await medication.save();
+      }
+      medicationDocs.push(medication);
+    }
 
-    console.log(`[PHARMACY BATCH] Successfully created ${createdPharms.length} pharmaceutical records`);
+    const inventoryDocs = normalizedBatch.map((item, index) => ({
+      hospitalId,
+      medicationId: medicationDocs[index]._id,
+      facilityId: 'MAIN_PHARMACY',
+      quantity: item.stock,
+      unitPrice: item.unitPrice,
+      totalValue: item.totalValue,
+      minStockLevel: item.minStockLevel,
+      maxStockLevel: item.minStockLevel * 3,
+      reorderPoint: item.minStockLevel,
+      reorderQuantity: Math.max(item.minStockLevel, 10),
+      batchNumber: [{
+        batchId: `BATCH-${Date.now()}-${index + 1}`,
+        quantity: item.stock,
+        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        dateReceived: new Date(),
+        manufacturer: medicationDocs[index].manufacturer || 'Unknown'
+      }],
+      lastRestockDate: new Date(),
+      expiringMedicines: 0,
+      status: item.stock === 0 ? 'out-of-stock' : item.stock < item.minStockLevel ? 'low-stock' : 'in-stock'
+    }));
+
+    const createdLegacyPharms = await Pharmaceutical.insertMany(normalizedBatch);
+    const createdInventory = await PharmacyInventory.insertMany(inventoryDocs);
+
+    console.log(`[PHARMACY BATCH] Successfully created ${createdLegacyPharms.length} pharmaceutical records and ${createdInventory.length} hospital inventory records`);
 
     res.status(201).json({
       success: true,
-      message: `${createdPharms.length} pharmaceutical records created successfully`,
-      count: createdPharms.length,
-      pharmaceuticals: createdPharms
+      message: `${createdLegacyPharms.length} pharmaceutical records created successfully`,
+      count: createdLegacyPharms.length,
+      pharmaceuticals: createdLegacyPharms,
+      inventory: createdInventory
     });
   } catch (err) {
     console.error('[PHARMACY BATCH ERROR]:', err);
@@ -333,11 +428,12 @@ export const getPendingMedicationRequests = async (req, res) => {
       .select('patient _id medication_requests status')
       .lean();
 
-    const requests = encounters.flatMap((encounter) => {
+    const encounterRequests = encounters.flatMap((encounter) => {
       const pendingRequests = (encounter.medication_requests || [])
         .filter((request) => (request.status || 'PENDING') === 'PENDING')
         .map((request) => ({
-          _id: request._id || `${encounter._id}:${request.medication_name}`,
+          _id: request.prescriptionId || request._id || `${encounter._id}:${request.medication_name}`,
+          requestId: request._id || `${encounter._id}:${request.medication_name}`,
           encounterId: encounter._id,
           patientName: encounter.patient?.name || 'Patient',
           patientId: encounter.patient?.id_number || encounter._id,
@@ -348,16 +444,161 @@ export const getPendingMedicationRequests = async (req, res) => {
           indication: request.indication,
           requestedBy: request.requested_by,
           requestedAt: request.requested_at,
-          status: request.status || 'PENDING'
+          status: request.status || 'PENDING',
+          prescriptionId: request.prescriptionId || null
         }));
 
       return pendingRequests;
     });
 
+    const prescriptions = await Prescription.find({
+      hospitalId,
+      status: { $in: ['ISSUED', 'SUBMITTED', 'IN_PROGRESS', 'pending', 'approved'] }
+    })
+      .sort({ date_issued: -1, createdAt: -1 })
+      .lean();
+
+    const prescriptionRequests = prescriptions
+      .map(buildPendingRequestFromPrescription)
+      .filter(Boolean);
+
+    // Also include public/staff-created medication requests saved as PharmacyMessage metadata
+    const publicMessages = await PharmacyMessage.find({ hospitalId, status: 'PENDING', 'metadata.type': 'REQUEST' }).sort({ createdAt: -1 }).lean();
+    const publicRequests = (publicMessages || []).map((m) => ({
+      _id: m._id,
+      encounterId: null,
+      patientName: m.metadata?.patientName || 'N/A',
+      patientId: m.metadata?.patientId || null,
+      medicationName: m.metadata?.medicationName || m.metadata?.medication_name || m.metadata?.name || 'Medication',
+      dosage: m.metadata?.dosage || m.metadata?.quantity || '',
+      frequency: m.metadata?.frequency || '',
+      route: m.metadata?.route || '',
+      indication: m.metadata?.indication || '',
+      requestedBy: m.fromName || 'Staff',
+      requestedAt: m.createdAt,
+      status: 'PENDING',
+    }));
+
+    const seen = new Set();
+    const requests = [...publicRequests, ...encounterRequests, ...prescriptionRequests]
+      .filter((request) => {
+        const key = `${request.encounterId || 'no-enc'}:${request.prescriptionId || request._id || request.medicationName}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
     res.status(200).json({ success: true, requests });
   } catch (err) {
     console.error('[PHARMACY REQUESTS ERROR]:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch pending medication requests', error: err.message });
+  }
+};
+
+// ============ CREATE MEDICATION REQUEST (from staff UI) ============
+export const createMedicationRequest = async (req, res) => {
+  try {
+    const hospitalId = req.hospitalId;
+    const user = req.user;
+    const { encounterId, medication_name, dosage, frequency, route, indication } = req.body;
+
+    if (!hospitalId) {
+      return res.status(400).json({ success: false, message: 'Hospital ID not found' });
+    }
+    if (!encounterId || !medication_name) {
+      return res.status(400).json({ success: false, message: 'encounterId and medication_name are required' });
+    }
+
+    if (encounterId) {
+      const encounter = await Encounter.findOne({ _id: encounterId, hospitalId });
+      if (!encounter) {
+        return res.status(404).json({ success: false, message: 'Encounter not found' });
+      }
+
+      const newRequest = {
+        medication_name,
+        dosage: dosage || '',
+        frequency: frequency || '',
+        route: route || '',
+        indication: indication || '',
+        requested_by: user?.name || user?.email || 'Staff',
+        status: 'PENDING',
+        requested_at: new Date()
+      };
+
+      encounter.medication_requests = [...(encounter.medication_requests || []), newRequest];
+      await encounter.save();
+
+      // Return the created request (last item)
+      const created = encounter.medication_requests[encounter.medication_requests.length - 1];
+      return res.status(201).json({ success: true, request: created });
+    }
+
+    // If no encounterId provided, persist as a pharmacy message with metadata.type = 'REQUEST'
+    const { medicationId, medicationName, quantity } = req.body;
+    const msg = new PharmacyMessage({
+      hospitalId,
+      fromUserId: user._id,
+      fromName: user.name || user.email,
+      text: `Medication request: ${medicationName || medication_name || 'Medication'}`,
+      status: 'PENDING',
+      metadata: {
+        type: 'REQUEST',
+        medicationId: medicationId || null,
+        medicationName: medicationName || medication_name || null,
+        quantity: quantity || dosage || 1,
+        dosage: dosage || '',
+        frequency: frequency || '',
+        route: route || '',
+        indication: indication || ''
+      }
+    });
+
+    await msg.save();
+    return res.status(201).json({ success: true, request: msg });
+  } catch (err) {
+    console.error('[PHARMACY CREATE REQUEST ERROR]:', err);
+    res.status(500).json({ success: false, message: 'Failed to create medication request', error: err.message });
+  }
+};
+
+// ============ MESSAGES: CREATE & GET PENDING ============
+export const createPharmacyMessage = async (req, res) => {
+  try {
+    const hospitalId = req.hospitalId;
+    const user = req.user;
+    const { text, metadata } = req.body;
+
+    if (!hospitalId) return res.status(400).json({ success: false, message: 'Hospital ID not found' });
+    if (!text || !text.trim()) return res.status(400).json({ success: false, message: 'Message text is required' });
+
+    const msg = new PharmacyMessage({
+      hospitalId,
+      fromUserId: user._id,
+      fromName: user.name || user.email,
+      text: text.trim(),
+      metadata: metadata || {}
+    });
+
+    await msg.save();
+
+    res.status(201).json({ success: true, message: msg });
+  } catch (err) {
+    console.error('[PHARMACY MESSAGE CREATE ERROR]:', err);
+    res.status(500).json({ success: false, message: 'Failed to save message', error: err.message });
+  }
+};
+
+export const getPendingPharmacyMessages = async (req, res) => {
+  try {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) return res.status(400).json({ success: false, message: 'Hospital ID not found' });
+
+    const messages = await PharmacyMessage.find({ hospitalId, status: 'PENDING' }).sort({ createdAt: -1 }).limit(50).lean();
+    res.status(200).json(messages);
+  } catch (err) {
+    console.error('[PHARMACY MESSAGE GET ERROR]:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch messages', error: err.message });
   }
 };
 
@@ -376,19 +617,82 @@ export const updateMedicationRequestStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Encounter not found' });
     }
 
-    const request = encounter.medication_requests?.id(requestId);
+    let request = encounter.medication_requests?.id(requestId);
     if (!request) {
+      request = encounter.medication_requests?.find((entry) => String(entry.prescriptionId || entry._id) === String(requestId));
+    }
+
+    let prescription = null;
+    if (request?.prescriptionId) {
+      prescription = await Prescription.findOne({ _id: request.prescriptionId, hospitalId });
+    } else {
+      prescription = await Prescription.findOne({ _id: requestId, hospitalId, encounterId });
+    }
+
+    if (!request && !prescription) {
       return res.status(404).json({ success: false, message: 'Medication request not found' });
     }
 
-    request.status = status || 'APPROVED';
-    request.review_notes = review_notes || '';
-    request.reviewed_at = new Date();
-    request.pharmacy_reference = req.user?.name || req.user?.email || 'Pharmacy';
+    if (request) {
+      request.status = status || 'APPROVED';
+      request.review_notes = review_notes || '';
+      request.reviewed_at = new Date();
+      request.pharmacy_reference = req.user?.name || req.user?.email || 'Pharmacy';
+      if (!request.prescriptionId && prescription?._id) {
+        request.prescriptionId = String(prescription._id);
+      }
+    }
+
+    if (prescription) {
+      prescription.status = mapPrescriptionStatusForDecision(status);
+      prescription.submitted_to_pharmacy = true;
+      prescription.pharmacistReview = status === 'APPROVED';
+      prescription.pharmacistReviewNotes = review_notes || '';
+      await prescription.save();
+    }
 
     await encounter.save();
 
-    res.status(200).json({ success: true, request: request.toObject() });
+    const requestStatus = request?.status || prescription?.status || 'APPROVED';
+    if (requestStatus !== 'PENDING') {
+      const assignedPhysician = encounter.assigned_physician || encounter.triage?.assigned_physician || null;
+      const clinicianId = assignedPhysician?.id || assignedPhysician?._id || null;
+      if (clinicianId) {
+        const title = requestStatus === 'DECLINED'
+          ? 'Medication request declined by pharmacy'
+          : `Medication request ${requestStatus.toLowerCase()} by pharmacy`;
+
+        await Notification.create({
+          encounter_id: encounter._id,
+          hospital_id: hospitalId,
+          clinician_id: clinicianId,
+          clinician_name: assignedPhysician?.name || request.requested_by || 'Physician',
+          clinician_role: 'PHYSICIAN',
+          clinician_specialty: assignedPhysician?.specialty || 'General',
+          triage_nurse_id: req.user?._id,
+          triage_nurse_name: req.user?.name || 'Pharmacy',
+          report_type: 'MANUAL_TRIAGE_REPORT',
+          priority_code: requestStatus === 'DECLINED' ? 'RED' : 'YELLOW',
+          patient_mrn: encounter.patient?.id_number || '',
+          patient_name: `${encounter.patient?.name || encounter.patient?.firstName || 'Patient'}`.trim(),
+          chief_complaint: encounter.diagnosis || encounter.patient?.symptoms || '',
+          status: 'UNREAD',
+          title,
+          created_at: new Date()
+        });
+      } else {
+        console.warn('[PHARMACY REQUEST UPDATE] No assigned physician found for encounter', encounterId, 'notification skipped');
+      }
+    }
+
+    const responseRequest = request ? request.toObject() : {
+      _id: prescription?._id,
+      prescriptionId: prescription?._id ? String(prescription._id) : null,
+      encounterId,
+      status: requestStatus
+    };
+
+    res.status(200).json({ success: true, request: responseRequest });
   } catch (err) {
     console.error('[PHARMACY REQUEST UPDATE ERROR]:', err);
     res.status(500).json({ success: false, message: 'Failed to update medication request', error: err.message });

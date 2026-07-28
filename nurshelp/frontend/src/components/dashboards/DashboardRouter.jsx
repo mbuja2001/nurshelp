@@ -5,8 +5,8 @@ import ClinicalNurseDashboard from './ClinicalNurseDashboard';
 import PhysicianDashboard from './PhysicianDashboard';
 import OffDutyDashboard from './OffDutyDashboard';
 import PharmacistDashboard from './PharmacistDashboard';
-import Radiology from '../../Dashboard/Pages/Radiology';
-import Pathology from '../../Dashboard/Pages/Pathology';
+import RadiologyDashboard from './RadiologyDashboard';
+import PathologyDashboard from './PathologyDashboard';
 import { decodeJwt, normalizeRoleLabel } from '../../utils/jwt';
 import './DashboardRouter.css';
 
@@ -248,10 +248,10 @@ const DashboardRouter = () => {
       return <PharmacistDashboard />;
 
     case 'RADIOLOGY':
-      return <Radiology />;
+      return <RadiologyDashboard config={config} />;
 
     case 'PATHOLOGY':
-      return <Pathology />;
+      return <PathologyDashboard config={config} />;
 
     case 'NO_SHIFT':
       return <OffDutyDashboard config={config} />;

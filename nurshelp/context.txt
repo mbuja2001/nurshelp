@@ -1,0 +1,19 @@
+Hospital logistics specialist workflow context
+
+- The current dashboard entry point is now designed to route specialist users based on normalized role labels.
+- JWT role normalization should map:
+  - PHARMACIST -> pharmacist dashboard
+  - RADIOLOGIST -> radiology workflow
+  - PATHOLOGIST -> pathology workflow
+  - ADMINISTRATIVE/ADMIN/MANAGER -> admin/manager shell
+- The physician bed modal clinical actions are the anchor for downstream workflows:
+  - request labs
+  - request medications
+  - create specialist communication and notifications
+- The next implementation phase is to build specialist-focused UI and workflow features around those clinical actions:
+  - pharmacy queue, medication review, dispensing, admin history
+  - radiology queue, imaging request review, report submission
+  - pathology queue, specimen review, result entry
+  - cross-specialty messaging, notifications, status tracking
+- The frontend should use normalized role labels from the JWT and be resilient to blank/unsupported roles by rendering a visible fallback instead of a silent empty page.
+- The backend should emit normalized specialist role labels in JWTs so the frontend and backend stay consistent.

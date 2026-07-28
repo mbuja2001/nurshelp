@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiSearch, FiPlus, FiMinus, FiAlertCircle, FiRefreshCw, FiFilter, FiEye, FiSettings, FiTrendingUp } from 'react-icons/fi';
 import { FaPills } from 'react-icons/fa';
 import SidebarLayout from '../SidebarLayout';
@@ -6,6 +7,7 @@ import { decodeJwt } from '../../utils/jwt';
 
 const Pharmacy = () => {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+  const navigate = useNavigate();
   
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +24,7 @@ const Pharmacy = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [reviewingRequestId, setReviewingRequestId] = useState(null);
+  const [viewingRequestId, setViewingRequestId] = useState(null);
 
   // Dispense Modal State
   const [showDispenseModal, setShowDispenseModal] = useState(false);
@@ -79,6 +82,9 @@ const Pharmacy = () => {
     patientConditionAfter: '',
     sideEffectsObserved: ''
   });
+
+  // Responsive viewport tracking for two-column layout
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
 
   // CSV Upload State
   const [showCSVUploadModal, setShowCSVUploadModal] = useState(false);
@@ -208,6 +214,13 @@ const Pharmacy = () => {
     
     fetchInventory();
     fetchPendingMedicationRequests();
+    // initialize resize listener for responsive layout
+    const handleResize = () => setWindowWidth(window.innerWidth || 1200);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const fetchInventory = async () => {
@@ -271,6 +284,11 @@ const Pharmacy = () => {
     setLoading(false);
   };
 
+  // Derived priority list (oldest requests first -> longest waiting)
+  const priorityRequests = Array.isArray(pendingRequests)
+    ? [...pendingRequests].sort((a, b) => new Date(a.requestedAt) - new Date(b.requestedAt))
+    : [];
+
   const fetchPendingMedicationRequests = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -287,9 +305,11 @@ const Pharmacy = () => {
     }
   };
 
-  const handleMedicationRequestReview = async (encounterId, requestId, status, reviewNotes = '') => {
+  const handleMedicationRequestReview = async (request, status, reviewNotes = '') => {
     try {
       const token = localStorage.getItem('token');
+      const encounterId = request?.encounterId;
+      const requestId = request?.requestId || request?._id;
       setReviewingRequestId(requestId);
       const response = await fetch(`${BACKEND_URL}/api/pharmacy/requests/${encounterId}/${requestId}`, {
         method: 'PATCH',
@@ -307,11 +327,57 @@ const Pharmacy = () => {
       setSuccessMessage(`Medication request ${status.toLowerCase()} successfully`);
       setTimeout(() => setSuccessMessage(''), 3000);
       await fetchPendingMedicationRequests();
+
+      if (status === 'APPROVED') {
+        await handleViewPrescriptionReport(request);
+      }
     } catch (err) {
       setError(err.message);
       setTimeout(() => setError(''), 3000);
     } finally {
       setReviewingRequestId(null);
+    }
+  };
+
+  const handleViewPrescriptionReport = async (request) => {
+    if (!request) return;
+    const token = localStorage.getItem('token');
+
+    setViewingRequestId(request._id || request.id);
+
+    try {
+      if (request.prescriptionId) {
+        navigate(`/prescription/${request.prescriptionId}`);
+        return;
+      }
+
+      if (!request.encounterId) {
+        throw new Error('Prescription report not available for this request.');
+      }
+
+      const response = await fetch(`${BACKEND_URL}/api/prescriptions/encounter/${request.encounterId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'Unable to load prescriptions for this encounter');
+      }
+
+      const data = await response.json();
+      const prescriptions = Array.isArray(data.prescriptions) ? data.prescriptions : [];
+      if (!prescriptions.length) {
+        throw new Error('No prescription record found for this request.');
+      }
+
+      navigate(`/prescription/${prescriptions[0]._id}`);
+    } catch (err) {
+      console.error('[VIEW PRESCRIPTION] ', err);
+      alert(err.message || 'Failed to open prescription report');
+    } finally {
+      setViewingRequestId(null);
     }
   };
 
@@ -859,40 +925,130 @@ const Pharmacy = () => {
           </div>
         )}
 
-        <div style={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #fde68a', padding: '18px 20px', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#92400e' }}>Pharmacy review queue</h2>
-              <p style={{ margin: '4px 0 0 0', color: '#a16207', fontSize: '13px' }}>Approve or decline medication requests sent from the diagnosis workflow.</p>
-            </div>
-            <span style={{ padding: '6px 10px', borderRadius: '999px', backgroundColor: '#fef3c7', color: '#92400e', fontSize: '12px', fontWeight: '700' }}>{pendingRequests.length} pending</span>
-          </div>
-          {pendingRequests.length === 0 ? (
-            <div style={{ color: '#92400e', fontSize: '14px' }}>No medication requests awaiting review.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {pendingRequests.map((request) => (
-                <div key={request._id} style={{ border: '1px solid #fde68a', borderRadius: '10px', padding: '12px 14px', backgroundColor: '#fffbeb' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'start' }}>
-                    <div>
-                      <div style={{ fontWeight: '700', color: '#92400e' }}>{request.medicationName}</div>
-                      <div style={{ fontSize: '13px', color: '#78350f', marginTop: '4px' }}>{request.patientName} • {request.dosage || '—'} • {request.frequency || '—'} • {request.route || 'Oral'}</div>
-                      {request.indication ? <div style={{ fontSize: '13px', color: '#b45309', marginTop: '4px' }}>Indication: {request.indication}</div> : null}
-                      <div style={{ fontSize: '12px', color: '#92400e', marginTop: '4px' }}>Requested by {request.requestedBy || 'physician'} • {new Date(request.requestedAt).toLocaleString()}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      <button onClick={() => handleMedicationRequestReview(request.encounterId, request._id, 'APPROVED')} disabled={reviewingRequestId === request._id} style={{ padding: '8px 12px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', cursor: 'pointer' }}>
-                        {reviewingRequestId === request._id ? 'Working…' : 'Approve'}
-                      </button>
-                      <button onClick={() => handleMedicationRequestReview(request.encounterId, request._id, 'DECLINED', 'Declined from pharmacy review queue')} disabled={reviewingRequestId === request._id} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #fdba74', backgroundColor: '#fff7ed', color: '#c2410c', cursor: 'pointer' }}>
-                        {reviewingRequestId === request._id ? 'Working…' : 'Decline'}
-                      </button>
-                    </div>
+        <div style={{ display: 'grid', gridTemplateColumns: windowWidth >= 1400 ? 'minmax(0, 1fr) 360px' : '1fr', gap: '20px' }}>
+          {/* LEFT: Request Queue (all pending requests, large column) */}
+          <div>
+            <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+              <div style={{ padding: '18px', background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfeff 100%)', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ display: 'inline-flex', width: 36, height: 36, borderRadius: 8, background: '#ecfdf5', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                      <FaPills />
+                    </span>
+                    Medication Request Queue
+                  </h3>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', background: '#ecfdf5', padding: '6px 10px', borderRadius: 999 }}>
+                    {pendingRequests.length} pending
                   </div>
                 </div>
-              ))}
+                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>All medication requests awaiting pharmacy review. Sorted by request time.</p>
+              </div>
+
+              <div style={{ maxHeight: '68vh', overflowY: 'auto', padding: '12px 0' }}>
+                {pendingRequests.length === 0 && (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>✓ No medication requests awaiting review</div>
+                )}
+
+                {pendingRequests.map((request, idx) => {
+                  const priorityLabel = request.priority || request.urgency || 'MEDIUM';
+                  const priorityColors = {
+                    URGENT: { bg: '#fee2e2', color: '#991b1b' },
+                    HIGH: { bg: '#ffedd5', color: '#9a3412' },
+                    MEDIUM: { bg: '#fef3c7', color: '#92400e' },
+                    LOW: { bg: '#dcfce7', color: '#166534' }
+                  };
+                  const pc = priorityColors[priorityLabel] || priorityColors.MEDIUM;
+                  const idSuffix = (request._id || request.id || '').toString().slice(-2);
+                  const requestedAt = new Date(request.requestedAt || request.createdAt || Date.now());
+
+                  return (
+                    <div key={request._id || idx} style={{ padding: '12px', borderBottom: idx === pendingRequests.length - 1 ? 'none' : '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#f9fafb', transition: 'background 120ms ease' }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 8, background: pc.bg, color: pc.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0, border: `2px solid ${pc.color}` }}>
+                          {idSuffix || '·'}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{request.medicationName}</div>
+                          <div style={{ fontSize: 12, color: '#475569', display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600, color: '#334155' }}>{request.patientName || 'Unknown'}</span>
+                            <span style={{ color: '#94a3b8' }}>•</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{requestedAt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button onClick={() => handleViewPrescriptionReport(request)} disabled={viewingRequestId === request._id} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                            View
+                          </button>
+                          <button onClick={() => handleMedicationRequestReview(request, 'APPROVED')} disabled={reviewingRequestId === (request.requestId || request._id)} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#10b981', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                            Approve
+                          </button>
+                          <button onClick={() => handleMedicationRequestReview(request, 'DECLINED', 'Declined from pharmacy review queue')} disabled={reviewingRequestId === (request.requestId || request._id)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#c2410c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          </div>
+
+          {/* RIGHT: Priority Queue (styled to match physician, pill icon header) */}
+          <div>
+            <div style={{ position: 'sticky', top: 24 }}>
+              <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                <div style={{ padding: '14px', background: 'linear-gradient(135deg,#fff7ed 0%,#fffbeb 100%)', borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ display: 'inline-flex', width: 36, height: 36, borderRadius: 8, background: '#fff7ed', alignItems: 'center', justifyContent: 'center', color: '#92400e' }}>
+                        <FaPills />
+                      </span>
+                      Priority Requests
+                    </h3>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', background: '#fff7ed', padding: '6px 10px', borderRadius: 999 }}>{priorityRequests.length} total</div>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 12, color: '#92400e' }}>Top {Math.min(20, priorityRequests.length)} oldest pending requests</p>
+                </div>
+
+                <div style={{ maxHeight: '64vh', overflowY: 'auto', padding: '12px' }}>
+                  {priorityRequests.length === 0 && (
+                    <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>✓ No priority requests</div>
+                  )}
+
+                  {priorityRequests.slice(0, 20).map((r, idx) => {
+                    const pl = r.priority || 'MEDIUM';
+                    const colors = {
+                      URGENT: { bg: '#fee2e2', color: '#991b1b' },
+                      HIGH: { bg: '#ffedd5', color: '#9a3412' },
+                      MEDIUM: { bg: '#fef3c7', color: '#92400e' },
+                      LOW: { bg: '#dcfce7', color: '#166534' }
+                    };
+                    const cc = colors[pl] || colors.MEDIUM;
+                    const idSuffix = (r._id || r.id || '').toString().slice(-2);
+
+                    return (
+                      <div key={r._id || idx} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #fdeccb' }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 8, background: cc.bg, color: cc.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0, border: `2px solid ${cc.color}` }}>{idSuffix || '·'}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, color: '#92400e' }}>{r.medicationName}</div>
+                          <div style={{ fontSize: 12, color: '#7c2d12' }}>{r.patientName} • {new Date(r.requestedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</div>
+                        </div>
+                        <button onClick={() => handleViewPrescriptionReport(r)} disabled={viewingRequestId === r._id} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', cursor: 'pointer' }}>
+                          View
+                        </button>
+                        <button onClick={() => handleMedicationRequestReview(r, 'APPROVED')} disabled={reviewingRequestId === (r.requestId || r._id)} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', backgroundColor: '#10b981', color: 'white', cursor: 'pointer' }}>
+                          Approve
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* TOOLBAR - ORGANIZED SECTIONS */}

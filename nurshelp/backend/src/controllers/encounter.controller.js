@@ -884,13 +884,20 @@ export const getEncountersForNurse = async (req, res) => {
     let query = { nurse_id: nurseId };
     
     if (handover_status) {
-      // Query for encounters where ANY clinician has the specified handover_status
-      // This is used by triage nurses to see all acknowledged/seen patients
-      query = { "clinical_handovers.handover_status": handover_status };
-      console.log('[GET_ENCOUNTERS] Filtering by handover_status:', handover_status);
+      // Query for encounters for this nurse where any clinician handover is in the requested state(s)
+      const statuses = String(handover_status)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      query = {
+        nurse_id: nurseId,
+        "clinical_handovers.handover_status": statuses.length > 1 ? { $in: statuses } : statuses[0]
+      };
+      console.log('[GET_ENCOUNTERS] Filtering by nurse_id and handover_status:', statuses);
     } else if (status) {
       query.status = status;
-      console.log('[GET_ENCOUNTERS] Filtering by status:', status);
+      console.log('[GET_ENCOUNTERS] Filtering by nurse_id and status:', status);
     } else {
       console.log('[GET_ENCOUNTERS] No status filter');
     }

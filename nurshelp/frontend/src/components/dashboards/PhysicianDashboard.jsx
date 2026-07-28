@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaCalendarAlt, FaFlask, FaCapsules, FaProcedures, FaClock, FaBell, FaSearch, FaTimes, FaHistory } from 'react-icons/fa';
+import { FaCalendarAlt, FaFlask, FaCapsules, FaProcedures, FaClock, FaSearch, FaTimes, FaHistory } from 'react-icons/fa';
 import { decodeJwt, getRoleDisplayDepartment } from '../../utils/jwt';
+import { notificationService } from '../../services/notificationService';
 import './PhysicianDashboard.css';
 import '../../Dashboard/DashboardTheme.css';
 
@@ -92,7 +93,10 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
   const [showMedicationModal, setShowMedicationModal] = useState(false);
   const [showPatientSearchModal, setShowPatientSearchModal] = useState(false);
   const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const [notifications, setNotifications] = useState([]);
+  const [orderedMedsCount, setOrderedMedsCount] = useState(0);
   const [showQueueOpen, setShowQueueOpen] = useState(true);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400);
   const [showHistoryActionsModal, setShowHistoryActionsModal] = useState(false);
   const [pharmacyInventory, setPharmacyInventory] = useState([]);
   const [medicationForm, setMedicationForm] = useState({
@@ -133,8 +137,23 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
   const navigate = useNavigate();
 
   // Get specialty and role from JWT
-  const [userInfo, setUserInfo] = useState({ specialty: 'General', role: 'PHYSICIAN', name: '' });
+  const [userInfo, setUserInfo] = useState({ specialty: 'General', role: 'PHYSICIAN', name: '', email: '' });
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // ============ MEDICATION ORDER MODAL STATE ============
+  const [showMedicationOrderModal, setShowMedicationOrderModal] = useState(false);
+  const [submittingMedicationOrder, setSubmittingMedicationOrder] = useState(false);
+  const [medicationOrderForm, setMedicationOrderForm] = useState({
+    medicationId: '',
+    medication_name: '',
+    dosage: '',
+    frequency: '',
+    route: 'Oral',
+    schedule: 'Schedule 3',
+    indication: '',
+    priority: 'MEDIUM',
+    prescriptionNotes: ''
+  });
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -142,7 +161,8 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     setUserInfo({
       specialty: decoded?.specialty || 'General',
       role: decoded?.role || 'PHYSICIAN',
-      name: decoded?.name || ''
+      name: decoded?.name || '',
+      email: decoded?.email || ''
     });
   }, []);
 
@@ -202,6 +222,16 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     };
 
     fetchPhysicianSpecialty();
+  }, []);
+
+  // ============ RESPONSIVE WINDOW LISTENER ============
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // ============ FETCH WARDS AND BEDS ============
@@ -676,10 +706,6 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     }
   }, [context]);
 
-  const handleToggleQueue = () => {
-    setShowQueueOpen((prev) => !prev);
-  };
-
   const handleHistoryActions = () => {
     setShowHistoryActionsModal((prev) => !prev);
   };
@@ -738,9 +764,6 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
 
   const isEncounterHospitalized = (patientLike) => Boolean(
     patientLike?.isHospitalized ||
-    patientLike?.currentBedId ||
-    patientLike?.assigned_bed ||
-    patientLike?.triage?.assigned_bed?.id ||
     patientLike?.status === 'HOSPITALIZED' ||
     patientLike?.disposition === 'HOSPITALIZED'
   );
@@ -911,6 +934,124 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     setShowLabRequestModal(true);
   };
 
+  const handleOrderMedication = async () => {
+    if (!bedModalData?._id) {
+      alert('Unable to order medication: missing patient data');
+      return;
+    }
+
+    console.log('[PHYSICIAN ORDER MEDICATION] Opening medication order modal');
+    await fetchPharmacyInventory();
+    setMedicationOrderForm({
+      medicationId: '',
+      medication_name: '',
+      dosage: '',
+      frequency: '',
+      route: 'Oral',
+      schedule: 'Schedule 3',
+      indication: '',
+      priority: 'MEDIUM',
+      prescriptionNotes: ''
+    });
+    setShowMedicationOrderModal(true);
+  };
+
+  const handleSubmitMedicationOrder = async () => {
+    if (!bedModalData?._id) {
+      alert('Unable to order medication: missing patient encounter');
+      return;
+    }
+
+    const decoded = decodeJwt(localStorage.getItem('token'));
+    const physicianId = decoded?.id;
+    const patientId = bedModalData?.patient?.id_number || bedModalData?.patient?.id || bedModalData?.patient?._id || bedModalData?._id;
+    const selectedMedication = pharmacyInventory.find((item) => item.id === medicationOrderForm.medicationId || item.name === medicationOrderForm.medication_name);
+    const medicationName = selectedMedication?.name || medicationOrderForm.medication_name;
+
+    if (!medicationName || !physicianId || !patientId) {
+      alert('Please select a medication and confirm the patient/physician context is available');
+      return;
+    }
+
+    setSubmittingMedicationOrder(true);
+    try {
+      const token = localStorage.getItem('token');
+      const prescriptionResponse = await fetch(`${BACKEND_URL}/api/prescriptions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          encounterId: bedModalData._id,
+          patientId,
+          physicianId,
+          medicationId: selectedMedication?.id || medicationOrderForm.medicationId || null,
+          medicationName,
+          prescriber: {
+            name: userInfo.name,
+            email: userInfo.email,
+            role: userInfo.role,
+            specialty: userInfo.specialty
+          },
+          patient_details: {
+            name: bedModalData?.patientName || bedModalData?.patient?.name || 'Patient',
+            id_number: bedModalData?.patient?.id_number || patientId,
+            age: bedModalData?.age || bedModalData?.patient?.age || null,
+            address: bedModalData?.patient?.address || 'N/A',
+            medical_aid: bedModalData?.patient?.medical_aid || 'N/A',
+            medical_aid_number: bedModalData?.patient?.medical_aid_number || 'N/A'
+          },
+          items: [
+            {
+              medicationId: selectedMedication?.id || medicationOrderForm.medicationId || null,
+              medication_name: medicationName,
+              dosage: medicationOrderForm.dosage,
+              frequency: medicationOrderForm.frequency,
+              route: medicationOrderForm.route,
+              schedule: medicationOrderForm.schedule,
+              indication: medicationOrderForm.indication,
+              quantity: 1,
+              unit: 'Tablets'
+            }
+          ],
+          substitution_permitted: true,
+          special_instructions: medicationOrderForm.prescriptionNotes || medicationOrderForm.indication || ''
+        })
+      });
+
+      if (!prescriptionResponse.ok) {
+        const errData = await prescriptionResponse.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Failed to create prescription');
+      }
+
+      const prescriptionData = await prescriptionResponse.json();
+      const prescriptionId = prescriptionData.prescription?._id || prescriptionData._id;
+      const prescriptionNumber = prescriptionData.prescription_number;
+
+      alert(`✓ Prescription ${prescriptionNumber} created successfully`);
+      setShowMedicationOrderModal(false);
+      setSelectedBedModal(null);
+      setMedicationOrderForm({
+        medicationId: '',
+        medication_name: '',
+        dosage: '',
+        frequency: '',
+        route: 'Oral',
+        schedule: 'Schedule 3',
+        indication: '',
+        priority: 'MEDIUM',
+        prescriptionNotes: ''
+      });
+
+      navigate(`/prescription/${prescriptionId}`);
+    } catch (err) {
+      alert('Failed to create prescription: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSubmittingMedicationOrder(false);
+    }
+  };
+
   const handleSubmitLabRequest = async () => {
     if (!labRequestForm.lab_type || !labRequestForm.description || !bedModalData?._id) {
       alert('Please select lab type and enter indication');
@@ -1076,6 +1217,10 @@ Update medications, procedures, or notes there.`);
     navigate(`/surgery/${encounterId}`, { state: { encounter: bedModalData } });
   };
 
+  const goToDashboardToolsSection = (section) => {
+    navigate(`/dashboard-tools#${section}`);
+  };
+
   // ============ CARE FOR PATIENT (CLINICAL NURSE) ============
   const handleCareFor = async (encounterId, patientName) => {
     try {
@@ -1131,6 +1276,38 @@ Update medications, procedures, or notes there.`);
     return () => clearInterval(interval);
   }, [fetchAssignedPatients, fetchWardsAndBeds]);
 
+  const loadOrderedMedsCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const res = await fetch(`${BACKEND_URL}/api/prescriptions/ordered-meds?countOnly=true`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        cache: 'no-store'
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && typeof data.count === 'number') {
+        setOrderedMedsCount(data.count);
+      } else {
+        console.warn('[PHYSICIAN DASHBOARD] Failed to load ordered meds count', data);
+        setOrderedMedsCount(0);
+      }
+    } catch (err) {
+      console.error('[PHYSICIAN DASHBOARD] Error loading ordered meds count:', err);
+      setOrderedMedsCount(0);
+    }
+  };
+
+  useEffect(() => {
+    loadOrderedMedsCount();
+    const interval = setInterval(loadOrderedMedsCount, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ============ HELPER FUNCTIONS ============
   const getSeverityConfig = (severity) => {
     const normalizedSeverity = normalizeSeverityValue(severity);
@@ -1156,6 +1333,24 @@ Update medications, procedures, or notes there.`);
     };
     return statusMap[status] || statusMap['NOTIFIED'];
   };
+
+  const pendingWithMeta = assignedPatients
+    .filter(p => p.handover?.handover_status !== 'ACKNOWLEDGED' && p.handover?.handover_status !== 'COMPLETED')
+    .map((patient) => {
+      const severity = patient.triage?.aiTriageReport?.esi_level || patient.severity || 4;
+      const waitMs = patient.createdAt ? Date.now() - new Date(patient.createdAt).getTime() : 0;
+      return {
+        patient,
+        waitMs,
+        sev: severity,
+        priority: { label: getSeverityConfig(severity).label },
+        attended: false
+      };
+    })
+    .sort((a, b) => {
+      if (a.sev !== b.sev) return a.sev - b.sev;
+      return a.waitMs - b.waitMs;
+    });
 
   const formatWaitTime = (createdAt, referenceTime = new Date()) => {
     if (!createdAt) return 'N/A';
@@ -1291,45 +1486,18 @@ Update medications, procedures, or notes there.`);
             flexWrap: 'wrap',
             justifyContent: 'flex-end'
           }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 12px',
-              borderRadius: '999px',
-              background: '#fee2e2',
-              color: '#b91c1c',
-              fontSize: '12px',
-              fontWeight: 800,
-              boxShadow: '0 1px 2px rgba(185, 28, 28, 0.12)'
-            }}>
-              <FaBell /> Alerts
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '18px',
-                height: '18px',
-                borderRadius: '999px',
-                background: '#dc2626',
-                color: '#ffffff',
-                fontSize: '10px',
-                marginLeft: '2px'
-              }}>
-                3
-              </span>
-            </div>
             {[
-              { icon: <FaCalendarAlt />, label: 'Calendar Events', action: fetchAssignedPatients },
+              { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => goToDashboardToolsSection('calendar-events') },
               { icon: <FaHistory />, label: 'History Actions', action: handleHistoryActions },
-              { icon: <FaFlask />, label: 'Lab Requests', action: fetchAssignedPatients },
-              { icon: <FaCapsules />, label: 'Ordered Meds', action: fetchAssignedPatients },
-              { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: fetchAssignedPatients }
+              { icon: <FaFlask />, label: 'Lab Requests', action: () => bedModalData?._id ? handleRequestLabs(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('lab-requests') },
+              { icon: <FaCapsules />, label: 'Ordered Meds', action: () => navigate('/ordered-meds'), badge: orderedMedsCount },
+              { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => bedModalData?._id ? handleAdministerSurgery(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('scheduled-surgeries') }
             ].map((item) => (
               <button
                 key={item.label}
                 onClick={item.action}
                 style={{
+                  position: 'relative',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
@@ -1345,29 +1513,27 @@ Update medications, procedures, or notes there.`);
                 }}
               >
                 <span style={{ fontSize: '13px' }}>{item.icon}</span>
-                <span>{item.label}</span>
+                    <span>{item.label}</span>
+                {item.badge > 0 && (
+                  <span style={{
+                    marginLeft: 6,
+                    minWidth: 20,
+                    height: 20,
+                    padding: '0 6px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 999,
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    fontSize: 11,
+                    fontWeight: 800
+                  }}>
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
               </button>
             ))}
-            <button
-              onClick={handleToggleQueue}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                background: showQueueOpen ? '#e0f2fe' : '#f8fafc',
-                color: showQueueOpen ? '#0c4a6e' : '#0f172a',
-                border: '1px solid #c7d2fe',
-                borderRadius: '999px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                fontWeight: 700,
-                boxShadow: '0 1px 2px rgba(15,23,42,0.06)'
-              }}
-            >
-              <span style={{ fontSize: '13px' }}>{showQueueOpen ? '📥' : '📤'}</span>
-              <span>{showQueueOpen ? 'Hide Priority Queue' : 'Show Priority Queue'}</span>
-            </button>
           </div>
 
         </div>
@@ -1417,154 +1583,153 @@ Update medications, procedures, or notes there.`);
         </div>
       </div>
 
-      {/* ===== BED GRID VIEW ===== */}
+      {/* ===== BED GRID VIEW & PRIORITY QUEUE (Side-by-side, Responsive) ===== */}
       <div style={{
-        padding: '24px',
-        background: 'white',
-        borderRadius: '12px',
-        border: '1px solid #e5e7eb',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        overflow: 'hidden'
+        display: 'grid',
+        gridTemplateColumns: windowWidth >= 1400 ? 'minmax(0, 1fr) 320px' : '1fr',
+        gap: '20px',
+        alignItems: 'start'
       }}>
-        <div className="bed-grid-header">
-          <div className="bed-grid-title">
-            <span>🛏️</span>
-            <div>
-              <div>Department Beds</div>
-              <div className="bed-grid-subtitle">Real-time ward occupancy and patient care status</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <div className="ward-filter">
-              <div className="ward-filter-label">Filter by Ward</div>
-              <select
-                value={selectedWard}
-                onChange={(e) => setSelectedWard(e.target.value)}
-                className="ward-filter-select"
-              >
-                <option value="ALL">All Wards</option>
-                {wards.map((ward) => (
-                  <option key={ward._id} value={ward.department}>
-                    {ward.wardName || ward.department} Ward
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              onClick={() => setShowPatientSearchModal(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '9px 12px',
-                borderRadius: '999px',
-                border: '1px solid #cbd5e1',
-                background: '#f8fafc',
-                color: '#0f172a',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 700
-              }}
-            >
-              <FaSearch size={13} />
-              Search Patients
-            </button>
-          </div>
-        </div>
-
-        {showPatientSearchModal && (
+        {/* LEFT: BED GRID */}
+        <div style={{
+          padding: '24px',
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          overflow: 'hidden'
+        }}>
+          {/* BED GRID HEADER - Reorganized & Responsive */}
           <div style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.72)',
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1200,
-            padding: '20px'
+            marginBottom: '24px',
+            paddingBottom: '16px',
+            borderBottom: '2px solid #e5e7eb',
+            gap: '16px',
+            flexWrap: windowWidth < 768 ? 'wrap' : 'nowrap'
           }}>
-            <div style={{
-              width: '100%',
-              maxWidth: '640px',
-              background: '#ffffff',
-              borderRadius: '16px',
-              boxShadow: '0 20px 50px rgba(15, 23, 42, 0.24)',
-              padding: '20px',
-              color: '#0f172a'
+            {/* LEFT: Title */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              minWidth: '200px',
+              order: 1
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <div>
-                  <div style={{ fontSize: '17px', fontWeight: 800 }}>Search patient bed records</div>
-                  <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Find the best bed match by patient name, age, diagnosis, or care notes.</div>
-                </div>
-                <button
-                  onClick={() => setShowPatientSearchModal(false)}
+              <span style={{ fontSize: '24px' }}>🛏️</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', margin: 0 }}>Department Beds</div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: '#64748b', 
+                  margin: '4px 0 0 0',
+                  display: windowWidth < 640 ? 'none' : 'block'
+                }}>Real-time ward occupancy and patient care status</div>
+              </div>
+            </div>
+
+            {/* RIGHT: Search and Filter Controls (responsive, stacking on mobile) */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: windowWidth < 640 ? '8px' : '10px',
+              justifyContent: windowWidth < 768 ? 'flex-start' : 'flex-end',
+              flexWrap: 'wrap',
+              order: windowWidth < 768 ? 3 : 2,
+              width: windowWidth < 768 ? '100%' : 'auto'
+            }}>
+              <button
+                onClick={() => setShowPatientSearchModal(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: windowWidth < 640 ? '8px 10px' : '10px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  fontSize: windowWidth < 640 ? '12px' : '13px',
+                  fontWeight: 600,
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  flex: windowWidth < 640 ? 1 : 'auto'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)';
+                  e.target.style.borderColor = '#94a3b8';
+                  e.target.style.boxShadow = '0 2px 4px rgba(15,23,42,0.08)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)';
+                  e.target.style.borderColor = '#cbd5e1';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <FaSearch size={windowWidth < 640 ? 12 : 13} style={{ flexShrink: 0 }} />
+                <span style={{ display: windowWidth < 640 ? 'none' : 'inline' }}>Search</span>
+              </button>
+
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 0',
+                flex: windowWidth < 640 ? 1 : 'auto'
+              }}>
+                <label style={{
+                  fontSize: windowWidth < 640 ? '11px' : '12px',
+                  color: '#64748b',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  display: windowWidth < 640 ? 'none' : 'block'
+                }}>
+                  Ward:
+                </label>
+                <select
+                  value={selectedWard}
+                  onChange={(e) => setSelectedWard(e.target.value)}
                   style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#64748b',
+                    padding: windowWidth < 640 ? '8px 10px' : '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)',
+                    color: '#0f172a',
                     cursor: 'pointer',
-                    fontSize: '16px'
+                    fontSize: windowWidth < 640 ? '12px' : '13px',
+                    fontWeight: 600,
+                    transition: 'all 0.2s ease',
+                    appearance: 'none',
+                    paddingRight: '28px',
+                    backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%230f172a%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3e%3cpolyline points=%276 9 12 15 18 9%27%3e%3c/polyline%3e%3c/svg%3e")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 8px center',
+                    backgroundSize: '16px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)';
+                    e.target.style.borderColor = '#94a3b8';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)';
+                    e.target.style.borderColor = '#cbd5e1';
                   }}
                 >
-                  <FaTimes />
-                </button>
-              </div>
-
-              <input
-                value={patientSearchQuery}
-                onChange={(e) => setPatientSearchQuery(e.target.value)}
-                placeholder="Search by patient name, diagnosis, age, or symptoms"
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  borderRadius: '10px',
-                  border: '1px solid #dbeafe',
-                  fontSize: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-              />
-
-              <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto' }}>
-                {getBedSearchResults().length === 0 ? (
-                  <div style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', color: '#64748b', fontSize: '13px' }}>
-                    No matches found for this search.
-                  </div>
-                ) : (
-                  getBedSearchResults().map((item) => {
-                    const displayName = item.patientName || 'Unassigned bed';
-                    const bedNumber = item.bed?.bedId || item.bed?._id || 'Unknown';
-                    const summary = item.diagnosis || item.summary || 'No clinical summary yet';
-                    return (
-                      <button
-                        key={`search-${bedNumber}`}
-                        onClick={() => {
-                          setShowPatientSearchModal(false);
-                          handleBedClick(item.bed);
-                        }}
-                        style={{
-                          textAlign: 'left',
-                          border: '1px solid #e2e8f0',
-                          background: '#f8fafc',
-                          borderRadius: '10px',
-                          padding: '12px 14px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
-                        <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>Bed {bedNumber}</div>
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{summary}</div>
-                      </button>
-                    );
-                  })
-                )}
+                  <option value="ALL">All Wards</option>
+                  {wards.map((ward) => (
+                    <option key={ward._id} value={ward.department}>
+                      {ward.wardName || ward.department}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
-        )}
+
+
 
         {showHistoryActionsModal && (
           <div style={{
@@ -1753,88 +1918,252 @@ Update medications, procedures, or notes there.`);
             })}
           </div>
         )}
-      </div>
-
-      {showQueueOpen && (
-        <div style={{
-          padding: '24px',
-          background: 'white',
-          borderRadius: '12px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          overflow: 'hidden'
-        }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '20px',
-          paddingBottom: '16px',
-          borderBottom: '2px solid #e5e7eb'
-        }}>
-          <h2 style={{
-            margin: 0,
-            fontSize: '18px',
-            fontWeight: 700,
-            color: '#1e293b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            📋 Patients waiting for attention
-          </h2>
-          <span style={{
-            fontSize: '12px',
-            fontWeight: 600,
-            color: '#475569',
-            background: '#f1f5f9',
-            padding: '6px 12px',
-            borderRadius: '20px'
-          }}>
-            {assignedPatients.filter(p => p.handover?.handover_status !== 'ACKNOWLEDGED').length} waiting
-          </span>
         </div>
 
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            Loading patients...
-          </div>
-        ) : error ? (
-          <div style={{ 
-            padding: '20px', 
-            background: '#fee2e2', 
-            color: '#991b1b', 
-            borderRadius: '8px',
-            fontSize: '14px'
+        {/* RIGHT: Priority Queue Panel (Nurse-style) */}
+        {showQueueOpen && (
+          <aside style={{
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'white',
+            borderRadius: '12px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            overflow: 'hidden',
+            height: 'fit-content',
+            maxHeight: '80vh'
           }}>
-            ⚠️ Error: {error}
-          </div>
-        ) : assignedPatients.length === 0 ? (
+            {/* Queue Header */}
+            <div style={{ 
+              padding: '20px',
+              background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h3 style={{ 
+                  margin: 0,
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  🎯 Priority Queue
+                </h3>
+                <div style={{ 
+                  fontSize: '12px', 
+                  fontWeight: 600,
+                  color: '#475569',
+                  background: '#f1f5f9',
+                  padding: '4px 10px',
+                  borderRadius: 4
+                }}>
+                  {pendingWithMeta.length} waiting
+                </div>
+              </div>
+              <p style={{ 
+                margin: 0,
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                Sorted by severity & wait time
+              </p>
+            </div>
+
+            {/* Queue List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
+              {pendingWithMeta.slice(0, 20).map(({ patient: p, waitMs, sev, priority }, idx) => {
+                const severityConfig = {
+                  1: { bg: '#fee2e2', color: '#991b1b', label: 'CRITICAL', icon: '🔴' },
+                  2: { bg: '#ffedd5', color: '#9a3412', label: 'HIGH', icon: '🟠' },
+                  3: { bg: '#fef3c7', color: '#92400e', label: 'MODERATE', icon: '🟡' },
+                  4: { bg: '#dcfce7', color: '#166534', label: 'LOW', icon: '🟢' },
+                  5: { bg: '#dcfce7', color: '#166534', label: 'LOW', icon: '🟢' }
+                };
+                const sevConfig = severityConfig[sev] || severityConfig[4];
+                const patientName = p.patientName || p.firstName || p.patient?.name || `#${String(p.id || p._id || '').slice(-6)}`;
+                const waitLabel = formatWaitTime(p.createdAt, currentTime);
+
+                return (
+                  <div 
+                    key={(p._id || p.id) + '-prio'} 
+                    style={{ 
+                      padding: '12px 12px',
+                      borderBottom: idx === pendingWithMeta.slice(0, 20).length - 1 ? 'none' : '1px solid #f1f5f9',
+                      transition: 'all 0.2s ease',
+                      background: idx % 2 === 0 ? '#ffffff' : '#f9fafb',
+                      cursor: 'pointer'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 ? '#ffffff' : '#f9fafb'}
+                  >
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      {/* Severity Badge */}
+                      <div style={{ 
+                        width: 44, 
+                        height: 44, 
+                        borderRadius: 8, 
+                        background: sevConfig.bg, 
+                        color: sevConfig.color, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        fontWeight: 700,
+                        fontSize: '14px',
+                        flexShrink: 0,
+                        border: `2px solid ${sevConfig.color}`
+                      }}>
+                        {(p.id || p._id || '').toString().slice(-2)}
+                      </div>
+
+                      {/* Patient Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ 
+                          fontWeight: 700, 
+                          color: '#1e293b',
+                          fontSize: '13px',
+                          marginBottom: 4,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {patientName}
+                        </div>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: '#64748b',
+                          display: 'flex',
+                          gap: '6px',
+                          alignItems: 'center'
+                        }}>
+                          <span style={{ fontWeight: 600, color: '#475569' }}>
+                            {priority.label}
+                          </span>
+                          <span style={{ color: '#94a3b8' }}>•</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                            {waitLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* View Button */}
+                      <button 
+                        onClick={() => handleViewTriageReport(p)}
+                        style={{ 
+                          padding: '6px 10px', 
+                          borderRadius: 5, 
+                          border: 'none', 
+                          cursor: 'pointer', 
+                          background: '#3b82f6', 
+                          color: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          transition: 'all 0.2s ease',
+                          flexShrink: 0,
+                          whiteSpace: 'nowrap'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#2563eb';
+                          e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = '#3b82f6';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      >
+                        📋 View
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {pendingWithMeta.length === 0 && (
+                <div style={{ 
+                  color: '#94a3b8', 
+                  padding: '20px 16px',
+                  textAlign: 'center',
+                  fontSize: '13px'
+                }}>
+                  ✓ No patients in queue
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
+
+      {/* ===== ASSIGNED PATIENTS TABLE (Full-width below) ===== */}
+      <div style={{
+        padding: '24px',
+        background: 'white',
+        borderRadius: '12px',
+        border: '1px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+        overflow: 'hidden'
+      }}>
           <div style={{
-            padding: '60px 20px',
-            textAlign: 'center'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '20px',
+            paddingBottom: '16px',
+            borderBottom: '2px solid #e5e7eb'
           }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>✨</div>
-            <p style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>
-              No Patients Assigned
-            </p>
-            <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
-              You'll see assigned patients here once they're handed over from triage
-            </p>
+            <h2 style={{
+              margin: 0,
+              fontSize: '18px',
+              fontWeight: 700,
+              color: '#1e293b',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              📋 Assigned Patients
+            </h2>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#475569',
+              background: '#f1f5f9',
+              padding: '6px 12px',
+              borderRadius: '20px'
+            }}>
+              {assignedPatients.length} total
+            </span>
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {assignedPatients
-              .filter(p => p.handover?.handover_status !== 'ACKNOWLEDGED' && p.handover?.handover_status !== 'COMPLETED')
-              .sort((a, b) => {
-                // Sort by severity first
-                const sevA = a.triage?.aiTriageReport?.esi_level || a.severity || 4;
-                const sevB = b.triage?.aiTriageReport?.esi_level || b.severity || 4;
-                if (sevA !== sevB) return sevA - sevB;
-                // Then by wait time
-                return new Date(a.createdAt) - new Date(b.createdAt);
-              })
-              .map(patient => {
+
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              Loading patients...
+            </div>
+          ) : error ? (
+            <div style={{ 
+              padding: '20px', 
+              background: '#fee2e2', 
+              color: '#991b1b', 
+              borderRadius: '8px',
+              fontSize: '14px'
+            }}>
+              ⚠️ Error: {error}
+            </div>
+          ) : assignedPatients.length === 0 ? (
+            <div style={{
+              padding: '60px 20px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '40px', marginBottom: '12px' }}>✨</div>
+              <p style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>
+                No Patients Assigned
+              </p>
+              <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+                You'll see assigned patients here once they're handed over from triage
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {assignedPatients.map(patient => {
                 const patientName = patient.patientName || patient.firstName || 'Unknown';
                 const severity = patient.triage?.aiTriageReport?.esi_level || patient.severity || 4;
                 const severityConfig = getSeverityConfig(severity);
@@ -1865,12 +2194,13 @@ Update medications, procedures, or notes there.`);
                       e.currentTarget.style.borderColor = '#e5e7eb';
                     }}
                   >
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: '12px',
-                        marginBottom: '8px'
+                        marginBottom: '8px',
+                        flexWrap: 'wrap'
                       }}>
                         <span style={{
                           display: 'inline-block',
@@ -1887,33 +2217,32 @@ Update medications, procedures, or notes there.`);
                         <span style={{
                           fontSize: '13px',
                           fontWeight: 700,
-                          color: '#1e293b'
+                          color: '#1e293b',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
                         }}>
                           {patientName}
-                        </span>
-                        <span style={{
-                          fontSize: '12px',
-                          color: '#64748b'
-                        }}>
-                          • {specialty}
                         </span>
                       </div>
                       <div style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '16px',
+                        gap: '12px',
                         fontSize: '12px',
-                        color: '#64748b'
+                        color: '#64748b',
+                        flexWrap: 'wrap'
                       }}>
-                        <span>ID: {patient._id?.substring(0, 8)}</span>
-                        <span>Wait: <strong>{waitTime}</strong></span>
+                        <span>{specialty}</span>
+                        <span>•</span>
+                        <span>Wait: {waitTime}</span>
                         <span style={{
-                          padding: '4px 10px',
+                          padding: '2px 8px',
                           background: `${statusConfig.color}20`,
                           color: statusConfig.color,
                           borderRadius: '4px',
                           fontWeight: 600,
-                          fontSize: '11px',
+                          fontSize: '10px',
                           whiteSpace: 'nowrap'
                         }}>
                           {statusConfig.label}
@@ -1921,148 +2250,231 @@ Update medications, procedures, or notes there.`);
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                      {/* ACKNOWLEDGE BUTTON */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginLeft: '12px' }}>
                       <button
                         onClick={() => handleAcknowledge(patient._id)}
                         disabled={acknowledging[patient._id]}
+                        title="Acknowledge patient"
+                        aria-label="Acknowledge patient"
                         style={{
-                          padding: '10px 16px',
+                          padding: '8px 12px',
                           background: '#10b981',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
                           cursor: acknowledging[patient._id] ? 'wait' : 'pointer',
                           fontWeight: 600,
-                          fontSize: '12px',
+                          fontSize: '11px',
                           transition: 'all 0.2s ease',
                           opacity: acknowledging[patient._id] ? 0.7 : 1,
                           whiteSpace: 'nowrap'
                         }}
                         onMouseEnter={(e) => {
-                          if (!acknowledging[patient._id]) {
-                            e.target.style.background = '#059669';
-                          }
+                          if (!acknowledging[patient._id]) e.target.style.background = '#059669';
                         }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = '#10b981';
-                        }}
+                        onMouseLeave={(e) => e.target.style.background = '#10b981'}
                       >
-                        {acknowledging[patient._id] ? '⏳...' : '✓ Acknowledge'}
+                        {acknowledging[patient._id] ? '⏳ Acknowledging' : '✓ Acknowledge'}
                       </button>
 
-                      {/* VIEW TRIAGE REPORT BUTTON */}
                       <button
                         onClick={() => handleViewTriageReport(patient)}
+                        title="View triage report"
+                        aria-label="View triage report"
                         style={{
-                          padding: '10px 16px',
+                          padding: '8px 12px',
                           background: '#8b5cf6',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
                           cursor: 'pointer',
                           fontWeight: 600,
-                          fontSize: '12px',
+                          fontSize: '11px',
                           transition: 'all 0.2s ease',
                           whiteSpace: 'nowrap'
                         }}
-                        onMouseEnter={(e) => {
-                          e.target.style.background = '#7c3aed';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = '#8b5cf6';
-                        }}
+                        onMouseEnter={(e) => e.target.style.background = '#7c3aed'}
+                        onMouseLeave={(e) => e.target.style.background = '#8b5cf6'}
                       >
                         📄 Triage Report
                       </button>
 
-                      {/* ADMIT BUTTON FOR WAITING PATIENTS */}
                       <button
                         onClick={() => handleHospitalize(patient, patientName)}
                         disabled={isEncounterHospitalized(patient) || hospitalizing[patient._id]}
+                        title={isEncounterHospitalized(patient) ? 'Already hospitalized' : 'Hospitalize patient'}
+                        aria-label={isEncounterHospitalized(patient) ? 'Already hospitalized' : 'Hospitalize patient'}
                         style={{
-                          padding: '10px 16px',
-                          background: isEncounterHospitalized(patient) ? '#64748b' : '#2563eb',
+                          padding: '8px 12px',
+                          background: isEncounterHospitalized(patient) ? '#94a3b8' : '#2563eb',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
                           cursor: isEncounterHospitalized(patient) || hospitalizing[patient._id] ? 'not-allowed' : 'pointer',
                           fontWeight: 600,
-                          fontSize: '12px',
+                          fontSize: '11px',
                           transition: 'all 0.2s ease',
                           opacity: isEncounterHospitalized(patient) || hospitalizing[patient._id] ? 0.7 : 1,
                           whiteSpace: 'nowrap'
                         }}
                       >
-                        {hospitalizing[patient._id] ? '⏳...' : isEncounterHospitalized(patient) ? '🏥 Already Admitted' : '🏥 Admit'}
+                        🏥 Hospitalize
                       </button>
 
-                      {/* CONDITIONAL: DIAGNOSE (PHYSICIAN) or CARE FOR (NURSE) */}
                       {userInfo.role === 'PHYSICIAN' ? (
                         <button
                           onClick={() => handleDiagnose(patient._id, patient)}
                           disabled={diagnosing[patient._id]}
+                          title="Open diagnosis workflow"
+                          aria-label="Open diagnosis workflow"
                           style={{
-                            padding: '10px 16px',
+                            padding: '8px 12px',
                             background: '#f59e0b',
                             color: 'white',
                             border: 'none',
                             borderRadius: '6px',
                             cursor: diagnosing[patient._id] ? 'wait' : 'pointer',
                             fontWeight: 600,
-                            fontSize: '12px',
+                            fontSize: '11px',
                             transition: 'all 0.2s ease',
                             opacity: diagnosing[patient._id] ? 0.7 : 1,
                             whiteSpace: 'nowrap'
                           }}
                           onMouseEnter={(e) => {
-                            if (!diagnosing[patient._id]) {
-                              e.target.style.background = '#d97706';
-                            }
+                            if (!diagnosing[patient._id]) e.target.style.background = '#d97706';
                           }}
-                          onMouseLeave={(e) => {
-                            e.target.style.background = '#f59e0b';
-                          }}
+                          onMouseLeave={(e) => e.target.style.background = '#f59e0b'}
                         >
-                          {diagnosing[patient._id] ? '⏳...' : '📋 Diagnose'}
+                          🩺 Diagnose
                         </button>
                       ) : (
                         <button
                           onClick={() => handleCareFor(patient._id, patientName)}
                           disabled={diagnosing[patient._id]}
+                          title="Record care for patient"
+                          aria-label="Record care for patient"
                           style={{
-                            padding: '10px 16px',
+                            padding: '8px 12px',
                             background: '#06b6d4',
                             color: 'white',
                             border: 'none',
                             borderRadius: '6px',
                             cursor: diagnosing[patient._id] ? 'wait' : 'pointer',
                             fontWeight: 600,
-                            fontSize: '12px',
+                            fontSize: '11px',
                             transition: 'all 0.2s ease',
                             opacity: diagnosing[patient._id] ? 0.7 : 1,
                             whiteSpace: 'nowrap'
                           }}
                           onMouseEnter={(e) => {
-                            if (!diagnosing[patient._id]) {
-                              e.target.style.background = '#0891b2';
-                            }
+                            if (!diagnosing[patient._id]) e.target.style.background = '#0891b2';
                           }}
-                          onMouseLeave={(e) => {
-                            e.target.style.background = '#06b6d4';
-                          }}
+                          onMouseLeave={(e) => e.target.style.background = '#06b6d4'}
                         >
-                          {diagnosing[patient._id] ? '⏳...' : '💊 Care For'}
+                          💊 Record Care
                         </button>
                       )}
                     </div>
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+      {/* Search Modal */}
+      {showPatientSearchModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.72)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1200,
+          padding: '20px'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '640px',
+            background: '#ffffff',
+            borderRadius: '16px',
+            boxShadow: '0 20px 50px rgba(15, 23, 42, 0.24)',
+            padding: '20px',
+            color: '#0f172a'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div>
+                <div style={{ fontSize: '17px', fontWeight: 800 }}>Search patient bed records</div>
+                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Find the best bed match by patient name, age, diagnosis, or care notes.</div>
+              </div>
+              <button
+                onClick={() => setShowPatientSearchModal(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <input
+              value={patientSearchQuery}
+              onChange={(e) => setPatientSearchQuery(e.target.value)}
+              placeholder="Search by patient name, diagnosis, age, or symptoms"
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                border: '1px solid #dbeafe',
+                fontSize: '14px',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+
+            <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto' }}>
+              {getBedSearchResults().length === 0 ? (
+                <div style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', color: '#64748b', fontSize: '13px' }}>
+                  No matches found for this search.
+                </div>
+              ) : (
+                getBedSearchResults().map((item) => {
+                  const displayName = item.patientName || 'Unassigned bed';
+                  const bedNumber = item.bed?.bedId || item.bed?._id || 'Unknown';
+                  const summary = item.diagnosis || item.summary || 'No clinical summary yet';
+                  return (
+                    <button
+                      key={`search-${bedNumber}`}
+                      onClick={() => {
+                        setShowPatientSearchModal(false);
+                        handleBedClick(item.bed);
+                      }}
+                      style={{
+                        textAlign: 'left',
+                        border: '1px solid #e2e8f0',
+                        background: '#f8fafc',
+                        borderRadius: '10px',
+                        padding: '12px 14px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
+                      <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>Bed {bedNumber}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{summary}</div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
       )}
+
       {selectedBedModal && (
         <div style={{
           position: 'fixed',
@@ -2519,6 +2931,7 @@ Update medications, procedures, or notes there.`);
                             { label: 'View Triage Review', icon: '📋', handler: () => handleViewTriageReport(bedModalData), disabled: !bedModalData },
                             { label: 'View Inpatient Report', icon: '📄', handler: () => handleViewInpatientReport(bedModalData), disabled: !bedModalData || !isEncounterHospitalized(bedModalData) },
                             { label: 'Open Diagnosis Workflow', icon: '🩺', handler: () => handleDiagnose(bedModalData?._id, bedModalData), disabled: !bedModalData },
+                            { label: 'Order Medication', icon: '💊', handler: () => handleOrderMedication(), disabled: !bedModalData },
                             { label: 'Request Labs', icon: '🧪', handler: () => handleRequestLabs(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData },
                             { label: 'Administer medication', icon: '💉', handler: () => handleOpenMedicationRequest(), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' },
                             { label: 'Administer Surgery', icon: '🏥', handler: () => handleAdministerSurgery(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' },
@@ -2527,8 +2940,11 @@ Update medications, procedures, or notes there.`);
                           ].map((item, idx) => (
                             <button
                               key={idx}
+                              type="button"
                               onClick={item.handler}
                               disabled={item.disabled}
+                              title={item.label}
+                              aria-label={item.label}
                               style={{
                                 width: '100%',
                                 display: 'flex',
@@ -3187,6 +3603,201 @@ Update medications, procedures, or notes there.`);
                   }}
                 >
                   {submittingLabRequest ? '⏳ Sending request...' : '✓ Submit Lab Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MEDICATION ORDER MODAL ===== */}
+      {showMedicationOrderModal && bedModalData && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(6, 15, 35, 0.88)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1150,
+          backdropFilter: 'blur(8px)',
+          padding: '20px',
+          overflowY: 'auto'
+        }}
+        onClick={() => setShowMedicationOrderModal(false)}>
+          <div style={{
+            background: 'linear-gradient(180deg, rgba(7, 18, 36, 0.98), rgba(4, 11, 25, 0.98))',
+            borderRadius: '24px',
+            border: '1px solid rgba(59, 130, 246, 0.2)',
+            padding: '48px',
+            maxWidth: '600px',
+            width: '100%',
+            boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
+            color: '#f8fafc'
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: 0, fontSize: '24px', color: '#f8fafc', fontWeight: 700, marginBottom: '24px' }}>💊 Order Medication</h2>
+            <div style={{ display: 'grid', gap: '20px', marginBottom: '24px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase' }}>
+                  Medication Name *
+                </label>
+                <select
+                  value={medicationOrderForm.medicationId}
+                  onChange={(e) => {
+                    const selected = pharmacyInventory.find(item => item.id === e.target.value);
+                    setMedicationOrderForm(prev => ({
+                      ...prev,
+                      medicationId: selected?.id || '',
+                      medication_name: selected?.name || prev.medication_name
+                    }));
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(15,23,42,0.88)',
+                    color: '#f8fafc',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">Select medication from hospital inventory</option>
+                  {pharmacyInventory.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {item.strength || item.dosageForm || 'form'} ({item.quantity} available)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase' }}>
+                  Dosage
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., 500mg, 1 tablet, 10ml"
+                  value={medicationOrderForm.dosage}
+                  onChange={(e) => setMedicationOrderForm(prev => ({ ...prev, dosage: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(15,23,42,0.88)',
+                    color: '#f8fafc',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase' }}>
+                    Frequency
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g., Every 6 hours, Once daily"
+                    value={medicationOrderForm.frequency}
+                    onChange={(e) => setMedicationOrderForm(prev => ({ ...prev, frequency: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(15,23,42,0.88)',
+                      color: '#f8fafc',
+                      fontSize: '14px'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase' }}>
+                    Schedule
+                  </label>
+                  <select
+                    value={medicationOrderForm.schedule}
+                    onChange={(e) => setMedicationOrderForm(prev => ({ ...prev, schedule: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(15,23,42,0.88)',
+                      color: '#f8fafc',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="Schedule 1">Schedule 1</option>
+                    <option value="Schedule 2">Schedule 2</option>
+                    <option value="Schedule 3">Schedule 3</option>
+                    <option value="Schedule 4">Schedule 4</option>
+                    <option value="Schedule 5">Schedule 5</option>
+                    <option value="OTC">OTC</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase' }}>
+                  Clinical Indication
+                </label>
+                <textarea
+                  placeholder="Describe the reason for this medication order and any relevant clinical notes."
+                  value={medicationOrderForm.indication}
+                  onChange={(e) => setMedicationOrderForm(prev => ({ ...prev, indication: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(15,23,42,0.88)',
+                    color: '#f8fafc',
+                    fontSize: '14px',
+                    minHeight: '100px',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMedicationOrderModal(false)}
+                  style={{
+                    padding: '14px 18px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(255,255,255,0.06)',
+                    color: '#cbd5e1',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitMedicationOrder}
+                  disabled={submittingMedicationOrder}
+                  style={{
+                    padding: '14px 18px',
+                    borderRadius: '12px',
+                    border: 'none',
+                    background: submittingMedicationOrder ? '#475569' : '#06b6d4',
+                    color: 'white',
+                    fontWeight: 700,
+                    cursor: submittingMedicationOrder ? 'wait' : 'pointer',
+                    fontSize: '14px',
+                    opacity: submittingMedicationOrder ? 0.8 : 1
+                  }}
+                >
+                  {submittingMedicationOrder ? '⏳ Sending order...' : '✓ Order Medication'}
                 </button>
               </div>
             </div>

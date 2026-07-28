@@ -1,0 +1,10 @@
+Fix shift assignment schema, staff field names, hospital display, and remove staff duplicates
+
+- Fixed frontend shift assignment UI: role dropdown now correctly maps to backend enum values
+- Converted frontend roles (CLINICAL_NURSE/TRIAGE_NURSE) to backend types (NURSE/PHYSICIAN)
+- Fixed staff field name references to use correct API schema (firstName/lastName/systemRole)
+- Added hospital name display to navbar in SidebarLayout on all pages
+- Removed duplicate Dr. Chen and Sarah Johnson records from St. Mary's Hospital
+- Fixed Dr. Chen's assignment type from NURSE to PHYSICIAN for correct dashboard routing
+- Created diagnostic and fix scripts for staff assignment issues
+- All staff now correctly seeded to St Mercy Hospital with proper roles

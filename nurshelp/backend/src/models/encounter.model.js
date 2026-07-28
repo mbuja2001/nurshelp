@@ -172,6 +172,7 @@ const encounterSchema = new mongoose.Schema({
       route: String,
       indication: String,
       requested_by: String,
+      prescriptionId: String,
       status: { type: String, enum: ['PENDING', 'APPROVED', 'DISPENSED', 'DECLINED'], default: 'PENDING' },
       requested_at: { type: Date, default: Date.now },
       reviewed_at: Date,

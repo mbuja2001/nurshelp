@@ -39,6 +39,7 @@ import shiftRouter from "./routes/shift.route.js";
 import seedRouter from "./routes/seed.route.js";
 import clinicalRouter from "./routes/clinical.routes.js";
 import labRouter from "./routes/lab.routes.js"; // Lab request workflow
+import prescriptionRouter from "./routes/prescription.route.js";
 
 // EHR System - New Routes
 import notificationRouter from "./routes/notification.routes.js";
@@ -273,6 +274,7 @@ app.use("/api/specialist", specialistRouter);  // Specialist queues and results
 app.use("/api/reports/nurse-confirmed", reportRouter);
 app.use("/api/beds", bedRouter);
 app.use("/api/pharmacy", pharmacyRouter);
+app.use("/api/prescriptions", prescriptionRouter);
 app.use("/api/lab-requests", labRouter);  // Lab request workflow (Radiology, Pathology)
 app.use("/api/shifts", shiftRouter);
 app.use("/api/seed", seedRouter);  // Seed data endpoint

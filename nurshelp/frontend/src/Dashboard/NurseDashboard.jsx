@@ -240,7 +240,7 @@ const NurseDashboard = ({
     try {
       setAcknowledgedLoading(true);
       console.log('[DASHBOARD_FETCH] Fetching acknowledged encounters...');
-      const res = await fetch(`${BACKEND_URL}/api/encounters?handover_status=ACKNOWLEDGED`, {
+      const res = await fetch(`${BACKEND_URL}/api/encounters?handover_status=ACKNOWLEDGED,IN_PROGRESS`, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
       
@@ -250,10 +250,10 @@ const NurseDashboard = ({
       });
       
       if (res.ok && data.success && Array.isArray(data.encounters)) {
-        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'acknowledged encounters');
+        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'active specialist encounters');
         setAcknowledgedEncounters(data.encounters);
       } else {
-        console.log('[DASHBOARD_FETCH] No acknowledged encounters');
+        console.log('[DASHBOARD_FETCH] No active specialist encounters');
         setAcknowledgedEncounters([]);
       }
     } catch (e) {

@@ -181,19 +181,27 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
     return `${m}m`;
   };
 
+  const token = localStorage.getItem('token');
+  const decoded = decodeJwt(token) || {};
+  const canAccessPharmacyAdmin = ['PHARMACIST', 'ADMIN', 'MANAGER'].includes((decoded.role || '').toUpperCase()) || (String(decoded.specialty || '').toUpperCase().includes('PHARM'));
+
+  const pharmacyPath = canAccessPharmacyAdmin ? '/pharmacy' : '/pharmacy-public';
+
   const navItems = [
     { id: 'nav-dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiHome size={16} /> },
+    { id: 'nav-dashboard-tools', label: 'Toolbar', path: '/dashboard-tools', icon: <FiBarChart2 size={16} /> },
     { id: 'nav-profile', label: 'Profile', path: '/profile', icon: <FiUser size={16} /> },
     { id: 'nav-ehr', label: 'EHR', path: '/ehr', icon: <FiFileText size={16} /> },
-    { id: 'nav-pharmacy', label: 'Pharmacy', path: '/pharmacy', icon: <FaPills size={16} /> },
+    { id: 'nav-pharmacy', label: 'Pharmacy', path: pharmacyPath, icon: <FaPills size={16} /> },
     { id: 'nav-radiology', label: 'Radiology', path: '/radiology', icon: <FaRadiation size={16} /> },
     { id: 'nav-pathology', label: 'Pathology', path: '/pathology', icon: <FaFlask size={16} /> },
     { id: 'nav-beds', label: 'Beds Allocation', path: '/beds', icon: <FaBed size={16} /> },
-    { id: 'nav-staff-sched', label: 'Staff Schedule', path: '/schedule/staff', icon: <FiUsers size={16} /> },
+    { id: 'nav-staff-sched', label: 'Staff Team', path: '/schedule/staff', icon: <FiUsers size={16} /> },
     { id: 'nav-reference', label: 'Reference Cases Library', path: '/reference-cases', icon: <MdLibraryBooks size={16} /> },
     { id: 'nav-analytics', label: 'Analytics', path: '/analytics', icon: <FiBarChart2 size={16} /> },
     { id: 'nav-settings', label: 'Settings', path: '/settings', icon: <FiSettings size={16} /> },
     { id: 'nav-licenses', label: 'Clinical Licenses', path: '/licenses', icon: <FiCreditCard size={16} /> },
+    { id: 'nav-staff-pharm', label: 'Message Pharmacist', path: '/staff-to-pharmacist', icon: <FiMessageCircle size={16} /> },
     { id: 'nav-help', label: 'Help', path: '/help', icon: <FiHelpCircle size={16} /> }
   ];
 
@@ -427,16 +435,16 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
             {/* Navigation Links */}
             <nav style={{ marginBottom: 20 }}>
               {navItems.map(item => (
-                <div
-                  key={item.id}
-                  className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
-                  onClick={() => navigate(item.path)}
-                >
-                  <div style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {item.icon}
+                  <div
+                    key={item.id}
+                    className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
+                    onClick={() => navigate(item.path)}
+                  >
+                    <div style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {item.icon}
+                    </div>
+                    <div style={{ fontSize: 'calc(14px + 0.107rem)' }}>{item.label}</div>
                   </div>
-                  <div style={{ fontSize: 'calc(14px + 0.107rem)' }}>{item.label}</div>
-                </div>
               ))}
             </nav>
 
@@ -459,8 +467,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   {(displayName || 'S').slice(0, 1)}
                 </div>
                 <div style={{ display: sidebarWidth > 100 ? 'block' : 'none' }}>
-                  <div style={{ fontWeight: 'bold', fontSize: 14 }}>{displayName}</div>
-                  <div style={{ fontSize: 12, color: '#666' }}>{userRole}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', letterSpacing: '0.2px' }}>{displayName}</div>
+                  <div style={{ fontSize: 12, color: '#666', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{userRole}</div>
                 </div>
               </div>
             </section>
@@ -619,9 +627,9 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   {(displayName || 'S').slice(0, 1).toUpperCase()}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 700, color: '#ffffff', fontSize: 13 }}>{displayName}</span>
-                  <span style={{ fontSize: 12, color: '#dbeafe' }}>{userRole}</span>
-                  <span style={{ fontSize: 11, color: '#86efac', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontWeight: 800, color: '#ffffff', fontSize: 14, letterSpacing: '0.2px', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{displayName}</span>
+                  <span style={{ fontSize: 12, color: '#dbeafe', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{userRole}</span>
+                  <span style={{ fontSize: 11, color: '#86efac', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                     <FiClock size={11} />
                     {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
@@ -707,6 +715,29 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   }}>
                     {alertCount}
                   </span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/dashboard-tools')}
+                  style={{
+                    position: 'relative',
+                    background: 'rgba(255,255,255,0.16)',
+                    border: '1px solid rgba(255,255,255,0.24)',
+                    color: '#ffffff',
+                    borderRadius: '999px',
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap'
+                  }}
+                  title="System performance"
+                >
+                  <FiBarChart2 size={16} />
+                  <span>System Performance</span>
                 </button>
               </div>
             </div>

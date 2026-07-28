@@ -1,0 +1,409 @@
+/* Patient Card - Reusable Patient Information Display */
+
+.patient-card {
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.patient-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #3B82F6;
+  transform: translateY(-2px);
+}
+
+.patient-card:active {
+  transform: translateY(0);
+}
+
+/* Layout Variants */
+.patient-card.compact {
+  max-width: 320px;
+}
+
+.patient-card.full {
+  max-width: 100%;
+}
+
+/* Header Section */
+.patient-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  background: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.patient-header-left {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+}
+
+.patient-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1E40AF 0%, #1e3a8a 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.patient-basic-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.patient-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1F2937;
+  line-height: 1.2;
+}
+
+.patient-demographics {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: #9CA3AF;
+  flex-wrap: wrap;
+}
+
+.patient-demographics span {
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+}
+
+/* Status Indicators */
+.patient-header-right {
+  display: flex;
+  gap: 10px;
+  margin-left: 12px;
+}
+
+/* ESI Badge */
+.esi-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border: 2px solid;
+  border-radius: 8px;
+  background: white;
+}
+
+.esi-number {
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.esi-label {
+  font-size: 10px;
+  color: #6B7280;
+  margin-top: 2px;
+  font-weight: 600;
+}
+
+/* Acuity Indicator */
+.acuity-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  color: white;
+}
+
+.acuity-score {
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.acuity-label {
+  font-size: 10px;
+  margin-top: 2px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* Card Sections */
+.patient-card-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.patient-card-section:last-of-type:not(.patient-card-footer) {
+  border-bottom: none;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9CA3AF;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+/* Chief Complaint */
+.chief-complaint {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.arrival-time {
+  font-size: 12px;
+  color: #9CA3AF;
+  margin-top: 4px;
+}
+
+/* Vitals Section */
+.vitals-section {
+  padding: 12px 16px;
+}
+
+.vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.vital-item {
+  padding: 10px;
+  background: #F9FAFB;
+  border-radius: 6px;
+  text-align: center;
+  border: 1px solid #E5E7EB;
+}
+
+.vital-label {
+  font-size: 11px;
+  color: #6B7280;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.vital-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #059669;
+}
+
+.vital-value .unit {
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 2px;
+  opacity: 0.8;
+}
+
+.vital-timestamp {
+  font-size: 11px;
+  color: #9CA3AF;
+  text-align: right;
+  margin-top: 6px;
+}
+
+/* Bed Section */
+.bed-section {
+  padding: 12px 16px;
+}
+
+.bed-info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.ward {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #DBEAFE;
+  color: #0C63E4;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bed {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #F0FDF4;
+  color: #059669;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bed-status {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Flags Section */
+.flags-section {
+  padding: 12px 16px;
+  background: #FFFBEB;
+}
+
+.flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #92400E;
+}
+
+.flag:last-child {
+  margin-bottom: 0;
+}
+
+.flag-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.flag-icon.alert {
+  color: #DC2626;
+}
+
+.flag-text {
+  line-height: 1.4;
+}
+
+/* Footer */
+.patient-card-footer {
+  padding: 8px 16px;
+  background: #F9FAFB;
+  border-top: 1px solid #E5E7EB;
+  text-align: right;
+}
+
+.click-hint {
+  font-size: 11px;
+  color: #9CA3AF;
+  font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .patient-card {
+    border-radius: 6px;
+  }
+
+  .patient-card-header {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .patient-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+
+  .patient-name {
+    font-size: 14px;
+  }
+
+  .esi-badge,
+  .acuity-indicator {
+    width: 44px;
+    height: 44px;
+  }
+
+  .esi-number,
+  .acuity-score {
+    font-size: 16px;
+  }
+
+  .vitals-grid {
+    grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
+    gap: 8px;
+  }
+
+  .vital-item {
+    padding: 8px;
+  }
+
+  .vital-label {
+    font-size: 10px;
+  }
+
+  .vital-value {
+    font-size: 12px;
+  }
+
+  .patient-card-section {
+    padding: 10px 12px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .patient-card-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .patient-header-right {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .patient-demographics {
+    gap: 4px;
+  }
+
+  .vitals-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .bed-info {
+    flex-wrap: wrap;
+  }
+}
+
+/* Compact Variant */
+.patient-card.compact .vital-item {
+  padding: 6px;
+}
+
+.patient-card.compact .vital-label {
+  margin-bottom: 2px;
+}
+
+.patient-card.compact .vital-value {
+  font-size: 12px;
+}

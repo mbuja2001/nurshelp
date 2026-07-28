@@ -175,9 +175,6 @@ const DiagnosePage = () => {
     try {
       const isAlreadyHospitalized = Boolean(
         encounter?.isHospitalized ||
-        encounter?.currentBedId ||
-        encounter?.assigned_bed ||
-        encounter?.triage?.assigned_bed?.id ||
         encounter?.status === "HOSPITALIZED"
       );
 
@@ -252,9 +249,6 @@ const DiagnosePage = () => {
   const severity = encounter?.triage?.aiTriageReport?.esi_level || encounter?.severity || 4;
   const isAlreadyHospitalized = Boolean(
     encounter?.isHospitalized ||
-    encounter?.currentBedId ||
-    encounter?.assigned_bed ||
-    encounter?.triage?.assigned_bed?.id ||
     encounter?.status === "HOSPITALIZED"
   );
   const severityConfig = {

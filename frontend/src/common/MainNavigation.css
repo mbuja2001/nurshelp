@@ -1,0 +1,362 @@
+/* Main Navigation - Professional Hospital-Grade */
+
+.main-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 64px;
+  background: linear-gradient(135deg, #1E40AF 0%, #1e3a8a 100%);
+  color: white;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+/* Left: Logo */
+.nav-left .hospital-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 600;
+  text-decoration: none;
+  color: white;
+  cursor: pointer;
+}
+
+.nav-left .logo-icon {
+  font-size: 28px;
+}
+
+.nav-left .hospital-name {
+  letter-spacing: 0.5px;
+}
+
+/* Center: Search */
+.nav-center {
+  flex: 1;
+  margin: 0 32px;
+}
+
+.search-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  padding: 0 16px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+.search-container:focus-within {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.search-icon {
+  margin-left: 8px;
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+/* Right: Actions */
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.nav-item {
+  position: relative;
+}
+
+/* Icon Button */
+.icon-button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.icon-button:active {
+  transform: scale(0.95);
+}
+
+/* Notification Badge */
+.notification-badge {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  background: #DC2626;
+  color: white;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Notifications Dropdown */
+.notification-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  width: 340px;
+  margin-top: 8px;
+  z-index: 1001;
+  color: #1F2937;
+}
+
+.notification-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #E5E7EB;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notification-item.alert {
+  border-left: 3px solid #DC2626;
+  background: #FEF2F2;
+}
+
+.notification-item.info {
+  border-left: 3px solid #3B82F6;
+  background: #EFF6FF;
+}
+
+.notification-item.success {
+  border-left: 3px solid #059669;
+  background: #ECFDF5;
+}
+
+.notification-item strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #1F2937;
+}
+
+.notification-dropdown .view-all {
+  display: block;
+  padding: 12px 16px;
+  text-align: center;
+  color: #3B82F6;
+  text-decoration: none;
+  font-weight: 600;
+  border-top: 1px solid #E5E7EB;
+}
+
+.notification-dropdown .view-all:hover {
+  background: #F9FAFB;
+}
+
+/* Profile Button */
+.profile-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.profile-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.profile-avatar {
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.profile-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.profile-role {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.dropdown-arrow {
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* Profile Dropdown */
+.profile-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  width: 280px;
+  margin-top: 8px;
+  z-index: 1001;
+  color: #1F2937;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.profile-avatar-large {
+  font-size: 32px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F3F4F6;
+  border-radius: 50%;
+}
+
+.profile-header strong {
+  display: block;
+  color: #1F2937;
+}
+
+.profile-header .text-muted {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #9CA3AF;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  color: #4B5563;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.dropdown-item:hover {
+  background: #F9FAFB;
+  color: #1E40AF;
+}
+
+.dropdown-item.logout {
+  color: #DC2626;
+}
+
+.dropdown-item.logout:hover {
+  background: #FEF2F2;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main-navigation {
+    padding: 0 12px;
+  }
+
+  .nav-center {
+    display: none;
+  }
+
+  .search-container {
+    width: 100%;
+  }
+
+  .search-input {
+    font-size: 12px;
+  }
+
+  .profile-info {
+    display: none;
+  }
+
+  .hospital-name {
+    display: none;
+  }
+
+  .notification-dropdown,
+  .profile-dropdown {
+    width: 320px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-right {
+    gap: 8px;
+  }
+
+  .icon-button {
+    padding: 6px 8px;
+    font-size: 18px;
+  }
+
+  .profile-button {
+    padding: 6px 8px;
+  }
+
+  .profile-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+  }
+}

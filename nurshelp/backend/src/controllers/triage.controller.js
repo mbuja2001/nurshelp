@@ -225,6 +225,11 @@ export const runTriage = async (req, res) => {
     }
 
     const nurseId = req.user?._id || null;
+    const hospitalId = req.user?.hospitalId;
+    if (!hospitalId) {
+      return res.status(400).json({ message: "Hospital ID not found" });
+    }
+
     const transcriptArray = parseTranscript(payload.transcript);
 
     // Build payload for Python engine with computeMode
@@ -274,6 +279,7 @@ export const runTriage = async (req, res) => {
     }
 
     const encounter = await Encounter.create({
+      hospitalId,
       nurse_id: nurseId,
       patient: payload.patient,
       transcript: transcriptArray,
@@ -322,7 +328,11 @@ export const startEncounter = async (req, res) => {
 
     const transcriptArray = parseTranscript(req.body.transcript);
 
+    const hospitalId = req.user?.hospitalId;
+    if (!hospitalId) return res.status(400).json({ message: "Hospital ID not found" });
+
     const encounter = await Encounter.create({
+      hospitalId,
       nurse_id: req.user._id,
       patient: req.body.patient || {},
       transcript: transcriptArray,

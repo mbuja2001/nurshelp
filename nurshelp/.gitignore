@@ -1,0 +1,99 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Build outputs
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+.nyc_output/
+coverage/
+
+# Temporary files
+*.tmp
+.cache/
+
+# ML Models - Large files (>100MB)
+backend/ML/models/
+backend/ML/model_cache/
+backend/ML/colab_rag_index/
+backend/ML/knowledge_graph/
+backend/ML/datasets/
+backend/ML/pubmedbert_cache_config.json
+
+# Python virtual environments
+venv/
+backend/venv/
+backend/ML/venv/
+frontend/venv/
+env/
+.env/
+*.egg-info/
+__pycache__/
+
+# ML Cache and temporary files
+*.pyc
+backend/ML/__pycache__/
+backend/ML/document_processor/__pycache__/
+backend/ML/.cache/
+backend/ML/*.cache
+.transformers_cache/
+.sentence_transformers/
+huggingface/
+
+# Large data files
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+backend/ML/medical_meadow_data/
+backend/ML/triage_formatted/
+backend/ML/retrieval_augmented_generation/
+backend/ML/rag_data/
+backend/ML/nursehelpdesk/  # Nested directory with duplicate structure
+backend/ML/*.index
+backend/ML/*.parquet
+backend/ML/**/*.jsonl
+backend/ML/**/*.gexf
+backend/ML/**/*.pkl
+backend/ML/**/*.bin
+backend/ML/**/*.pt
+backend/ML/**/*.pth
+backend/ML/__pycache__/
+backend/ML/.pytest_cache/
+
+# Notebooks
+*.ipynb_checkpoints
+*.ipynb

@@ -254,8 +254,12 @@ async function setupCompleteHospital(hospitalName) {
     const ClinicalStaffModel = await import('./src/models/clinicalstaff.model.js').then(m => m.ClinicalStaff);
     const ShiftModel = await import('./src/models/shift.model.js').then(m => m.Shift);
     const NurseClockRecordModel = await import('./src/models/staffClockRecord.model.js').then(m => m.NurseClockRecord);
+    const EncounterModel = await import('./src/models/encounter.model.js').then(m => m.Encounter);
     const BedModel = await import('./src/models/bed.model.js').then(m => m.Bed);
-    const PharmacyInventoryModel = await import('./src/models/pharmacy.model.js').then(m => m.PharmacyInventory);
+    const PharmacyModels = await import('./src/models/pharmacy.model.js');
+    const PharmacyInventoryModel = PharmacyModels.PharmacyInventory;
+    const PharmaceuticalModel = PharmacyModels.Pharmaceutical;
+    const MedicationModel = PharmacyModels.Medication;
     
     // Delete all documents from collections
     log('Deleting all hospitals...');
@@ -278,6 +282,10 @@ async function setupCompleteHospital(hospitalName) {
     const clockDeleted = await NurseClockRecordModel.deleteMany({});
     log(`  ✓ Deleted ${clockDeleted.deletedCount} clock records`);
     
+    log('Deleting all encounters...');
+    const encounterDeleted = await EncounterModel.deleteMany({});
+    log(`  ✓ Deleted ${encounterDeleted.deletedCount} encounters`);
+    
     log('Deleting all beds...');
     const bedDeleted = await BedModel.deleteMany({});
     log(`  ✓ Deleted ${bedDeleted.deletedCount} beds`);
@@ -285,6 +293,14 @@ async function setupCompleteHospital(hospitalName) {
     log('Deleting all pharmacy inventory...');
     const pharmDeleted = await PharmacyInventoryModel.deleteMany({});
     log(`  ✓ Deleted ${pharmDeleted.deletedCount} pharmacy records`);
+
+    log('Deleting all pharmaceutical catalog records...');
+    const pharmaceuticalDeleted = await PharmaceuticalModel.deleteMany({});
+    log(`  ✓ Deleted ${pharmaceuticalDeleted.deletedCount} pharmaceutical records`);
+
+    log('Deleting all medication catalog records...');
+    const medicationDeleted = await MedicationModel.deleteMany({});
+    log(`  ✓ Deleted ${medicationDeleted.deletedCount} medication records`);
     
     await mongoose.disconnect();
     log('✓ Database cleanup complete\n');
@@ -471,6 +487,7 @@ async function setupCompleteHospital(hospitalName) {
     const { Shift } = await import('./src/models/shift.model.js');
     const { ClinicalStaff } = await import('./src/models/clinicalstaff.model.js');
     const { NurseClockRecord } = await import('./src/models/staffClockRecord.model.js');
+    const { Encounter } = await import('./src/models/encounter.model.js');
     const { NurseSchedule } = await import('./src/models/nurseSchedule.model.js');
 
     // Register NurseSchedule model if not already registered

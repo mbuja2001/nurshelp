@@ -67,13 +67,40 @@ const pharmacyInventorySchema = new mongoose.Schema(
   { timestamps: true, indexes: [{ hospitalId: 1, facilityId: 1, medicationId: 1 }] }
 );
 
+const prescriptionItemSchema = new mongoose.Schema(
+  {
+    medicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medication' },
+    medication_name: String,
+    strength: String, // e.g., "500mg"
+    form: String, // Tablets, Capsules, Liquid, etc.
+    schedule: String, // Schedule 1-5 or OTC
+    quantity: Number,
+    unit: { type: String, default: 'Units' }, // Tablets, ml, etc.
+    dosage: String, // e.g., "500mg"
+    frequency: String, // e.g., "Every 6 hours"
+    route: String, // Oral, IV, IM, SC, Topical, Inhalation
+    duration: String, // e.g., "7 days"
+    directions: String, // Full directions for patient
+    refills: { type: Number, default: 0 },
+    indication: String, // Clinical reason
+    status: { type: String, enum: ['PENDING', 'ACCEPTED', 'DISPENSED', 'NOT_RECEIVED'], default: 'PENDING' },
+    accepted_at: Date,
+    estimated_received: Date,
+    actual_received: Date,
+    dispensed_by: mongoose.Schema.Types.ObjectId, // Pharmacist who dispensed
+    dispensed_at: Date
+  },
+  { _id: true, timestamps: true }
+);
+
 const prescriptionSchema = new mongoose.Schema(
   {
+    hospitalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital', required: true, index: true },
     encounterId: { type: mongoose.Schema.Types.ObjectId, ref: 'Encounter', required: true, index: true },
-    patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true, index: true },
-    physicianId: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', required: true },
+    patientId: { type: String, required: true, index: true },
+    physicianId: { type: String, required: true, index: true },
 
-    medicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medication', required: true },
+    medicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medication' },
     medicationName: String,
     dosage: String, // e.g., "500mg twice daily"
     frequency: String,
@@ -83,9 +110,38 @@ const prescriptionSchema = new mongoose.Schema(
     refills: { type: Number, default: 0 },
     refillsRemaining: { type: Number, default: 0 },
 
+    // Formal prescription report fields
+    prescription_number: { type: String, unique: true, sparse: true },
+    date_issued: { type: Date, default: Date.now },
+    valid_until: Date,
+    prescriber: {
+      id: mongoose.Schema.Types.ObjectId,
+      name: String,
+      email: String,
+      role: String,
+      specialty: String,
+      hpcsa_number: String,
+      practice_number: String,
+      practice_address: String,
+      phone: String
+    },
+    patient_details: {
+      name: String,
+      id_number: String,
+      date_of_birth: Date,
+      age: Number,
+      address: String,
+      medical_aid: String,
+      medical_aid_number: String
+    },
+    items: [prescriptionItemSchema],
+    substitution_permitted: { type: Boolean, default: true },
+    special_instructions: String,
+    contraindications: String,
+
     status: {
       type: String,
-      enum: ['pending', 'approved', 'dispensed', 'completed', 'cancelled', 'suspended'],
+      enum: ['pending', 'approved', 'dispensed', 'completed', 'cancelled', 'suspended', 'ISSUED', 'SUBMITTED', 'IN_PROGRESS'],
       default: 'pending',
       index: true,
     },
@@ -95,10 +151,10 @@ const prescriptionSchema = new mongoose.Schema(
     dispensedBy: mongoose.Schema.Types.ObjectId,
 
     // ePrescription fields
-    isElectronic: { type: Boolean, default: true },
+    isElectronic: { type: Boolean, default: false },
     ePrescritionId: { type: String, unique: true, sparse: true }, // Unique ID for eRX
     digitalSignature: {
-      type: String, // Physician's digital signature hash
+      type: String,
       required: function() { return this.isElectronic; },
     },
     signatureTimestamp: Date,
@@ -116,9 +172,8 @@ const prescriptionSchema = new mongoose.Schema(
         acceptedDate: Date,
       },
     ],
-    fulfilledByPharmacy: String, // Pharmacy that fulfilled the prescription
+    fulfilledByPharmacy: String,
 
-    // Patient notifications
     patientNotifications: [
       {
         notificationType: { type: String, enum: ['sent', 'routed', 'ready', 'dispensed', 'expired'], index: true },
@@ -129,7 +184,6 @@ const prescriptionSchema = new mongoose.Schema(
     ],
     requestedNotificationChannels: [{ type: String, enum: ['email', 'sms', 'push', 'portal'] }],
 
-    // Substitution & prior authorization
     allowSubstitution: { type: Boolean, default: true },
     substitutionRequests: [
       {
@@ -146,7 +200,6 @@ const prescriptionSchema = new mongoose.Schema(
     priorAuthorizationStatus: { type: String, enum: ['pending', 'approved', 'denied', 'expired'] },
     priorAuthExpiryDate: Date,
 
-    // Pharmacy checks
     interactionAlerts: [
       {
         medicationId: mongoose.Schema.Types.ObjectId,
@@ -159,7 +212,6 @@ const prescriptionSchema = new mongoose.Schema(
     pharmacistReview: Boolean,
     pharmacistReviewNotes: String,
 
-    // Refill management
     refillHistory: [
       {
         refillNumber: Number,
@@ -177,6 +229,10 @@ const prescriptionSchema = new mongoose.Schema(
     sideEffectWarnings: [String],
     notes: String,
     contraindications: [String],
+    pharmacy_notes: String,
+    cancellation_reason: String,
+    cancelled_by: mongoose.Schema.Types.ObjectId,
+    cancelled_at: Date,
   },
   { timestamps: true, indexes: [{ patientId: 1, status: 1 }, { encounterId: 1 }, { ePrescritionId: 1 }, { 'routingPharmacies.status': 1 }] }
 );
@@ -360,11 +416,11 @@ pharmaceuticalSchema.pre('save', function(next) {
   next();
 });
 
-export const Medication = mongoose.model('Medication', medicationSchema);
-export const PharmacyInventory = mongoose.model('PharmacyInventory', pharmacyInventorySchema);
-export const Prescription = mongoose.model('Prescription', prescriptionSchema);
-export const PharmacyDispenseLog = mongoose.model('PharmacyDispenseLog', pharmacyDispenseLogSchema);
-export const EPrescriptionArchive = mongoose.model('EPrescriptionArchive', ePrescriptionArchiveSchema);
-export const PriorAuthorization = mongoose.model('PriorAuthorization', priorAuthorizationSchema);
-export const PharmacySyncLog = mongoose.model('PharmacySyncLog', pharmacySyncLogSchema);
-export const Pharmaceutical = mongoose.model('Pharmaceutical', pharmaceuticalSchema);
+export const Medication = mongoose.models.Medication || mongoose.model('Medication', medicationSchema);
+export const PharmacyInventory = mongoose.models.PharmacyInventory || mongoose.model('PharmacyInventory', pharmacyInventorySchema);
+export const Prescription = mongoose.models.Prescription || mongoose.model('Prescription', prescriptionSchema);
+export const PharmacyDispenseLog = mongoose.models.PharmacyDispenseLog || mongoose.model('PharmacyDispenseLog', pharmacyDispenseLogSchema);
+export const EPrescriptionArchive = mongoose.models.EPrescriptionArchive || mongoose.model('EPrescriptionArchive', ePrescriptionArchiveSchema);
+export const PriorAuthorization = mongoose.models.PriorAuthorization || mongoose.model('PriorAuthorization', priorAuthorizationSchema);
+export const PharmacySyncLog = mongoose.models.PharmacySyncLog || mongoose.model('PharmacySyncLog', pharmacySyncLogSchema);
+export const Pharmaceutical = mongoose.models.Pharmaceutical || mongoose.model('Pharmaceutical', pharmaceuticalSchema);

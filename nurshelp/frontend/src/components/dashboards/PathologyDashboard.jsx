@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import decodeJwt from '../../utils/decodeJwt';
+import { decodeJwt } from '../../utils/jwt';
 import './PathologyDashboard.css';
 
 /**
@@ -294,6 +294,33 @@ const PathologyDashboard = ({ config }) => {
             ✓ Accept Lab Test
           </button>
         )}
+        {/* Open Encounter / View Report */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!labRequest?.encounterId) {
+              alert('Encounter not available');
+              return;
+            }
+            navigate(`/summary/${labRequest.encounterId}`, { state: { openLabRequestId: labRequest.request_id } });
+          }}
+          style={{
+            width: '100%',
+            padding: '10px',
+            borderRadius: '12px',
+            border: 'none',
+            background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(236,72,153,0.08))',
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+            marginTop: '8px'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.95'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          📑 Open Encounter / View Report
+        </button>
       </div>
     );
   };

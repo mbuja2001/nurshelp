@@ -1,7 +1,47 @@
 import mongoose from "mongoose";
 import { Encounter } from "../models/encounter.model.js";
-import { canAccessEncounter } from "./encounterAccess.js";
 import { EquipmentUsage } from "../models/equipmentUsage.model.js";
+
+export const canAccessLabEncounter = (encounter, req) => {
+  if (!encounter || !req?.user) return false;
+
+  const encounterHospitalId = encounter.hospitalId?.toString();
+  const userHospitalId = req.user.hospitalId || req.hospitalId;
+  const userId = req.user.id || req.user._id;
+
+  if (!encounterHospitalId || !userHospitalId || encounterHospitalId !== userHospitalId.toString()) {
+    return false;
+  }
+
+  if (!userId) return false;
+
+  const normalizedRole = (req.user.role || req.userRole || '').toUpperCase();
+  const isPhysicianRole = ['PHYSICIAN', 'DOCTOR', 'SPECIALIST'].includes(normalizedRole);
+  const isSpecialistRole = ['RADIOLOGIST', 'PATHOLOGIST', 'PHARMACIST'].includes(normalizedRole);
+
+  if (isSpecialistRole) {
+    return true;
+  }
+
+  if (encounter.assignedPhysicianId?.toString() === userId.toString()) {
+    return true;
+  }
+
+  if (encounter.assigned_clinicians?.some((clinician) => clinician.id?.toString() === userId.toString())) {
+    return true;
+  }
+
+  if (encounter.clinical_handovers?.some((handover) => handover.clinician_id?.toString() === userId.toString())) {
+    return true;
+  }
+
+  const activeClinicalStatuses = ['HOSPITALIZED', 'DIAGNOSED', 'SEEN', 'AWAITING_PHYSICIAN', 'OFFICIAL_REPORT', 'DISCHARGED'];
+  if (isPhysicianRole && activeClinicalStatuses.includes(encounter.status)) {
+    return true;
+  }
+
+  return false;
+};
 
 /**
  * Lab Request Controller
@@ -23,11 +63,29 @@ import { EquipmentUsage } from "../models/equipmentUsage.model.js";
  */
 export const createLabRequest = async (req, res) => {
   try {
-    const { id: encounterId } = req.params;
+    const encounterId = req.params.encounterId || req.params.id;
     const { specialty, lab_type, description, priority, requested_by } = req.body;
 
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
+    // Find encounter first so we can validate access against the actual encounter record
+    let encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      // Fallbacks: sometimes frontend passes a bed id or patient id — try common alternative lookups
+      console.warn('[LAB CONTROLLER] createLabRequest: primary findById failed for', encounterId, '— trying fallbacks');
+      const orQueries = [
+        { assigned_bed: encounterId },
+        { 'bed_display_info._id': encounterId },
+        { 'bed_display_info.bedId': encounterId },
+        { 'patient.id_number': encounterId },
+        { 'patient._id': encounterId }
+      ];
+
+      encounter = await Encounter.findOne({ $or: orQueries });
+      if (!encounter) {
+        return res.status(404).json({ message: 'Encounter not found' });
+      }
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
@@ -35,12 +93,6 @@ export const createLabRequest = async (req, res) => {
     // Validate required fields
     if (!specialty || !lab_type || !['RADIOLOGY', 'PATHOLOGY'].includes(specialty)) {
       return res.status(400).json({ message: 'Invalid specialty or lab_type' });
-    }
-
-    // Find encounter
-    const encounter = await Encounter.findById(encounterId);
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
     }
 
     // Initialize lab_requests if needed
@@ -95,17 +147,16 @@ export const createLabRequest = async (req, res) => {
  */
 export const getEncounterLabRequests = async (req, res) => {
   try {
-    const { id: encounterId } = req.params;
-
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
-    if (!canAccess) {
-      return res.status(403).json({ message: 'Access denied to this encounter' });
-    }
+    const encounterId = req.params.encounterId || req.params.id;
 
     const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
       return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
+    if (!canAccess) {
+      return res.status(403).json({ message: 'Access denied to this encounter' });
     }
 
     return res.status(200).json({
@@ -206,16 +257,19 @@ export const getLabRequestsForSpecialty = async (req, res) => {
  */
 export const acknowledgeLabRequest = async (req, res) => {
   try {
-    const { id: encounterId, requestId } = req.params;
+    const encounterId = req.params.encounterId || req.params.id;
+    const { requestId } = req.params;
     const { assigned_technician } = req.body;
 
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-
-    const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
       return res.status(404).json({ message: 'Encounter not found' });
     }
@@ -263,7 +317,8 @@ export const acknowledgeLabRequest = async (req, res) => {
  */
 export const submitLabReport = async (req, res) => {
   try {
-    const { id: encounterId, requestId } = req.params;
+    const encounterId = req.params.encounterId || req.params.id;
+    const { requestId } = req.params;
     const {
       report_content,
       report_images,
@@ -272,13 +327,15 @@ export const submitLabReport = async (req, res) => {
       submitted_by
     } = req.body;
 
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-
-    const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
       return res.status(404).json({ message: 'Encounter not found' });
     }
@@ -345,16 +402,19 @@ export const submitLabReport = async (req, res) => {
  */
 export const declineLabRequest = async (req, res) => {
   try {
-    const { id: encounterId, requestId } = req.params;
+    const encounterId = req.params.encounterId || req.params.id;
+    const { requestId } = req.params;
     const { reason } = req.body;
 
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-
-    const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
       return res.status(404).json({ message: 'Encounter not found' });
     }
@@ -404,16 +464,19 @@ export const declineLabRequest = async (req, res) => {
  */
 export const reviewLabReport = async (req, res) => {
   try {
-    const { id: encounterId, requestId } = req.params;
+    const encounterId = req.params.encounterId || req.params.id;
+    const { requestId } = req.params;
     const { review_notes } = req.body;
 
-    // Validate access
-    const canAccess = await canAccessEncounter(req.user.hospitalId, encounterId, req.user.id);
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    const canAccess = canAccessLabEncounter(encounter, req);
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-
-    const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
       return res.status(404).json({ message: 'Encounter not found' });
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import decodeJwt from '../../utils/decodeJwt';
+import { decodeJwt } from '../../utils/jwt';
 import './RadiologyDashboard.css';
 
 /**
@@ -69,7 +69,21 @@ const RadiologyDashboard = ({ config }) => {
   useEffect(() => {
     console.log('[RADIOLOGY] Dashboard loaded');
     fetchLabRequests('PENDING');
-  }, []);
+
+    // Auto-refresh queue periodically (every 15s)
+    const interval = setInterval(() => {
+      const statusMap = {
+        'pending': 'PENDING',
+        'in-progress': 'ACKNOWLEDGED',
+        'completed': 'COMPLETED',
+        'submitted': 'REVIEWED'
+      };
+      const status = statusMap[activeTab] || 'PENDING';
+      fetchLabRequests(status);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   // ============ TAB SWITCHING ============
   const handleTabChange = (tab) => {
@@ -301,6 +315,34 @@ const RadiologyDashboard = ({ config }) => {
             ✓ Accept & Start Imaging
           </button>
         )}
+        {/* Open Encounter / View Report */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!labRequest?.encounterId) {
+              alert('Encounter not available');
+              return;
+            }
+            // pass the lab request id so the summary page can open the report if implemented
+            navigate(`/summary/${labRequest.encounterId}`, { state: { openLabRequestId: labRequest.request_id } });
+          }}
+          style={{
+            width: '100%',
+            padding: '10px',
+            borderRadius: '12px',
+            border: 'none',
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.18))',
+            color: '#e0e7ff',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+            marginTop: '8px'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.95'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          📑 Open Encounter / View Report
+        </button>
       </div>
     );
   };
@@ -336,6 +378,14 @@ const RadiologyDashboard = ({ config }) => {
               alignItems: 'flex-end',
               gap: '8px'
             }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button onClick={() => {
+                  const statusMap = { 'pending': 'PENDING', 'in-progress': 'ACKNOWLEDGED', 'completed': 'COMPLETED', 'submitted': 'REVIEWED' };
+                  fetchLabRequests(statusMap[activeTab] || 'PENDING');
+                }} style={{ padding: '6px 10px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', cursor: 'pointer' }}>
+                  🔄 Refresh
+                </button>
+              </div>
               <div style={{ padding: '8px 14px', borderRadius: '20px', background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)' }}>
                 <span style={{ fontSize: '12px', color: '#06b6d4', fontWeight: 600, textTransform: 'uppercase' }}>
                   Pending: {labQueue.filter(r => r.status === 'PENDING').length}

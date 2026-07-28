@@ -6,8 +6,8 @@ import RegisterForm from "./RegisterForm";
 import StaffScheduleManager from "./Pages/StaffScheduleManager";
 import ClockInOutBoard from "./Pages/ClockInOutBoard";
 import PharmacistDashboard from "../components/dashboards/PharmacistDashboard";
-import Radiology from "./Pages/Radiology";
-import Pathology from "./Pages/Pathology";
+import RadiologyDashboard from "../components/dashboards/RadiologyDashboard";
+import PathologyDashboard from "../components/dashboards/PathologyDashboard";
 import { styles } from "./styles";
 import { decodeJwt, normalizeRoleLabel, getDashboardRoute } from "../utils/jwt";
 
@@ -469,11 +469,11 @@ const Dashboard = () => {
       }
 
       if (dashboardRoute === "RADIOLOGY") {
-        return <Radiology />;
+        return <RadiologyDashboard />;
       }
 
       if (dashboardRoute === "PATHOLOGY") {
-        return <Pathology />;
+        return <PathologyDashboard />;
       }
     }
 
