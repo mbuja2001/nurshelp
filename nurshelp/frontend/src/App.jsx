@@ -17,21 +17,23 @@ import InpatientReport from "./PatientSummary/InpatientReport.jsx";
 import NurseConfirmedReportView from "./PatientSummary/NurseConfirmedReportView.jsx";
 import AssignPatientaWardAndBed from "./PatientSummary/AssignPatientaWardAndBed.jsx";
 import ReferenceCase from "./PatientSummary/ReferenceCase.jsx";
+import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
 import Profile from "./Dashboard/Pages/Profile.jsx";
 import EHRRecords from "./Dashboard/Pages/EHRRecords.jsx";
 import TriagedPatients from "./Dashboard/Pages/TriagedPatients.jsx";
 import BedsAllocation from "./Dashboard/Pages/BedsAllocation.jsx";
 import StaffScheduleManager from "./Dashboard/Pages/StaffScheduleManager.jsx";
+import StaffTeamPage from "./Dashboard/Pages/StaffTeamPage.jsx";
 import Pharmacy from "./Dashboard/Pages/Pharmacy.jsx";
 import PharmacyPublic from "./Dashboard/Pages/PharmacyPublic.jsx";
 import { getUserFromToken } from './utils/jwt';
 import RadiologyDashboard from "./components/dashboards/RadiologyDashboard.jsx";
 import PathologyDashboard from "./components/dashboards/PathologyDashboard.jsx";
 import DashboardTools from "./Dashboard/Pages/DashboardTools.jsx";
+import StaffTeamChat from "./Dashboard/Pages/StaffTeamChat.jsx";
 import StaffToPharmacist from "./Dashboard/Pages/StaffToPharmacist.jsx";
 import Settings from "./Dashboard/Pages/Settings.jsx";
 import TriageAnalytics from "./Dashboard/Pages/TriageAnalytics.jsx";
-import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
 import Help from "./Dashboard/Pages/Help.jsx";
 import Notifications from "./Dashboard/Pages/Notifications.jsx";
 import ClockInOutBoard from "./Dashboard/Pages/ClockInOutBoard.jsx";
@@ -40,6 +42,7 @@ import ManagerApprovalPage from "./Dashboard/Pages/ManagerApprovalPage.jsx";
 import StatisticsPage from "./Dashboard/Pages/StatisticsPage.jsx";
 import AdminSettingsPage from "./Dashboard/Pages/AdminSettingsPage.jsx";
 import IntegratedSchedule from "./Dashboard/Pages/IntegratedSchedule.jsx";
+import CalendarPage from "./Dashboard/Pages/CalendarPage.jsx";
 import PrescriptionReport from "./components/DashboardPages/PrescriptionReport.jsx";
 import OrderedMeds from "./Dashboard/Pages/OrderedMeds.jsx";
 import LandingPage from "./LandingPage.jsx";
@@ -129,12 +132,14 @@ function App() {
           <Route path="/pharmacy-public" element={<PharmacyPublic />} />
           <Route path="/staff-to-pharmacist" element={<StaffToPharmacist />} />
           <Route path="/dashboard-tools" element={<DashboardTools />} />
+          <Route path="/staff-chat" element={<StaffTeamChat />} />
+          <Route path="/staff-team" element={<StaffTeamPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/ordered-meds" element={<OrderedMeds />} />
-          <Route path="/radiology" element={<RadiologyDashboard />} />
           <Route path="/pathology" element={<PathologyDashboard />} />
           <Route path="/triaged" element={<TriagedPatients />} />
           <Route path="/beds" element={<BedsAllocation />} />
-          <Route path="/schedule/staff" element={<StaffScheduleManager />} />
+          <Route path="/staff-team" element={<StaffScheduleManager />} />
           <Route path="/integrated-schedule" element={<IntegratedSchedule token={localStorage.getItem('token')} user={JSON.parse(localStorage.getItem('user') || '{}')} />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/analytics" element={<TriageAnalytics />} />

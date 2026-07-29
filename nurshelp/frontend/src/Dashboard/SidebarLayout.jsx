@@ -196,12 +196,11 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
     { id: 'nav-radiology', label: 'Radiology', path: '/radiology', icon: <FaRadiation size={16} /> },
     { id: 'nav-pathology', label: 'Pathology', path: '/pathology', icon: <FaFlask size={16} /> },
     { id: 'nav-beds', label: 'Beds Allocation', path: '/beds', icon: <FaBed size={16} /> },
-    { id: 'nav-staff-sched', label: 'Staff Team', path: '/schedule/staff', icon: <FiUsers size={16} /> },
+    { id: 'nav-staff-team', label: 'Staff Team', path: '/staff-team', icon: <FiUsers size={16} /> },
     { id: 'nav-reference', label: 'Reference Cases Library', path: '/reference-cases', icon: <MdLibraryBooks size={16} /> },
     { id: 'nav-analytics', label: 'Analytics', path: '/analytics', icon: <FiBarChart2 size={16} /> },
     { id: 'nav-settings', label: 'Settings', path: '/settings', icon: <FiSettings size={16} /> },
     { id: 'nav-licenses', label: 'Clinical Licenses', path: '/licenses', icon: <FiCreditCard size={16} /> },
-    { id: 'nav-staff-pharm', label: 'Message Pharmacist', path: '/staff-to-pharmacist', icon: <FiMessageCircle size={16} /> },
     { id: 'nav-help', label: 'Help', path: '/help', icon: <FiHelpCircle size={16} /> }
   ];
 

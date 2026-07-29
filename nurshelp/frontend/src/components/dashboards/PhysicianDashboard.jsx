@@ -94,6 +94,9 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
   const [showPatientSearchModal, setShowPatientSearchModal] = useState(false);
   const [patientSearchQuery, setPatientSearchQuery] = useState('');
   const [notifications, setNotifications] = useState([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [showCalendarEventsModal, setShowCalendarEventsModal] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [orderedMedsCount, setOrderedMedsCount] = useState(0);
   const [showQueueOpen, setShowQueueOpen] = useState(true);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400);
@@ -706,8 +709,80 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     }
   }, [context]);
 
-  const handleHistoryActions = () => {
+  const loadUnreadNotifications = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      const response = await notificationService.getUnreadNotifications(12);
+      const items = Array.isArray(response.notifications) ? response.notifications : (Array.isArray(response.data) ? response.data : []);
+      setNotifications(items);
+      setUnreadNotificationsCount(typeof response.count === 'number' ? response.count : items.length);
+    } catch (err) {
+      console.error('[PHYSICIAN DASHBOARD] Failed to load notifications:', err);
+      setNotifications([]);
+      setUnreadNotificationsCount(0);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const handleHistoryActions = async () => {
+    if (!showHistoryActionsModal) {
+      await loadUnreadNotifications();
+    }
     setShowHistoryActionsModal((prev) => !prev);
+  };
+
+  const handleMarkNotificationRead = async (notificationId) => {
+    if (!notificationId) return;
+    try {
+      await notificationService.markAsRead(notificationId);
+    } catch (err) {
+      console.error('[PHYSICIAN DASHBOARD] Failed to mark notification read:', err);
+    } finally {
+      await loadUnreadNotifications();
+    }
+  };
+
+  const handleOpenCalendarEvents = () => {
+    setShowCalendarEventsModal(true);
+  };
+
+  const handleOpenSurgeryModal = (encounterId, patientName) => {
+    if (!encounterId) {
+      alert('Unable to schedule surgery: missing encounter identifier');
+      return;
+    }
+
+    const baseEncounter = bedModalData || { _id: encounterId, patientName: patientName || 'Patient' };
+    setBedModalData(baseEncounter);
+    setSurgeryForm({
+      procedure_name: '',
+      surgery_type: 'ELECTIVE',
+      priority: 'MEDIUM',
+      rationale: baseEncounter.diagnosis || baseEncounter.triageSummary || `Surgery request for ${patientName || 'patient'}`,
+      scheduled_at: '',
+      surgeon: userInfo.name || '',
+      surgical_team: '',
+      notes: ''
+    });
+    setShowSurgeryModal(true);
+  };
+
+  const handleRequestLabs = (encounterId, patientName) => {
+    if (!encounterId) {
+      alert('Unable to request labs: missing encounter identifier');
+      return;
+    }
+
+    const baseEncounter = bedModalData || { _id: encounterId, patientName: patientName || 'Patient' };
+    setBedModalData(baseEncounter);
+    setLabRequestForm({
+      specialty: 'RADIOLOGY',
+      lab_type: '',
+      description: '',
+      priority: 'MEDIUM'
+    });
+    setShowLabRequestModal(true);
   };
 
   const handleAcknowledge = async (encounterId) => {
@@ -917,23 +992,6 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     navigate(`/diagnose/${encounterId}`, { state: { encounter: encounterData } });
   };
 
-  const handleRequestLabs = (encounterId, patientName) => {
-    if (!encounterId || !bedModalData) {
-      alert('Unable to request labs: missing patient data');
-      return;
-    }
-
-    console.log('[PHYSICIAN REQUEST LABS] Opening lab request modal for:', encounterId);
-    // Reset form and open modal
-    setLabRequestForm({
-      specialty: 'RADIOLOGY',
-      lab_type: '',
-      description: '',
-      priority: 'MEDIUM'
-    });
-    setShowLabRequestModal(true);
-  };
-
   const handleOrderMedication = async () => {
     if (!bedModalData?._id) {
       alert('Unable to order medication: missing patient data');
@@ -1098,6 +1156,63 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       alert(`Error requesting lab: ${err.message}`);
     } finally {
       setSubmittingLabRequest(false);
+    }
+  };
+
+  const handleSubmitSurgery = async () => {
+    if (!bedModalData?._id || !surgeryForm.procedure_name || !surgeryForm.scheduled_at) {
+      alert('Please enter procedure name and scheduled date/time');
+      return;
+    }
+
+    setSubmittingSurgery(true);
+    try {
+      const token = localStorage.getItem('token');
+      const payload = {
+        procedure_name: surgeryForm.procedure_name,
+        surgery_type: surgeryForm.surgery_type,
+        priority: surgeryForm.priority,
+        rationale: surgeryForm.rationale,
+        scheduled_at: surgeryForm.scheduled_at,
+        surgeon: surgeryForm.surgeon,
+        surgical_team: surgeryForm.surgical_team.split(',').map((item) => item.trim()).filter(Boolean),
+        notes: surgeryForm.notes
+      };
+
+      const response = await fetch(`${BACKEND_URL}/api/encounters/${bedModalData._id}/surgery`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || 'Failed to schedule surgery');
+      }
+
+      const data = await response.json();
+      alert(`✓ Surgery requested: ${surgeryForm.procedure_name}`);
+      console.log('[PHYSICIAN SURGERY REQUEST] Success:', data);
+      setShowSurgeryModal(false);
+      setSurgeryForm({
+        procedure_name: '',
+        surgery_type: 'ELECTIVE',
+        priority: 'MEDIUM',
+        rationale: '',
+        scheduled_at: '',
+        surgeon: userInfo.name || '',
+        surgical_team: '',
+        notes: ''
+      });
+      await refreshBedModalData();
+    } catch (err) {
+      console.error('[PHYSICIAN SURGERY REQUEST] Error:', err);
+      alert(`Error scheduling surgery: ${err.message}`);
+    } finally {
+      setSubmittingSurgery(false);
     }
   };
 
@@ -1487,11 +1602,11 @@ Update medications, procedures, or notes there.`);
             justifyContent: 'flex-end'
           }}>
             {[
-              { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => goToDashboardToolsSection('calendar-events') },
-              { icon: <FaHistory />, label: 'History Actions', action: handleHistoryActions },
+              { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => navigate('/calendar') },
+              { icon: <FaHistory />, label: 'History Actions', action: handleHistoryActions, badge: unreadNotificationsCount },
               { icon: <FaFlask />, label: 'Lab Requests', action: () => bedModalData?._id ? handleRequestLabs(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('lab-requests') },
               { icon: <FaCapsules />, label: 'Ordered Meds', action: () => navigate('/ordered-meds'), badge: orderedMedsCount },
-              { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => bedModalData?._id ? handleAdministerSurgery(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('scheduled-surgeries') }
+              { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => bedModalData?._id ? handleOpenSurgeryModal(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('scheduled-surgeries') }
             ].map((item) => (
               <button
                 key={item.label}
@@ -1785,6 +1900,215 @@ Update medications, procedures, or notes there.`);
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCalendarEventsModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '20px'
+          }} onClick={() => setShowCalendarEventsModal(false)}>
+            <div style={{
+              width: '100%',
+              maxWidth: '760px',
+              background: '#ffffff',
+              borderRadius: '18px',
+              padding: '24px',
+              boxShadow: '0 24px 64px rgba(15,23,42,0.24)',
+              overflowY: 'auto',
+              maxHeight: '90vh'
+            }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                <div>
+                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>Calendar Events</div>
+                  <div style={{ color: '#64748b', fontSize: '13px', marginTop: '6px' }}>View your upcoming shift, scheduled procedures, and clinical planning events.</div>
+                </div>
+                <button
+                  onClick={() => setShowCalendarEventsModal(false)}
+                  style={{ border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer', fontSize: '20px' }}>
+                  ×
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div style={{ padding: '18px', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Upcoming shift</div>
+                    <div style={{ marginTop: '10px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>Day shift</div>
+                    <div style={{ marginTop: '8px', color: '#475569', fontSize: '14px' }}>Today • 08:00 – 17:00</div>
+                  </div>
+                  <div style={{ padding: '18px', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Next surgery block</div>
+                    <div style={{ marginTop: '10px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>OR 3 • 14:00</div>
+                    <div style={{ marginTop: '8px', color: '#475569', fontSize: '14px' }}>Urgent laparotomy for patient in bed {selectedBedModal || 'TBD'}</div>
+                  </div>
+                </div>
+                <div style={{ padding: '18px', borderRadius: '16px', border: '1px solid #e2e8f0', background: '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Event timeline</div>
+                    </div>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Updated now</span>
+                  </div>
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {['08:00 • Ward rounds', '10:00 • Clinical review', '13:00 • Consultant huddle', '16:00 • Case handover'].map((entry) => (
+                      <div key={entry} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#0f172a', marginTop: 6 }} />
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{entry.split(' • ')[0]}</div>
+                          <div style={{ color: '#475569', fontSize: '13px' }}>{entry.split(' • ')[1]}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSurgeryModal && bedModalData && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(6, 15, 35, 0.88)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1150,
+            backdropFilter: 'blur(8px)',
+            padding: '20px',
+            overflowY: 'auto'
+          }}
+          onClick={() => setShowSurgeryModal(false)}>
+            <div style={{
+              background: 'linear-gradient(180deg, rgba(7, 18, 36, 0.98), rgba(4, 11, 25, 0.98))',
+              borderRadius: '24px',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              padding: '32px',
+              maxWidth: '640px',
+              width: '100%',
+              boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
+              color: '#f8fafc'
+            }}
+            onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '24px', color: '#f8fafc', fontWeight: 700 }}>🩺 Schedule Surgery</h2>
+                  <p style={{ margin: '10px 0 0 0', color: '#cbd5e1', fontSize: '14px' }}>Create a surgical care plan and schedule the procedure for the selected patient.</p>
+                </div>
+                <button
+                  onClick={() => setShowSurgeryModal(false)}
+                  style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', fontSize: '24px' }}>
+                  ×
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: '18px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Procedure</label>
+                  <input
+                    value={surgeryForm.procedure_name}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, procedure_name: e.target.value }))}
+                    placeholder="e.g. Appendectomy"
+                    style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Type</label>
+                    <select
+                      value={surgeryForm.surgery_type}
+                      onChange={(e) => setSurgeryForm((prev) => ({ ...prev, surgery_type: e.target.value }))}
+                      style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px', cursor: 'pointer' }}
+                    >
+                      {SURGERY_TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Priority</label>
+                    <select
+                      value={surgeryForm.priority}
+                      onChange={(e) => setSurgeryForm((prev) => ({ ...prev, priority: e.target.value }))}
+                      style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px', cursor: 'pointer' }}
+                    >
+                      <option value="URGENT">URGENT</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="LOW">LOW</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Schedule</label>
+                  <input
+                    type="datetime-local"
+                    value={surgeryForm.scheduled_at}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, scheduled_at: e.target.value }))}
+                    style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Surgeon</label>
+                  <input
+                    value={surgeryForm.surgeon}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, surgeon: e.target.value }))}
+                    placeholder="Surgeon name"
+                    style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Surgical team</label>
+                  <input
+                    value={surgeryForm.surgical_team}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, surgical_team: e.target.value }))}
+                    placeholder="Comma separated names"
+                    style={{ width: '100%', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Rationale</label>
+                  <textarea
+                    value={surgeryForm.rationale}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, rationale: e.target.value }))}
+                    placeholder="Clinical indication for the surgery"
+                    style={{ width: '100%', minHeight: '100px', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.14em' }}>Notes</label>
+                  <textarea
+                    value={surgeryForm.notes}
+                    onChange={(e) => setSurgeryForm((prev) => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Pre-op notes or special instructions"
+                    style={{ width: '100%', minHeight: '90px', padding: '14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: '14px', resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowSurgeryModal(false)}
+                    style={{ padding: '14px 18px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitSurgery}
+                    disabled={submittingSurgery}
+                    style={{ padding: '14px 18px', borderRadius: '14px', border: 'none', background: submittingSurgery ? '#475569' : '#22c55e', color: '#ffffff', fontWeight: 700, cursor: submittingSurgery ? 'wait' : 'pointer', fontSize: '14px' }}
+                  >
+                    {submittingSurgery ? 'Saving…' : 'Schedule Surgery'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
