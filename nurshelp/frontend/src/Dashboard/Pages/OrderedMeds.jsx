@@ -49,9 +49,11 @@ const OrderedMeds = () => {
   const [patientIdFilter, setPatientIdFilter] = useState(query.get('patientId') || '');
   const [startDate, setStartDate] = useState(query.get('startDate') || '');
   const [endDate, setEndDate] = useState(query.get('endDate') || '');
+  const [selectedStatus, setSelectedStatus] = useState(query.get('status') || '');
 
   useEffect(() => {
     setPatientIdFilter(query.get('patientId') || '');
+    setSelectedStatus(query.get('status') || '');
   }, [query]);
 
   const loadOrderedMeds = async () => {
@@ -63,6 +65,7 @@ const OrderedMeds = () => {
       if (patientIdFilter) params.set('patientId', patientIdFilter.trim());
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
+      if (selectedStatus) params.set('status', selectedStatus);
       const response = await fetch(`${BACKEND_URL}/api/prescriptions/ordered-meds?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -196,26 +199,24 @@ const OrderedMeds = () => {
                 <button
                   key={status}
                   type="button"
-                  onClick={() => {
-                    const next = status === 'PENDING' ? 'pending' : status.toLowerCase();
-                    if (next === 'pending') setEndDate(endDate);
-                  }}
+                  onClick={() => setSelectedStatus(prev => (prev === status ? '' : status))}
                   style={{
                     borderRadius: 999,
-                    border: '1px solid #e2e8f0',
+                    border: selectedStatus === status ? '1px solid #2563eb' : '1px solid #e2e8f0',
                     padding: '6px 12px',
-                    background: '#f8fafc',
-                    color: '#334155',
+                    background: selectedStatus === status ? '#eff6ff' : '#f8fafc',
+                    color: selectedStatus === status ? '#1d4ed8' : '#334155',
                     fontSize: 12,
-                    cursor: 'not-allowed'
+                    cursor: 'pointer'
                   }}
-                  disabled
                 >
                   {status}
                 </button>
               ))}
             </div>
-            <div style={{ marginTop: 10, color: '#94a3b8', fontSize: 12 }}>Status filters are not yet enabled in this view.</div>
+            <div style={{ marginTop: 10, color: '#94a3b8', fontSize: 12 }}>
+              {selectedStatus ? `Filtering by status: ${selectedStatus}` : 'Tap a status to filter ordered meds.'}
+            </div>
           </div>
         </div>
 
@@ -291,6 +292,15 @@ const OrderedMeds = () => {
                       <span style={{ fontSize: 13, color: '#0f172a' }}>{formatDate(selectedPrescription.valid_until || selectedPrescription.expiryDate)}</span>
                     </div>
                   </div>
+                  {['ACCEPTED','DISPENSED'].includes((selectedPrescription.status || '').toUpperCase()) ? (
+                    <div style={{ marginTop: 8, padding: 14, borderRadius: 16, background: '#ecfdf5', border: '1px solid #d1fae5', color: '#166534' }}>
+                      <strong>Ready for administration.</strong> This order has been received by pharmacy and is ready for bedside administration.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, padding: 14, borderRadius: 16, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569' }}>
+                      Waiting on pharmacy reception before medication administration can begin.
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'grid', gap: 10, padding: 16, borderRadius: 18, background: '#fff', border: '1px solid #e2e8f0' }}>

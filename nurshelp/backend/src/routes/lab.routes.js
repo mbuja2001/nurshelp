@@ -7,7 +7,8 @@ import {
   submitLabReport,
   declineLabRequest,
   reviewLabReport,
-  getLabReportsForPhysician
+  getLabReportsForPhysician,
+  getLabRequestsForPhysician
 } from "../controllers/lab.controller.js";
 import { protect } from "../middleware/authmiddleware.js"; // Authentication middleware
 
@@ -17,6 +18,10 @@ const router = express.Router();
  * PHYSICIAN ENDPOINTS
  * These endpoints allow physicians to request labs and review reports
  */
+
+// GET /api/lab-requests/physician/all?status=PENDING&specialty=RADIOLOGY
+// Physician fetches all lab requests across all encounters (aggregated)
+router.get("/physician/all", protect, getLabRequestsForPhysician);
 
 // POST /api/lab-requests/:encounterId/create
 // Physician creates a new lab request

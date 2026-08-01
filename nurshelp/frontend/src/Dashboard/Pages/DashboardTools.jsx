@@ -111,14 +111,16 @@ const DashboardTools = () => {
                 transition: 'background 150ms ease'
               }}
               onClick={() => {
-                if (item.id === 'ordered-meds') {
-                  navigate('/ordered-meds');
-                  return;
-                }
+                // Navigate to dedicated pages when available
+                if (item.id === 'ordered-meds') return navigate('/ordered-meds');
+                if (item.id === 'calendar-events') return navigate('/calendar');
+                if (item.id === 'history-actions') return navigate('/history-actions');
+                if (item.id === 'lab-requests') return navigate('/lab-requests');
+                if (item.id === 'scheduled-surgeries') return navigate('/scheduled-surgeries');
+
+                // Fallback: scroll to section
                 const target = document.getElementById(item.id);
-                if (target) {
-                  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }}>
                 Open
               </button>

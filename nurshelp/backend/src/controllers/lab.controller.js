@@ -578,3 +578,93 @@ export const getLabReportsForPhysician = async (req, res) => {
     return res.status(500).json({ message: 'Error fetching lab reports', error: err.message });
   }
 };
+
+/**
+ * Get all lab requests for a physician (aggregated across encounters)
+ * Supports filtering by status and specialty
+ */
+export const getLabRequestsForPhysician = async (req, res) => {
+  try {
+    const { status, specialty } = req.query;
+    const physicianId = req.user?.id || req.user?._id;
+    const hospitalId = req.user?.hospitalId || req.hospitalId;
+
+    if (!physicianId) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    // Build query to find encounters with lab requests
+    const query = {
+      hospitalId: hospitalId,
+      'lab_requests.0': { $exists: true } // has at least one lab request
+    };
+
+    // Add status filter if provided
+    if (status) {
+      query['lab_requests.status'] = status;
+    }
+
+    // Add specialty filter if provided
+    if (specialty) {
+      query['lab_requests.specialty'] = specialty;
+    }
+
+    // Find encounters with lab requests for this hospital
+    const encounters = await Encounter.find(query).lean();
+
+    // Flatten lab requests with encounter context
+    const labRequests = [];
+    encounters.forEach(encounter => {
+      let relevantRequests = encounter.lab_requests || [];
+
+      // Apply status filter
+      if (status) {
+        relevantRequests = relevantRequests.filter(req => req.status === status);
+      }
+
+      // Apply specialty filter
+      if (specialty) {
+        relevantRequests = relevantRequests.filter(req => req.specialty === specialty);
+      }
+
+      relevantRequests.forEach(labReq => {
+        labRequests.push({
+          _id: labReq._id || labReq.request_id,
+          encounterId: encounter._id,
+          request_id: labReq.request_id,
+          specialty: labReq.specialty,
+          lab_type: labReq.lab_type,
+          description: labReq.description,
+          priority: labReq.priority,
+          status: labReq.status,
+          requested_at: labReq.requested_at,
+          requested_by: labReq.requested_by,
+          acknowledged_at: labReq.acknowledged_at,
+          submitted_at: labReq.submitted_at,
+          submitted_by: labReq.submitted_by,
+          report_content: labReq.report_content,
+          clinical_impression: labReq.clinical_impression,
+          recommendations: labReq.recommendations,
+
+          // Encounter context
+          patientName: encounter.patient?.name || encounter.patientName || 'Unknown',
+          patientAge: encounter.patient?.age || 'N/A',
+          patientId: encounter.patient?.id_number || 'N/A',
+          diagnosis: encounter.diagnosis || '',
+          ward: encounter.assigned_ward?.name || 'N/A'
+        });
+      });
+    });
+
+    // Sort by requested_at (newest first)
+    labRequests.sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at));
+
+    return res.status(200).json({
+      count: labRequests.length,
+      labRequests: labRequests
+    });
+  } catch (err) {
+    console.error('[LAB CONTROLLER] getLabRequestsForPhysician error:', err);
+    return res.status(500).json({ message: 'Error fetching lab requests', error: err.message });
+  }
+};

@@ -40,6 +40,7 @@ import seedRouter from "./routes/seed.route.js";
 import clinicalRouter from "./routes/clinical.routes.js";
 import labRouter from "./routes/lab.routes.js"; // Lab request workflow
 import prescriptionRouter from "./routes/prescription.route.js";
+import calendarRouter from "./routes/calendar.route.js";
 
 // EHR System - New Routes
 import notificationRouter from "./routes/notification.routes.js";
@@ -277,6 +278,7 @@ app.use("/api/pharmacy", pharmacyRouter);
 app.use("/api/prescriptions", prescriptionRouter);
 app.use("/api/lab-requests", labRouter);  // Lab request workflow (Radiology, Pathology)
 app.use("/api/shifts", shiftRouter);
+app.use("/api/calendar", calendarRouter);
 app.use("/api/seed", seedRouter);  // Seed data endpoint
 app.use("/api/clinical", clinicalRouter);
 

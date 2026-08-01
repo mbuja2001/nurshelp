@@ -17,7 +17,9 @@ import {
   recordMedicationAdministration,
   createSurgeryRecord,
   updateSurgeryRecord,
-  getSurgeryRecords
+  getSurgeryRecords,
+  getSurgeriesForPhysician,
+  getEncountersForPhysician
 } from "../controllers/encounter.controller.js";
 import { createHandover } from "../controllers/handover.controller.js";
 import { protect } from "../middleware/authmiddleware.js";
@@ -30,6 +32,12 @@ router.post("/", protect, startEncounter);
 
 // Waiting queue (must come BEFORE /:id so '/waiting' isn't treated as an id)
 router.get("/waiting", protect, getWaitingEncounters);
+
+// Get all encounters for a physician (aggregated)
+router.get("/physician/all", protect, getEncountersForPhysician);
+
+// Get all surgeries for a physician (aggregated)
+router.get("/physician/surgeries", protect, getSurgeriesForPhysician);
 
 // Clinician dashboard - get encounters assigned to a specific clinician
 // (must come BEFORE /:id so '/clinician' isn't treated as an id)

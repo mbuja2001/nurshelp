@@ -1602,11 +1602,11 @@ Update medications, procedures, or notes there.`);
             justifyContent: 'flex-end'
           }}>
             {[
-              { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => navigate('/calendar') },
-              { icon: <FaHistory />, label: 'History Actions', action: handleHistoryActions, badge: unreadNotificationsCount },
-              { icon: <FaFlask />, label: 'Lab Requests', action: () => bedModalData?._id ? handleRequestLabs(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('lab-requests') },
-              { icon: <FaCapsules />, label: 'Ordered Meds', action: () => navigate('/ordered-meds'), badge: orderedMedsCount },
-              { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => bedModalData?._id ? handleOpenSurgeryModal(bedModalData._id, bedModalData?.patientName) : goToDashboardToolsSection('scheduled-surgeries') }
+                { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => navigate('/calendar') },
+                { icon: <FaHistory />, label: 'History Actions', action: () => navigate('/history-actions'), badge: unreadNotificationsCount },
+                { icon: <FaFlask />, label: 'Lab Requests', action: () => navigate('/lab-requests') },
+                { icon: <FaCapsules />, label: 'Ordered Meds', action: () => navigate('/ordered-meds'), badge: orderedMedsCount },
+                { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => navigate('/scheduled-surgeries') }
             ].map((item) => (
               <button
                 key={item.label}

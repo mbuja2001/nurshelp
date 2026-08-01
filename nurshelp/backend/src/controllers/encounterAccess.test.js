@@ -42,6 +42,21 @@ test('allows a physician to view a hospitalized encounter when it is part of the
   assert.equal(canAccessEncounter(encounter, user), true);
 });
 
+test('allows access when the user is the triage-assigned physician', () => {
+  const encounter = {
+    nurse_id: 'nurse-1',
+    assignedPhysicianId: null,
+    assigned_physician: { id: 'physician-5', name: 'Dr. Adams' },
+    assigned_clinicians: [],
+    clinical_handovers: [],
+    status: 'TRIAGE_IN_PROGRESS'
+  };
+
+  const user = { _id: 'physician-5', role: 'PHYSICIAN' };
+
+  assert.equal(canAccessEncounter(encounter, user), true);
+});
+
 test('denies access when the user is not assigned to the encounter', () => {
   const encounter = {
     nurse_id: 'nurse-1',

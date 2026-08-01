@@ -1,4 +1,12 @@
-export const canAccessEncounter = (encounter, user) => {
+export const canAccessEncounter = (a, b) => {
+  // Support either signature: (encounter, user) OR (user, encounter)
+  let encounter = a;
+  let user = b;
+  if (a && a.role && b && (b.patient || b.surgery_records || b.assigned_physician)) {
+    // caller passed (user, encounter)
+    user = a;
+    encounter = b;
+  }
   if (!encounter || !user?._id) return false;
 
   if (encounter.nurse_id?.toString() === user._id.toString()) {
@@ -6,6 +14,14 @@ export const canAccessEncounter = (encounter, user) => {
   }
 
   if (encounter.assignedPhysicianId?.toString() === user._id.toString()) {
+    return true;
+  }
+
+  if (encounter.assigned_physician?.id?.toString() === user._id.toString()) {
+    return true;
+  }
+
+  if (encounter.triage?.assigned_physician?.id?.toString() === user._id.toString()) {
     return true;
   }
 

@@ -43,6 +43,9 @@ import StatisticsPage from "./Dashboard/Pages/StatisticsPage.jsx";
 import AdminSettingsPage from "./Dashboard/Pages/AdminSettingsPage.jsx";
 import IntegratedSchedule from "./Dashboard/Pages/IntegratedSchedule.jsx";
 import CalendarPage from "./Dashboard/Pages/CalendarPage.jsx";
+import HistoryActionsPage from "./Dashboard/Pages/HistoryActionsPage.jsx";
+import LabRequestsPage from "./Dashboard/Pages/LabRequestsPage.jsx";
+import ScheduledSurgeriesPage from "./Dashboard/Pages/ScheduledSurgeriesPage.jsx";
 import PrescriptionReport from "./components/DashboardPages/PrescriptionReport.jsx";
 import OrderedMeds from "./Dashboard/Pages/OrderedMeds.jsx";
 import LandingPage from "./LandingPage.jsx";
@@ -135,6 +138,9 @@ function App() {
           <Route path="/staff-chat" element={<StaffTeamChat />} />
           <Route path="/staff-team" element={<StaffTeamPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/history-actions" element={<HistoryActionsPage />} />
+          <Route path="/lab-requests" element={<LabRequestsPage />} />
+          <Route path="/scheduled-surgeries" element={<ScheduledSurgeriesPage />} />
           <Route path="/ordered-meds" element={<OrderedMeds />} />
           <Route path="/pathology" element={<PathologyDashboard />} />
           <Route path="/triaged" element={<TriagedPatients />} />

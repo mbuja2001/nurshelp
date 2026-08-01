@@ -1717,7 +1717,18 @@ export const createSurgeryRecord = async (req, res) => {
       return res.status(404).json({ message: 'Encounter not found' });
     }
 
-    const access = await canAccessEncounter(req.user, encounter);
+    let access = await canAccessEncounter(req.user, encounter);
+    // Allow physicians/surgeons to create surgery records for encounters within the same hospital
+    // even when not explicitly assigned (common workflow where surgeons schedule cases).
+    if (!access) {
+      const role = (req.user?.role || '').toString().toUpperCase();
+      const isPhysician = ['PHYSICIAN', 'DOCTOR', 'SURGEON', 'SPECIALIST'].includes(role);
+      const sameHospital = req.user?.hospitalId && encounter?.hospitalId && req.user.hospitalId.toString() === encounter.hospitalId.toString();
+      if (isPhysician && sameHospital) {
+        access = true;
+      }
+    }
+
     if (!access) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
@@ -1870,5 +1881,143 @@ export const getSurgeryRecords = async (req, res) => {
       message: 'Failed to retrieve surgery records',
       error: err.message
     });
+  }
+};
+
+/**
+ * Get all surgeries for a physician (aggregated across encounters)
+ * Supports filtering by status
+ */
+export const getSurgeriesForPhysician = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const hospitalId = req.user?.hospitalId || req.hospitalId;
+
+    if (!hospitalId) {
+      return res.status(400).json({ message: 'Hospital ID not found' });
+    }
+
+    // Build query to find encounters with surgeries
+    const query = {
+      hospitalId: hospitalId,
+      'surgery_records.0': { $exists: true } // has at least one surgery record
+    };
+
+    // Add status filter if provided
+    if (status) {
+      query['surgery_records.status'] = status;
+    }
+
+    // Find encounters with surgery records
+    const encounters = await Encounter.find(query).lean();
+
+    // Flatten surgeries with encounter context
+    const surgeries = [];
+    encounters.forEach(encounter => {
+      let surgeryRecords = encounter.surgery_records || [];
+
+      // Apply status filter
+      if (status) {
+        surgeryRecords = surgeryRecords.filter(s => s.status === status);
+      }
+
+      surgeryRecords.forEach(surgery => {
+        surgeries.push({
+          _id: surgery._id,
+          encounterId: encounter._id,
+          procedure_name: surgery.procedure_name || 'Surgery',
+          procedure_type: surgery.procedure_type,
+          priority: surgery.priority,
+          status: surgery.status,
+          scheduled_at: surgery.scheduled_at,
+          surgery_start: surgery.surgery_start,
+          surgery_end: surgery.surgery_end,
+          surgeon: surgery.surgeon,
+          theatre: surgery.theatre,
+          anesthesia: surgery.anesthesia,
+          findings: surgery.findings,
+          pre_op_notes: surgery.pre_op_notes,
+          post_op_notes: surgery.post_op_notes,
+          complications: surgery.complications,
+          estimated_duration: surgery.estimated_duration,
+          actual_duration: surgery.actual_duration,
+
+          // Encounter context
+          patientName: encounter.patient?.name || encounter.patientName || 'Unknown',
+          patientAge: encounter.patient?.age || 'N/A',
+          patientId: encounter.patient?.id_number || 'N/A',
+          diagnosis: encounter.diagnosis || '',
+          ward: encounter.assigned_ward?.name || 'N/A'
+        });
+      });
+    });
+
+    // Sort by scheduled_at (newest first)
+    surgeries.sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+
+    return res.status(200).json({
+      count: surgeries.length,
+      surgeries: surgeries
+    });
+  } catch (err) {
+    console.error('[ENCOUNTER CONTROLLER] getSurgeriesForPhysician error:', err);
+    return res.status(500).json({ message: 'Error fetching surgeries', error: err.message });
+  }
+};
+
+/**
+ * Get all encounters for a physician (aggregated)
+ * Encounters where physician is assigned or has active handovers
+ */
+export const getEncountersForPhysician = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const physicianId = req.user?.id || req.user?._id;
+    const hospitalId = req.user?.hospitalId || req.hospitalId;
+
+    if (!physicianId || !hospitalId) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    // Build query to find encounters for this physician
+    const query = {
+      hospitalId: hospitalId,
+      $or: [
+        { 'assigned_clinicians.id': new mongoose.Types.ObjectId(physicianId) },
+        { 'clinical_handovers.clinician_id': new mongoose.Types.ObjectId(physicianId) },
+        { 'assigned_physician.physician_id': new mongoose.Types.ObjectId(physicianId) }
+      ]
+    };
+
+    // Add status filter if provided
+    if (status) {
+      query.status = status;
+    }
+
+    const encounters = await Encounter.find(query)
+      .select('patient assigned_physician assigned_ward assigned_bed status diagnosis createdAt updatedAt patient triage')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Format encounters
+    const formatted = encounters.map(enc => ({
+      _id: enc._id,
+      patientName: enc.patient?.name || 'Unknown',
+      patientId: enc.patient?.id_number || 'N/A',
+      diagnosis: enc.diagnosis || '',
+      status: enc.status || 'AWAITING_PHYSICIAN',
+      ward: enc.assigned_ward?.name || 'N/A',
+      createdAt: enc.createdAt,
+      updatedAt: enc.updatedAt,
+      triageId: enc.triage?._id || null
+    }));
+
+    return res.status(200).json({
+      count: formatted.length,
+      encounters: formatted
+    });
+  } catch (err) {
+    console.error('[ENCOUNTER CONTROLLER] getEncountersForPhysician error:', err);
+    return res.status(500).json({ message: 'Error fetching encounters', error: err.message });
   }
 };
