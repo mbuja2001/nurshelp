@@ -315,23 +315,35 @@ export const getHospitalBedStats = async (req, res) => {
     console.log('[BEDS STATS] Found beds:', allBeds.length);
 
     // Normalize and calculate stats
-    const normalizedBeds = allBeds.map(bed => ({
-      ...bed,
-      status: bed.status ? bed.status.charAt(0) + bed.status.slice(1).toLowerCase() : 'Available'
-    }));
+    const normalizedBeds = beds.map(bed => {
+      // Build occupant summary but defensively ignore discharged encounters so
+      // the bed grid does not show patients who have already been discharged.
+      let occupantSummary = buildOccupantSummary(bed, bed.currentEncounterId);
 
-    const stats = {
-      total: allBeds.length,
-      available: normalizedBeds.filter(b => b.status === 'Available').length,
-      occupied: normalizedBeds.filter(b => b.status === 'Occupied').length,
-      cleaning: normalizedBeds.filter(b => b.status === 'Cleaning').length,
-      maintenance: normalizedBeds.filter(b => b.status === 'Maintenance').length,
-      occupancyRate: Math.round((normalizedBeds.filter(b => b.status === 'Occupied').length / (allBeds.length || 1)) * 100),
-      bedsByWard: wards.map(ward => ({
-        _id: ward._id,
-        wardName: ward.wardName,
-        totalBeds: ward.totalBeds || 0,
-        beds: normalizedBeds.filter(b => b.wardId?._id?.toString() === ward._id.toString() || b.wardId === ward._id)
+      try {
+        const encStatus = (bed.currentEncounterId && (bed.currentEncounterId.status || bed.currentEncounterId.status?.toString())) || null;
+        if (encStatus && String(encStatus).toUpperCase() === 'DISCHARGED') {
+          // Do not expose discharged encounter as the current occupant
+          occupantSummary = null;
+        }
+      } catch (err) {
+        // ignore and leave occupantSummary as-is on unexpected shapes
+      }
+
+      return {
+        ...bed,
+        status: bed.status ? bed.status.charAt(0) + bed.status.slice(1).toLowerCase() : 'Available',
+        bedId: bed.bedId || bed._id?.toString(),
+        bedType: bed.bedType || 'Standard',
+        currentEncounterId: occupantSummary,
+        lastCleanedAt: bed.lastCleanedAt || new Date(),
+        acuityLevel: bed.acuityLevel || 'MODERATE',
+        occupancyStartTime: bed.occupancyStartTime || null,
+        expectedDischargeTime: bed.expectedDischargeTime || null,
+        statusChangedAt: bed.statusChangedAt || null,
+        estimatedReadyTime: bed.estimatedReadyTime || null
+      };
+    });
       }))
     };
 
@@ -452,7 +464,7 @@ export const getLiveBedStatus = async (req, res) => {
         estimatedReadyTime: bed.estimatedReadyTime,
         occupancyStartTime: bed.occupancyStartTime,
         expectedDischargeTime: bed.expectedDischargeTime,
-        currentPatient: bed.currentEncounterId ? {
+        currentPatient: (bed.currentEncounterId && String((bed.currentEncounterId.status||'')).toUpperCase() !== 'DISCHARGED') ? {
           name: bed.currentEncounterId.patientName,
           id: bed.currentEncounterId.patient_id
         } : null
