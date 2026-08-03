@@ -68,3 +68,17 @@ test('buildOccupantSummary preserves the latest persisted diagnosis and vitals f
   assert.equal(summary.diagnosis, 'Septic shock');
   assert.deepEqual(summary.vitals, { temp: 38.1, hr: 112, o2: 94, bp: '102/68' });
 });
+
+test('buildOccupantSummary returns null for discharged encounters', () => {
+  const summary = buildOccupantSummary(
+    { currentEncounterId: 'enc-789' },
+    {
+      _id: 'enc-789',
+      patientName: 'David Lee',
+      status: 'DISCHARGED',
+      diagnosis: 'Recovered from pneumonia'
+    }
+  );
+
+  assert.equal(summary, null);
+});

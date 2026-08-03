@@ -207,7 +207,8 @@ export const getWardDetail = async (req, res) => {
 
     // Normalize bed data - convert statuses to titlecase and add proper mapping
     const normalizedBeds = beds.map(bed => {
-      const occupantSummary = buildOccupantSummary(bed, bed.currentEncounterId);
+      const hasDischargedEncounter = bed.currentEncounterId && String((bed.currentEncounterId.status || '')).toUpperCase() === 'DISCHARGED';
+      const occupantSummary = hasDischargedEncounter ? null : buildOccupantSummary(bed, bed.currentEncounterId);
 
       return {
         ...bed,
@@ -314,20 +315,16 @@ export const getHospitalBedStats = async (req, res) => {
     
     console.log('[BEDS STATS] Found beds:', allBeds.length);
 
-    // Normalize and calculate stats
-    const normalizedBeds = beds.map(bed => {
-      // Build occupant summary but defensively ignore discharged encounters so
-      // the bed grid does not show patients who have already been discharged.
+    const normalizedBeds = allBeds.map(bed => {
       let occupantSummary = buildOccupantSummary(bed, bed.currentEncounterId);
 
       try {
-        const encStatus = (bed.currentEncounterId && (bed.currentEncounterId.status || bed.currentEncounterId.status?.toString())) || null;
+        const encStatus = bed.currentEncounterId && (bed.currentEncounterId.status || bed.currentEncounterId.status?.toString());
         if (encStatus && String(encStatus).toUpperCase() === 'DISCHARGED') {
-          // Do not expose discharged encounter as the current occupant
           occupantSummary = null;
         }
       } catch (err) {
-        // ignore and leave occupantSummary as-is on unexpected shapes
+        // ignore unexpected encounter shape
       }
 
       return {
@@ -344,6 +341,19 @@ export const getHospitalBedStats = async (req, res) => {
         estimatedReadyTime: bed.estimatedReadyTime || null
       };
     });
+
+    const stats = {
+      total: normalizedBeds.length,
+      available: normalizedBeds.filter(b => b.status === 'Available').length,
+      occupied: normalizedBeds.filter(b => b.status === 'Occupied').length,
+      cleaning: normalizedBeds.filter(b => b.status === 'Cleaning').length,
+      maintenance: normalizedBeds.filter(b => b.status === 'Maintenance').length,
+      occupancyRate: Math.round((normalizedBeds.filter(b => b.status === 'Occupied').length / (normalizedBeds.length || 1)) * 100),
+      bedsByWard: wards.map(ward => ({
+        _id: ward._id,
+        wardName: ward.wardName,
+        totalBeds: ward.totalBeds || 0,
+        beds: normalizedBeds.filter(b => b.wardId?._id?.toString() === ward._id.toString() || b.wardId === ward._id)
       }))
     };
 
@@ -378,7 +388,7 @@ export const getLiveBedStatus = async (req, res) => {
 
     const beds = await BedSchedule.find(query)
       .populate("wardId", "wardName wardId department")
-      .populate("currentEncounterId", "patient_id patientName symptoms")
+      .populate("currentEncounterId", "patient_id patientName symptoms status")
       .lean();
 
     // Compute equipment usage counts from LabOrders (best-effort)

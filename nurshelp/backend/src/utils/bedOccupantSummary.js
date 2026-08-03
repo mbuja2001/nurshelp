@@ -15,6 +15,10 @@ export const extractPatientDisplayName = (encounter) => {
   );
 };
 
+const isDischargedEncounter = (encounter) => {
+  return encounter && typeof encounter === 'object' && String(encounter.status || '').toUpperCase() === 'DISCHARGED';
+};
+
 export const buildOccupantSummary = (bed, encounter) => {
   if (!encounter) {
     return bed.currentEncounterId
@@ -31,6 +35,10 @@ export const buildOccupantSummary = (bed, encounter) => {
           assignedNurseName: null
         }
       : null;
+  }
+
+  if (isDischargedEncounter(encounter)) {
+    return null;
   }
 
   const normalizedEncounter = typeof encounter === 'object' ? encounter : { _id: encounter };
