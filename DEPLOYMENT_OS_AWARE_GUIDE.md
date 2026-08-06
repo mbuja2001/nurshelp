@@ -1,13 +1,9 @@
 # OS-Aware & Hardware-Conditional Deployment Guide
 
 ## Quick Overview
-
-The updated `2_engine.py` now features:
-1. **OS-Aware Directory Detection** - Shows Windows vs Linux/macOS paths
-2. **5-Tier Conditional GGUF Configuration** - Tiers 0-4 for < 2GB to 32GB+ RAM
-3. **Minimal CPU Inference Optimization** - Adaptive parameters for weak laptops
-
----
+lets use this md to upgrade our server to have these capabilities. they were already there but we lost my best working up-to-date engine
+Through the mercy of God i had old versioned control engine. very old before perfecting the prompt. but i had the prompt algorighm locked and loaded safe kept so now we can upgrade it to bethe latest again. but sadly we have to stress test it which is bad because we had already won the old stress tests
+hopefuly it matches the level it once was
 
 ## Directory Structure by Operating System
 

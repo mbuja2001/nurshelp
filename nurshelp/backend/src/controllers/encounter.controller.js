@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import axios from "axios";
 import { Encounter } from "../models/encounter.model.js";
+import { BedSchedule } from "../models/bedSchedule.model.js";
 import { Vital } from "../models/vitals.model.js";
 import { canAccessEncounter } from "./encounterAccess.js";
 import { normalizeMedicationRequest, isMedicationRequestValid } from "../utils/medicationRequestUtils.js";
@@ -1541,12 +1542,17 @@ export const createInpatientProgressReport = async (req, res) => {
 // ----------------------
 // Update Patient Disposition
 // ----------------------
+const isPendingLabRequest = (request) => request && typeof request === 'object' && !['COMPLETED', 'DECLINED'].includes((request.status || '').toUpperCase());
+const isPendingMedicationRequest = (request) => request && typeof request === 'object' && !['DECLINED'].includes((request.status || '').toUpperCase());
+const isPendingMedicationAdministration = (admin) => admin && typeof admin === 'object' && !['ADMINISTERED', 'COMPLETED', 'DECLINED'].includes((admin.status || '').toUpperCase());
+const isBlockingSurgery = (surgery) => surgery && typeof surgery === 'object' && ['URGENT', 'EMERGENCY'].includes((surgery.surgery_type || '').toUpperCase()) && !['COMPLETED', 'CANCELLED'].includes((surgery.status || '').toUpperCase());
+
 export const updateDisposition = async (req, res) => {
   try {
     if (!req.user?._id) return res.status(401).json({ message: "Not authorized" });
     
     const { id } = req.params;
-    const { disposition, disposition_notes } = req.body; // disposition = "HOSPITALIZED" or "DISCHARGED"
+    const { disposition, disposition_notes, scheduled_at } = req.body; // disposition = "HOSPITALIZED" or "DISCHARGED"
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid encounter ID" });
@@ -1562,30 +1568,105 @@ export const updateDisposition = async (req, res) => {
       return res.status(404).json({ message: "Encounter not found" });
     }
 
-    // Update disposition
-    encounter.status = disposition;
+    const pendingLabs = (encounter.lab_requests || []).filter(isPendingLabRequest);
+    const pendingMedicationRequests = (encounter.medication_requests || []).filter(isPendingMedicationRequest);
+    const unadministeredMeds = (encounter.medication_administrations || []).filter(isPendingMedicationAdministration);
+    const blockingSurgeries = (encounter.surgery_records || []).filter(isBlockingSurgery);
+
+    if (disposition === 'DISCHARGED' && blockingSurgeries.length > 0) {
+      return res.status(400).json({
+        message: 'Discharge blocked because urgent or emergency surgery is still pending for this patient.',
+        details: {
+          blockingSurgeries: blockingSurgeries.map((s) => ({
+            procedure_name: s.procedure_name,
+            surgery_type: s.surgery_type,
+            status: s.status,
+            scheduled_at: s.scheduled_at
+          }))
+        }
+      });
+    }
+
+    const now = new Date();
+    const scheduleDate = scheduled_at ? new Date(scheduled_at) : null;
+    const hasFutureDischarge = scheduleDate instanceof Date && !Number.isNaN(scheduleDate.getTime()) && scheduleDate > now;
+
+    if (disposition === 'DISCHARGED' && hasFutureDischarge) {
+      encounter.discharge_scheduled_at = scheduleDate;
+      encounter.discharge_scheduled_by = req.user._id;
+      encounter.discharge_schedule_notes = disposition_notes || '';
+      encounter.disposition_notes = disposition_notes || '';
+      encounter.disposition_decided_at = now;
+      encounter.disposition_decided_by = req.user._id;
+
+      if (!encounter.status_history) {
+        encounter.status_history = [];
+      }
+      encounter.status_history.push({
+        status: encounter.status || 'HOSPITALIZED',
+        changed_by: req.user._id,
+        changed_at: now,
+        notes: `Discharge scheduled for ${scheduleDate.toISOString()}. ${disposition_notes || ''}`
+      });
+
+      if (encounter.assigned_bed && mongoose.Types.ObjectId.isValid(encounter.assigned_bed)) {
+        const bed = await BedSchedule.findById(encounter.assigned_bed);
+        if (bed) {
+          bed.expectedDischargeTime = scheduleDate;
+          await bed.save();
+        }
+      }
+
+      await encounter.save();
+      return res.status(200).json({
+        message: `Discharge scheduled for ${scheduleDate.toISOString()}`,
+        encounter: encounter.toObject(),
+        warnings: {
+          pendingLabs: pendingLabs.length,
+          pendingMedicationRequests: pendingMedicationRequests.length,
+          unadministeredMeds: unadministeredMeds.length
+        }
+      });
+    }
+
+    // Immediate discharge path
+    encounter.discharge_scheduled_at = null;
+    encounter.discharge_schedule_notes = '';
     encounter.disposition_notes = disposition_notes || '';
-    encounter.disposition_decided_at = new Date();
+    encounter.disposition_decided_at = now;
     encounter.disposition_decided_by = req.user._id;
-    
-    // Add to status history
+    encounter.status = disposition;
+
     if (!encounter.status_history) {
       encounter.status_history = [];
     }
     encounter.status_history.push({
       status: disposition,
       changed_by: req.user._id,
-      changed_at: new Date(),
+      changed_at: now,
       notes: `Patient ${disposition === 'HOSPITALIZED' ? 'admitted to hospital' : 'discharged'}. ${disposition_notes || ''}`
     });
-    
-    // Mark all handovers as COMPLETED
+
     encounter.clinical_handovers?.forEach(h => {
       if (h.is_active) {
         h.handover_status = 'COMPLETED';
       }
     });
-    
+
+    if (disposition === 'DISCHARGED' && encounter.assigned_bed && mongoose.Types.ObjectId.isValid(encounter.assigned_bed)) {
+      const bed = await BedSchedule.findById(encounter.assigned_bed);
+      if (bed) {
+        bed.status = 'CLEANING';
+        bed.statusChangedAt = now;
+        bed.currentEncounterId = null;
+        bed.assignedNurseId = null;
+        bed.occupancyStartTime = null;
+        bed.expectedDischargeTime = null;
+        bed.totalOccupancyCount = (bed.totalOccupancyCount || 0) + 1;
+        await bed.save();
+      }
+    }
+
     await encounter.save();
 
     console.log(`[Encounter] Patient disposition: ${disposition} for encounter ${id}`);
@@ -1593,7 +1674,12 @@ export const updateDisposition = async (req, res) => {
 
     return res.status(200).json({
       message: `Patient ${disposition === 'HOSPITALIZED' ? 'admitted' : 'discharged'} successfully`,
-      encounter: encounter.toObject()
+      encounter: encounter.toObject(),
+      warnings: {
+        pendingLabs: pendingLabs.length,
+        pendingMedicationRequests: pendingMedicationRequests.length,
+        unadministeredMeds: unadministeredMeds.length
+      }
     });
   } catch (err) {
     console.error("Disposition Error:", err);

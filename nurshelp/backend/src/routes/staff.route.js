@@ -17,6 +17,9 @@ import {
   debugTodayRecords,
   getClockHistory,
   getAvailableShifts,
+  getStaffProfile,
+  updateStaffProfile,
+  updateStaffShift,
   requestBreak,
   approveLateArrival,
   approveBreakRequest,
@@ -176,6 +179,41 @@ router.get(
   protect,
   authorize('NURSE', 'PHYSICIAN'),
   getAvailableShifts
+);
+
+/**
+ * Get staff profile
+ * GET /api/staff/profile
+ * Protected: NURSE, PHYSICIAN only
+ */
+router.get(
+  "/profile",
+  protect,
+  authorize('NURSE', 'PHYSICIAN'),
+  getStaffProfile
+);
+
+/**
+ * Update staff profile
+ * PATCH /api/staff/profile
+ * Protected: NURSE, PHYSICIAN only
+ */
+router.patch(
+  "/profile",
+  protect,
+  authorize('NURSE', 'PHYSICIAN'),
+  updateStaffProfile
+);
+
+/**
+ * Update today's shift for authenticated staff
+ * PATCH /api/staff/shift
+ */
+router.patch(
+  "/shift",
+  protect,
+  authorize('NURSE', 'PHYSICIAN'),
+  updateStaffShift
 );
 
 /**

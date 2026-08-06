@@ -757,6 +757,40 @@ export const getClockHistory = async (req, res) => {
   }
 };
 
+const computeExpectedHours = (shiftStart, shiftEnd) => {
+  if (!shiftStart || !shiftEnd) return 8;
+
+  const [startHour, startMin] = shiftStart.split(":").map(Number);
+  const [endHour, endMin] = shiftEnd.split(":").map(Number);
+  if (Number.isNaN(startHour) || Number.isNaN(endHour)) return 8;
+
+  const start = new Date();
+  start.setHours(startHour, startMin || 0, 0, 0);
+  const end = new Date();
+  end.setHours(endHour, endMin || 0, 0, 0);
+  if (end <= start) {
+    end.setDate(end.getDate() + 1);
+  }
+
+  return Math.max(1, Math.round((end - start) / (1000 * 60 * 60)));
+};
+
+const buildStaffProfile = (staff, schedule) => ({
+  firstName: staff.firstName || staff.name || '',
+  lastName: staff.lastName || staff.surname || '',
+  idNumber: staff.credentials?.licenseNumber || staff.licenseNumber || staff._id?.toString(),
+  employeeId: staff.credentials?.npiNumber || staff.npiNumber || staff._id?.toString(),
+  role: staff.systemRole || staff.role || 'NURSE',
+  department: staff.assignment?.department || staff.department || 'Nursing',
+  shift: {
+    expectedHours: schedule?.expectedHours || computeExpectedHours(schedule?.shiftStart, schedule?.shiftEnd),
+    signIn: schedule?.shiftStart || '',
+    signOut: schedule?.shiftEnd || ''
+  },
+  createdAt: staff.createdAt,
+  updatedAt: staff.updatedAt
+});
+
 // ----------------------
 // GET AVAILABLE SHIFTS
 // ----------------------
@@ -773,23 +807,22 @@ export const getAvailableShifts = async (req, res) => {
     today.setHours(0, 0, 0, 0);
     const sevenDaysLater = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // Find shifts for this staff member
     const shifts = await NurseSchedule.find({
-      nurseId: staffId,
+      nurseId: staffId.toString(),
       date: { $gte: today, $lt: sevenDaysLater },
       status: { $in: ["ON_DUTY", "ON_CALL"] }
     }).sort({ date: 1 });
 
-    // Hydrate with shift details
     const shiftsWithDetails = shifts.map(shift => ({
       _id: shift._id,
       date: shift.date,
       status: shift.status,
       shiftStart: shift.shiftStart,
       shiftEnd: shift.shiftEnd,
+      expectedHours: shift.expectedHours || computeExpectedHours(shift.shiftStart, shift.shiftEnd),
       breakStart: shift.breakStart,
       breakEnd: shift.breakEnd,
-      location: "ED", // Default location
+      location: "ED",
       maxBeds: shift.maxBeds,
       assignedBeds: shift.assignedBeds || [],
       currentBedCount: shift.currentBedCount || 0,
@@ -805,6 +838,138 @@ export const getAvailableShifts = async (req, res) => {
 
   } catch (err) {
     console.error("GET AVAILABLE SHIFTS ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const getStaffProfile = async (req, res) => {
+  try {
+    const staffId = req.user?._id;
+    if (!staffId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const staff = await ClinicalStaff.findById(staffId).select('-password').lean();
+    if (!staff) {
+      return res.status(404).json({ message: "Staff profile not found" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    const schedule = await NurseSchedule.findOne({
+      nurseId: staffId.toString(),
+      date: { $gte: today, $lt: tomorrow }
+    }).lean();
+
+    res.status(200).json(buildStaffProfile(staff, schedule));
+  } catch (err) {
+    console.error("GET STAFF PROFILE ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const updateStaffProfile = async (req, res) => {
+  try {
+    const staffId = req.user?._id;
+    if (!staffId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { firstName, lastName, idNumber, employeeId } = req.body;
+    const update = {};
+
+    if (firstName !== undefined) update.firstName = firstName;
+    if (lastName !== undefined) update.lastName = lastName;
+    if (idNumber !== undefined) {
+      update.credentials = {
+        ...(req.user.credentials || {}),
+        licenseNumber: idNumber
+      };
+    }
+    if (employeeId !== undefined) {
+      update.credentials = {
+        ...(update.credentials || req.user.credentials || {}),
+        npiNumber: employeeId
+      };
+    }
+
+    const updatedStaff = await ClinicalStaff.findByIdAndUpdate(
+      staffId,
+      { $set: update },
+      { new: true, runValidators: true, context: 'query' }
+    ).select('-password').lean();
+
+    if (!updatedStaff) {
+      return res.status(404).json({ message: "Staff profile not found" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    const schedule = await NurseSchedule.findOne({
+      nurseId: staffId.toString(),
+      date: { $gte: today, $lt: tomorrow }
+    }).lean();
+
+    res.status(200).json(buildStaffProfile(updatedStaff, schedule));
+  } catch (err) {
+    console.error("UPDATE STAFF PROFILE ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const updateStaffShift = async (req, res) => {
+  try {
+    const staffId = req.user?._id;
+    if (!staffId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { expectedHours, signIn, signOut } = req.body;
+    if (!signIn) {
+      return res.status(400).json({ message: "signIn is required" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+    let schedule = await NurseSchedule.findOne({
+      nurseId: staffId.toString(),
+      date: { $gte: today, $lt: tomorrow }
+    });
+
+    const scheduleData = {
+      nurseId: staffId.toString(),
+      name: req.user.firstName || req.user.name || '',
+      surname: req.user.lastName || req.user.surname || '',
+      email: req.user.email || '',
+      licenseNumber: req.user.credentials?.licenseNumber || req.user.npiNumber || '',
+      date: today,
+      status: "ON_DUTY",
+      shiftStart: signIn,
+      shiftEnd: signOut || '',
+      expectedHours: expectedHours ? parseInt(expectedHours, 10) : computeExpectedHours(signIn, signOut)
+    };
+
+    if (!schedule) {
+      schedule = new NurseSchedule(scheduleData);
+    } else {
+      Object.assign(schedule, scheduleData);
+    }
+
+    await schedule.save();
+
+    res.status(200).json({
+      expectedHours: schedule.expectedHours,
+      signIn: schedule.shiftStart,
+      signOut: schedule.shiftEnd
+    });
+  } catch (err) {
+    console.error("UPDATE STAFF SHIFT ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };

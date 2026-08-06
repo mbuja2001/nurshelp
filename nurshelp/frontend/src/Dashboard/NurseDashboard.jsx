@@ -2,9 +2,9 @@ import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { severityFromReport, waitStartFor, computePriority, formatWaitDetailed, normalizePatient, formatTimestamp } from "../utils/priority";
 import { styles } from "./styles";
-import { FiUser, FiFileText, FiCheckSquare, FiHome, FiSettings, FiUsers, FiBarChart2, FiClock } from 'react-icons/fi';
+import { FiUser, FiFileText, FiCheckSquare, FiHome, FiSettings, FiUsers, FiBarChart2, FiClock, FiPlusCircle } from 'react-icons/fi';
 import { MdLibraryBooks } from 'react-icons/md';
-import { FaBed } from 'react-icons/fa';
+import { FaBed, FaSearch, FaHistory } from 'react-icons/fa';
 import nhpLogo from './NHP_Icon.png';
 import SidebarLayout from './SidebarLayout';
 import { useUserFromToken } from '../hooks/useUserFromToken';
@@ -456,7 +456,7 @@ const NurseDashboard = ({
     return `${m}m`;
   };
 
-  
+  const currentTime = new Date(now);
 
   const severityColor = (sev) => {
     if (sev === 1) return "#ef4444";  // RED
@@ -1024,61 +1024,102 @@ const NurseDashboard = ({
       ) : (
         <>
           <div style={{ marginBottom: 24, display: 'grid', gap: 20 }}>
-            <div style={{
+            <header style={{
               padding: '24px',
               background: 'linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%)',
               borderRadius: 12,
               border: '1px solid #e2e8f0',
               boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
               display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
               justifyContent: 'space-between',
-              gap: 16
+              alignItems: 'flex-start',
+              flexWrap: 'wrap',
+              gap: 20
             }}>
-              <div>
+              <div style={{ minWidth: '280px' }}>
                 <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 800, color: '#0f172a' }}>Triage Nurse Dashboard</h1>
                 <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>
                   {userName} • {assignedContext || 'ER'}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, minWidth: '260px' }}>
                 <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 14px',
-                  borderRadius: '999px',
-                  background: '#ffffff',
-                  color: '#0f172a',
-                  border: '1px solid #dbeafe',
-                  fontWeight: 700,
-                  fontSize: '13px'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-end',
+                  gap: 8
                 }}>
-                  <FiClock size={14} />
-                  {currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Shift pending'}
-                  <span style={{ color: '#64748b', fontWeight: 600 }}>
-                    •
-                  </span>
-                  {currentRecord?.clockOutTime ? new Date(currentRecord.clockOutTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <FiClock /> Shift: {currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Pending'} - {currentRecord?.clockOutTime ? new Date(currentRecord.clockOutTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}
+                  </div>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 14px',
+                    borderRadius: '999px',
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.12)',
+                    fontSize: '12px',
+                    fontWeight: 700
+                  }}>
+                    <FiClock size={14} />
+                    {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+                    <span style={{ color: '#93c5fd' }}>•</span>
+                    <span>{currentTime.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                  </div>
                 </div>
+
                 <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 14px',
-                  borderRadius: '999px',
-                  background: '#ffffff',
-                  color: '#0f172a',
-                  border: '1px solid #dbeafe',
-                  fontWeight: 700,
-                  fontSize: '13px'
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  flexDirection: 'row-reverse',
+                  justifyContent: 'flex-end',
+                  gap: '10px',
+                  marginTop: '12px'
                 }}>
-                  <FiClock size={14} />
-                  {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  {[
+                
+                    { icon: <FiUsers />, label: 'Assigned Patients', action: () => navigate('/triaged') },
+                    { icon: <FaSearch />, label: 'EHR Search', action: () => navigate('/ehr') },
+                    { icon: <FiPlusCircle size={14} />, label: 'Triage New Patient', action: handleNewIntake },
+                    { icon: <FaBed />, label: 'Bed Allocation', action: () => navigate('/beds') },
+                    { icon: <FiUsers />, label: 'Available Specialists', action: () => navigate('/staff-team') },
+                    { icon: <FaHistory />, label: 'History Actions', action: () => navigate('/history-actions') }
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      onClick={item.action}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '10px 14px',
+                        background: '#ffffff',
+                        color: '#0f172a',
+                        border: '1px solid #dbeafe',
+                        borderRadius: '999px',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        boxShadow: '0 1px 2px rgba(15,23,42,0.06)'
+                      }}
+                    >
+                      <span style={{ fontSize: '14px' }}>{item.icon}</span>
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
+            </header>
 
             <div style={{
               display: 'grid',
@@ -1669,13 +1710,6 @@ const NurseDashboard = ({
             </>
           )}
 
-          <div style={styles.actionBox}>
-            {triageAllowed ? (
-              <button onClick={handleNewIntake} style={styles.btnLarge}>New Intake</button>
-            ) : (
-              <button disabled title="Clock in to triage" style={{ ...styles.btnLarge, opacity: 0.6, cursor: 'not-allowed' }}>New Intake</button>
-            )}
-          </div>
         </div>
 
         {triageAllowed ? (

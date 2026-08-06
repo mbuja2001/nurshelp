@@ -136,6 +136,13 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     surgical_team: '',
     notes: ''
   });
+  const [showDischargeModal, setShowDischargeModal] = useState(false);
+  const [submittingDischarge, setSubmittingDischarge] = useState(false);
+  const [dischargeChecks, setDischargeChecks] = useState(null);
+  const [dischargeForm, setDischargeForm] = useState({
+    scheduled_at: '',
+    disposition_notes: ''
+  });
 
   const navigate = useNavigate();
 
@@ -458,6 +465,11 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       progression_notes: normalizedEncounter.progression_notes || [],
       medication_requests: normalizedEncounter.medication_requests || normalizedEncounter.medicationRequests || [],
       medication_administrations: normalizedEncounter.medication_administrations || normalizedEncounter.medicationAdministrations || [],
+      lab_requests: normalizedEncounter.lab_requests || normalizedEncounter.labRequests || [],
+      surgery_records: normalizedEncounter.surgery_records || normalizedEncounter.surgeryRecords || [],
+      discharge_scheduled_at: normalizedEncounter.discharge_scheduled_at || normalizedEncounter.dischargeScheduledAt || null,
+      discharge_scheduled_by: normalizedEncounter.discharge_scheduled_by || normalizedEncounter.dischargeScheduledBy || null,
+      discharge_schedule_notes: normalizedEncounter.discharge_schedule_notes || normalizedEncounter.dischargeScheduleNotes || '',
       triageSummary: normalizedEncounter.triage?.aiTriageReport?.ai_summary || normalizedEncounter.ai_triage_report?.ai_summary || normalizedEncounter.triage?.summary || normalizedEncounter.summary || '',
       severity: normalizedSeverity,
       vitals,
@@ -941,16 +953,35 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
 
   // ============ DISCHARGE PATIENT ============
   const handleDischarge = async (encounterId, patientName) => {
+    if (!encounterId) {
+      alert('Unable to schedule discharge: missing encounter identifier');
+      return;
+    }
+
+    setDischargeChecks(null);
+    setDischargeForm({
+      scheduled_at: new Date().toISOString().slice(0, 16),
+      disposition_notes: `Discharge scheduled by ${userInfo.name || 'physician'}`
+    });
+    setShowDischargeModal(true);
+  };
+
+  const handleSubmitDischarge = async () => {
+    if (!bedModalData?._id) {
+      alert('Unable to schedule discharge: missing encounter data');
+      return;
+    }
+
+    if (!dischargeForm.scheduled_at) {
+      alert('Please select a discharge date and time');
+      return;
+    }
+
+    setSubmittingDischarge(true);
+    setDischargeChecks(null);
     try {
-      if (!window.confirm(`Discharge ${patientName || 'this patient'}?`)) {
-        return;
-      }
-
-      console.log('[PHYSICIAN DISCHARGE] Discharging patient:', patientName, 'encounter:', encounterId);
-      setHospitalizing(prev => ({ ...prev, [encounterId]: true }));
       const token = localStorage.getItem('token');
-
-      const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}/disposition`, {
+      const res = await fetch(`${BACKEND_URL}/api/encounters/${bedModalData._id}/disposition`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -958,26 +989,40 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
         },
         body: JSON.stringify({
           disposition: 'DISCHARGED',
-          disposition_notes: `Discharged by ${userInfo.name || 'physician'}`
+          disposition_notes: dischargeForm.disposition_notes || `Discharge scheduled by ${userInfo.name || 'physician'}`,
+          scheduled_at: dischargeForm.scheduled_at
         })
       });
 
+      const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.error('[PHYSICIAN DISCHARGE] Error response:', errData);
-        throw new Error(errData.message || 'Failed to discharge patient');
+        console.error('[PHYSICIAN DISCHARGE] Error response:', payload);
+        setDischargeChecks({
+          blocked: true,
+          message: payload.message || 'Failed to schedule discharge',
+          details: payload.details || null,
+          warnings: payload.warnings || null
+        });
+        throw new Error(payload.message || 'Failed to schedule discharge');
       }
 
-      const responseData = await res.json();
-      console.log('[PHYSICIAN DISCHARGE] Success:', responseData);
-      alert(`✓ ${patientName} discharged successfully`);
+      setDischargeChecks({
+        blocked: false,
+        message: payload.message || `Discharge scheduled for ${new Date(dischargeForm.scheduled_at).toLocaleString()}`,
+        warnings: payload.warnings || null
+      });
+
+      alert(`✓ Discharge scheduled for ${new Date(dischargeForm.scheduled_at).toLocaleString()}`);
+      setShowDischargeModal(false);
+      setDischargeForm({ scheduled_at: '', disposition_notes: '' });
       await fetchAssignedPatients();
+      await fetchWardsAndBeds();
       await refreshBedModalData();
     } catch (err) {
       console.error('[PHYSICIAN DISCHARGE] Error:', err);
       alert(`Error: ${err.message}`);
     } finally {
-      setHospitalizing(prev => ({ ...prev, [encounterId]: false }));
+      setSubmittingDischarge(false);
     }
   };
 
@@ -3413,6 +3458,151 @@ Update medications, procedures, or notes there.`);
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showDischargeModal && bedModalData && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(2, 8, 23, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1300,
+          padding: '20px'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '500px',
+            padding: '24px',
+            borderRadius: '24px',
+            background: 'linear-gradient(180deg, rgba(7, 18, 36, 0.98), rgba(4, 11, 25, 0.98))',
+            border: '1px solid rgba(255,255,255,0.1)',
+            boxShadow: '0 24px 80px rgba(0,0,0,0.45)'
+          }}>
+            <p style={{ margin: 0, fontSize: '12px', color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700 }}>
+              Schedule Discharge
+            </p>
+            <h3 style={{ margin: '12px 0 0 0', color: '#f8fafc', fontSize: '22px' }}>
+              Discharge patient from bed
+            </h3>
+            <p style={{ margin: '10px 0 0 0', color: '#cbd5e1', fontSize: '14px', lineHeight: 1.6 }}>
+              Select a date and time to schedule discharge. The system will block discharge if pending urgent or emergency surgery is present.
+            </p>
+            <div style={{ marginTop: '20px', display: 'grid', gap: '16px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: '#cbd5e1', fontSize: '13px' }}>
+                Scheduled discharge
+                <input
+                  type="datetime-local"
+                  value={dischargeForm.scheduled_at}
+                  onChange={e => setDischargeForm(prev => ({ ...prev, scheduled_at: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid rgba(148,163,184,0.25)',
+                    background: 'rgba(15,23,42,0.95)',
+                    color: '#f8fafc'
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '8px', color: '#cbd5e1', fontSize: '13px' }}>
+                Notes
+                <textarea
+                  rows={3}
+                  value={dischargeForm.disposition_notes}
+                  onChange={e => setDischargeForm(prev => ({ ...prev, disposition_notes: e.target.value }))}
+                  placeholder="Add optional discharge notes..."
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px',
+                    borderRadius: '14px',
+                    border: '1px solid rgba(148,163,184,0.25)',
+                    background: 'rgba(15,23,42,0.95)',
+                    color: '#f8fafc',
+                    resize: 'vertical'
+                  }}
+                />
+              </label>
+
+              <div style={{ padding: '18px', borderRadius: '18px', background: '#0f172a', border: '1px solid rgba(56,189,248,0.18)' }}>
+                <div style={{ marginBottom: '10px', fontSize: '12px', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Discharge readiness checks</div>
+                <div style={{ display: 'grid', gap: '10px', color: '#cbd5e1', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>Pending lab requests</span>
+                    <strong>{bedModalData?.lab_requests?.filter((item) => item && !['COMPLETED', 'DECLINED'].includes((item.status || '').toUpperCase())).length || 0}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>Ordered meds not yet administered</span>
+                    <strong>{bedModalData?.medication_administrations?.filter((item) => item && !['ADMINISTERED', 'COMPLETED', 'DECLINED'].includes((item.status || '').toUpperCase())).length || 0}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>Pending medication orders</span>
+                    <strong>{bedModalData?.medication_requests?.filter((item) => item && !['COMPLETED', 'DECLINED'].includes((item.status || '').toUpperCase())).length || 0}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>Urgent/Emergency surgeries pending</span>
+                    <strong>{bedModalData?.surgery_records?.filter((item) => item && ['URGENT', 'EMERGENCY'].includes((item.surgery_type || '').toUpperCase()) && !['COMPLETED', 'CANCELLED'].includes((item.status || '').toUpperCase())).length || 0}</strong>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                    Pending labs and medications can often be managed after discharge if clinically appropriate. Discharge is only blocked when urgent or emergency surgery is still pending.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' }}>
+              <button
+                onClick={() => setShowDischargeModal(false)}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '999px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#cbd5e1',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitDischarge}
+                disabled={submittingDischarge || !dischargeForm.scheduled_at}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '999px',
+                  border: 'none',
+                  background: submittingDischarge || !dischargeForm.scheduled_at ? '#4b5563' : '#2563eb',
+                  color: 'white',
+                  cursor: submittingDischarge || !dischargeForm.scheduled_at ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {submittingDischarge ? 'Scheduling…' : 'Schedule Discharge'}
+              </button>
+            </div>
+            {dischargeChecks && (
+              <div style={{ marginTop: '16px', padding: '16px', borderRadius: '18px', background: dischargeChecks.blocked ? 'rgba(254, 226, 226, 0.9)' : 'rgba(220, 248, 198, 0.9)', border: dischargeChecks.blocked ? '1px solid #fca5a5' : '1px solid #34d399', color: dischargeChecks.blocked ? '#b91c1c' : '#166534' }}>
+                <div style={{ fontWeight: 700, marginBottom: '8px' }}>
+                  {dischargeChecks.blocked ? 'Discharge check blocked' : 'Discharge check completed'}
+                </div>
+                <div style={{ fontSize: '13px', lineHeight: 1.6 }}>
+                  {dischargeChecks.message}
+                </div>
+                {dischargeChecks.details?.blockingSurgeries?.length > 0 && (
+                  <div style={{ marginTop: '10px' }}>
+                    <div style={{ fontWeight: 700 }}>Urgent/Emergency surgeries still pending:</div>
+                    <ul style={{ margin: '8px 0 0 16px', padding: 0, listStyleType: 'disc' }}>
+                      {dischargeChecks.details.blockingSurgeries.map((surgery, index) => (
+                        <li key={index} style={{ marginBottom: '6px', fontSize: '13px' }}>
+                          {surgery.procedure_name || 'Scheduled surgery'} • {surgery.surgery_type} • {new Date(surgery.scheduled_at).toLocaleString()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

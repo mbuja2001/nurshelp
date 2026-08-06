@@ -29,82 +29,30 @@ const Profile = ({ nurseName: initialNurseName }) => {
   const fetchNurseProfile = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/api/nurse/profile`, {
+      const response = await fetch(`${BACKEND_URL}/api/staff/profile`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
       });
-      if (response.ok) {
-        const data = await response.json();
-        setNurse(data);
-        setEditForm({
-          firstName: data.firstName || '',
-          lastName: data.lastName || '',
-          idNumber: data.idNumber || '',
-          employeeId: data.employeeId || '',
-        });
-        setShiftForm({
-          expectedHours: data.shift?.expectedHours || 8,
-          shiftSignIn: data.shift?.signIn || '',
-          shiftSignOut: data.shift?.signOut || '',
-        });
-      } else {
-        // Fallback: Generate mock nurse profile
-        const mockNurse = {
-          _id: 'nurse_001',
-          firstName: initialNurseName?.split(' ')[0] || 'Sarah',
-          lastName: initialNurseName?.split(' ')[1] || 'Johnson',
-          idNumber: 'NID-2024-0891',
-          employeeId: 'EMP-ED-089',
-          role: 'ED Nurse',
-          department: 'Emergency Department',
-          shift: {
-            expectedHours: 12,
-            signIn: new Date(Date.now() - 3600000).toISOString().slice(0, 16),
-            signOut: '',
-          },
-          createdAt: new Date().toISOString(),
-        };
-        setNurse(mockNurse);
-        setEditForm({
-          firstName: mockNurse.firstName,
-          lastName: mockNurse.lastName,
-          idNumber: mockNurse.idNumber,
-          employeeId: mockNurse.employeeId,
-        });
-        setShiftForm({
-          expectedHours: mockNurse.shift.expectedHours,
-          shiftSignIn: mockNurse.shift.signIn,
-          shiftSignOut: mockNurse.shift.signOut,
-        });
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.message || 'Failed to load nurse profile');
       }
-    } catch (error) {
-      console.error('Error fetching nurse profile:', error);
-      // Fallback mock data
-      const mockNurse = {
-        _id: 'nurse_001',
-        firstName: 'Sarah',
-        lastName: 'Johnson',
-        idNumber: 'NID-2024-0891',
-        employeeId: 'EMP-ED-089',
-        role: 'ED Nurse',
-        department: 'Emergency Department',
-        shift: {
-          expectedHours: 12,
-          signIn: new Date(Date.now() - 3600000).toISOString().slice(0, 16),
-          signOut: '',
-        },
-      };
-      setNurse(mockNurse);
+
+      const data = await response.json();
+      setNurse(data);
       setEditForm({
-        firstName: mockNurse.firstName,
-        lastName: mockNurse.lastName,
-        idNumber: mockNurse.idNumber,
-        employeeId: mockNurse.employeeId,
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
+        idNumber: data.idNumber || '',
+        employeeId: data.employeeId || '',
       });
       setShiftForm({
-        expectedHours: mockNurse.shift.expectedHours,
-        shiftSignIn: mockNurse.shift.signIn,
-        shiftSignOut: mockNurse.shift.signOut,
+        expectedHours: data.shift?.expectedHours || 8,
+        shiftSignIn: data.shift?.signIn || '',
+        shiftSignOut: data.shift?.signOut || '',
       });
+    } catch (error) {
+      console.error('Error fetching nurse profile:', error);
+      setErrorMessage(error.message || 'Unable to load profile.');
     } finally {
       setLoading(false);
     }
@@ -161,7 +109,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/nurse/profile`, {
+      const response = await fetch(`${BACKEND_URL}/api/staff/profile`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -170,38 +118,19 @@ const Profile = ({ nurseName: initialNurseName }) => {
         body: JSON.stringify(editForm),
       });
 
-      if (response.ok) {
-        const updatedNurse = await response.json();
-        setNurse(updatedNurse);
-        setSuccessMessage('Profile updated successfully');
-        setTimeout(() => setSuccessMessage(''), 3000);
-        closeEditModal();
-      } else {
-        // Mock success for demo
-        setNurse({
-          ...nurse,
-          firstName: editForm.firstName,
-          lastName: editForm.lastName,
-          idNumber: editForm.idNumber,
-          employeeId: editForm.employeeId,
-        });
-        setSuccessMessage('Profile updated successfully');
-        setTimeout(() => setSuccessMessage(''), 3000);
-        closeEditModal();
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.message || 'Unable to update profile');
       }
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      // Mock success
-      setNurse({
-        ...nurse,
-        firstName: editForm.firstName,
-        lastName: editForm.lastName,
-        idNumber: editForm.idNumber,
-        employeeId: editForm.employeeId,
-      });
+
+      const updatedNurse = await response.json();
+      setNurse(updatedNurse);
       setSuccessMessage('Profile updated successfully');
       setTimeout(() => setSuccessMessage(''), 3000);
       closeEditModal();
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      setErrorMessage(error.message || 'Unable to update profile');
     }
   };
 
@@ -217,7 +146,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/nurse/shift`, {
+      const response = await fetch(`${BACKEND_URL}/api/staff/shift`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -230,43 +159,22 @@ const Profile = ({ nurseName: initialNurseName }) => {
         }),
       });
 
-      if (response.ok) {
-        const updatedShift = await response.json();
-        setNurse({
-          ...nurse,
-          shift: updatedShift,
-        });
-        setSuccessMessage('Shift updated successfully');
-        setTimeout(() => setSuccessMessage(''), 3000);
-        closeShiftModal();
-      } else {
-        // Mock success
-        setNurse({
-          ...nurse,
-          shift: {
-            expectedHours: parseInt(shiftForm.expectedHours),
-            signIn: shiftForm.shiftSignIn,
-            signOut: shiftForm.shiftSignOut,
-          },
-        });
-        setSuccessMessage('Shift updated successfully');
-        setTimeout(() => setSuccessMessage(''), 3000);
-        closeShiftModal();
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.message || 'Unable to update shift');
       }
-    } catch (error) {
-      console.error('Error updating shift:', error);
-      // Mock success
+
+      const updatedShift = await response.json();
       setNurse({
         ...nurse,
-        shift: {
-          expectedHours: parseInt(shiftForm.expectedHours),
-          signIn: shiftForm.shiftSignIn,
-          signOut: shiftForm.shiftSignOut,
-        },
+        shift: updatedShift,
       });
       setSuccessMessage('Shift updated successfully');
       setTimeout(() => setSuccessMessage(''), 3000);
       closeShiftModal();
+    } catch (error) {
+      console.error('Error updating shift:', error);
+      setErrorMessage(error.message || 'Unable to update shift');
     }
   };
 

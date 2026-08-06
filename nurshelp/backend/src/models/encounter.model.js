@@ -308,6 +308,10 @@ const encounterSchema = new mongoose.Schema({
   handover_completed: { type: Boolean, default: false }, // All assigned clinicians have been notified
   handover_completed_at: Date,
 
+  discharge_scheduled_at: { type: Date, default: null },
+  discharge_scheduled_by: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
+  discharge_schedule_notes: { type: String, default: '' },
+
   status: { 
     type: String, 
     enum: [

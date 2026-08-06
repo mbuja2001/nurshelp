@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const nurseScheduleSchema = new mongoose.Schema({
   // Nurse info
-  nurseId: { type: String, required: true, unique: true },
+  nurseId: { type: String, required: true, index: true },
   nurseProfileId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'NurseProfile',
@@ -23,6 +23,7 @@ const nurseScheduleSchema = new mongoose.Schema({
   // Shift timing
   shiftStart: { type: String }, // e.g., "07:00" (24-hour format)
   shiftEnd: { type: String },   // e.g., "19:00"
+  expectedHours: { type: Number, default: 8 },
   breakStart: { type: String }, // e.g., "12:00" (break/lunch start)
   breakEnd: { type: String },   // e.g., "13:00" (break/lunch end)
   
