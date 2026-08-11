@@ -15,6 +15,7 @@ import OfficialTriageReport from "./PatientSummary/OfficialTriageReport.jsx";
 import DoctorTriageReport from "./PatientSummary/DoctorTriageReport.jsx";
 import InpatientReport from "./PatientSummary/InpatientReport.jsx";
 import NurseConfirmedReportView from "./PatientSummary/NurseConfirmedReportView.jsx";
+import ManualTriageReport from "./PatientSummary/manualtriagereport.jsx";
 import AssignPatientaWardAndBed from "./PatientSummary/AssignPatientaWardAndBed.jsx";
 import ReferenceCase from "./PatientSummary/ReferenceCase.jsx";
 import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
@@ -48,6 +49,7 @@ import LabRequestsPage from "./Dashboard/Pages/LabRequestsPage.jsx";
 import ScheduledSurgeriesPage from "./Dashboard/Pages/ScheduledSurgeriesPage.jsx";
 import PrescriptionReport from "./components/DashboardPages/PrescriptionReport.jsx";
 import OrderedMeds from "./Dashboard/Pages/OrderedMeds.jsx";
+import DischargeReportPage from "./Dashboard/Pages/DischargeReportPage.jsx";
 import LandingPage from "./LandingPage.jsx";
 import Team from "./LandingPages/Team.jsx";
 import WhatWeDo from "./LandingPages/WhatWeDo.jsx";
@@ -91,6 +93,7 @@ function App() {
 
           {/* CREATE (intake) */}
           <Route path="/summary/new" element={<PS />} />
+          <Route path="/manual-triage-report" element={<ManualTriageReport />} />
 
           {/* DIAGNOSIS WORKFLOW */}
           <Route path="/diagnose/:id" element={<DiagnosePage />} />
@@ -153,6 +156,7 @@ function App() {
           <Route path="/help" element={<Help />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/prescription/:prescriptionId" element={<PrescriptionReport />} />
+          <Route path="/discharge-report/:encounterId" element={<DischargeReportPage />} />
 
           {/* Clock Management Routes */}
           <Route path="/clock-in-out" element={<ClockInOutBoard token={localStorage.getItem('token')} user={JSON.parse(localStorage.getItem('user') || '{}')} />} />

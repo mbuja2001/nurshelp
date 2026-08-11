@@ -1,5 +1,5 @@
 import express from "express";
-import jwt from "jsonwebtoken";
+import { protect } from "../middleware/authmiddleware.js";
 import { runTriage } from "../controllers/encounter.controller.js";
 import { 
   requestTriageWithHospitalShifts,
@@ -35,7 +35,7 @@ router.get("/staff", getStaffForTriage);
  *      If computeMode is present = AI-assisted path
  * Handler: submitManualTriage (triage.controller.js)
  */
-router.post("/", submitManualTriage);
+router.post("/", protect, submitManualTriage);
 
 /**
  * PATCH /api/triage/:id/confirm

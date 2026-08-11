@@ -32,7 +32,7 @@ function TriageTabHeader({ activeTab, onTabChange, onBackClick, onLogout }) {
           }}
           onClick={() => onTabChange('ai')}
         >
-          AI-Assisted Triage
+          Auto Triage
         </button>
       </div>
 

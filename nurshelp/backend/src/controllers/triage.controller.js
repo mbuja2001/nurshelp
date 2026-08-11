@@ -345,7 +345,7 @@ export const startEncounter = async (req, res) => {
       },
       triage: req.body.triage || {},
       severity: req.body.severity || 1,
-      status: "pending",
+      status: "TRIAGE_IN_PROGRESS",
       isWaiting: true,
       nurseNotes: req.body.nurseNotes || ""
     });
@@ -1411,7 +1411,6 @@ export const getStaffForTriage = async (req, res) => {
  */
 export const submitManualTriage = async (req, res) => {
   try {
-    const jwt = (await import('jsonwebtoken')).default;
     const {
       triageNurseId,
       patientId,
@@ -1447,24 +1446,15 @@ export const submitManualTriage = async (req, res) => {
       computeMode
     } = req.body;
 
-    // Get nurse from JWT token (more reliable than frontend)
-    const token = req.headers.authorization?.split(" ")[1];
-    let nursId = null;
-    
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
-        nursId = decoded.id;
-        console.log(`[TRIAGE] Extracted nurse_id from JWT: ${nursId}`);
-      } catch (err) {
-        console.warn(`[TRIAGE] Failed to decode JWT:`, err.message);
-        nursId = triageNurseId;
-      }
-    } else {
-      nursId = triageNurseId;
-    }
+    // Use authenticated nurse from middleware details
+    const authUser = req.user || {};
+    const nursId = authUser._id?.toString() || triageNurseId;
+    const triageNurseName = authUser.name || `${authUser.firstName || ''} ${authUser.lastName || ''}`.trim() || 'Unknown Nurse';
+    const triageNurseSurname = authUser.lastName || authUser.surname || '';
+    const triageNurseRole = authUser.role || authUser.systemRole || 'NURSE';
+    const triageHospitalId = authUser.hospitalId || authUser.hospital?._id || null;
 
-    console.log(`[TRIAGE] POST / - SATS: ${manualSatsLevel}, computeMode: ${computeMode || "NONE (Manual)"}, nurse_id: ${nursId}`);
+    console.log(`[TRIAGE] POST / - SATS: ${manualSatsLevel}, computeMode: ${computeMode || "NONE (Manual)"}, nurse_id: ${nursId}, nurse_name: ${triageNurseName}, role: ${triageNurseRole}, hospital: ${triageHospitalId}`);
 
     // Validate required fields
     if (!nursId || !manualSatsLevel || !triageReasoningNotes || !assignedNurseId || !assignedPhysicianId) {
@@ -1476,11 +1466,11 @@ export const submitManualTriage = async (req, res) => {
     }
 
     // Validate SATS level
-    const validSatsLevels = ['red', 'yellow', 'green'];
+    const validSatsLevels = ['red', 'orange', 'yellow', 'green'];
     if (!validSatsLevels.includes(manualSatsLevel?.toLowerCase())) {
       return res.status(422).json({
         success: false,
-        error: "Invalid SATS level - must be 'red', 'yellow', or 'green'"
+        error: "Invalid SATS level - must be 'red', 'orange', 'yellow', or 'green'"
       });
     }
 
@@ -1493,7 +1483,7 @@ export const submitManualTriage = async (req, res) => {
       });
     }
     
-    const hospitalId = triageNurse.hospitalId;
+    const hospitalId = triageNurse.hospitalId || triageHospitalId;
     if (!hospitalId) {
       return res.status(400).json({
         success: false,
@@ -1521,6 +1511,10 @@ export const submitManualTriage = async (req, res) => {
     const encounterData = {
       hospitalId: hospitalId, // Multi-tenant isolation
       nurse_id: nursId,
+      triageNurseName,
+      triageNurseSurname,
+      triageNurseRole,
+      triageHospitalId: hospitalId,
       assignedNurseId: assignedNurseId || nursId,
       assignedNurseName: assignedNurseName || 'Assigned Nurse',
       assignedPhysicianId: assignedPhysicianId,
@@ -1565,8 +1559,8 @@ export const submitManualTriage = async (req, res) => {
           assigned_at: new Date()
         }] : [])
       ],
-      status: "pending",
-      severity: manualSatsLevel === 'red' ? 5 : (manualSatsLevel === 'yellow' ? 3 : 1),
+      status: "TRIAGE_IN_PROGRESS",
+      severity: manualSatsLevel === 'red' ? 5 : (manualSatsLevel === 'orange' ? 4 : (manualSatsLevel === 'yellow' ? 3 : 1)),
       isWaiting: true,
       submittedAt: new Date()
     };
@@ -1588,7 +1582,11 @@ export const submitManualTriage = async (req, res) => {
       isAttended: false,
       
       patientId,
-      triageNurseId,
+      triageNurseId: nursId,
+      triageNurseName,
+      triageNurseSurname,
+      triageNurseRole,
+      triageHospitalId: hospitalId,
       assignedNurseId,
       assignedPhysicianId,
       bedAssigned: bedAssigned || null,

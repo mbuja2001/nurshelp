@@ -1,6 +1,80 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import StaffScheduleDisplay from './StaffScheduleDisplay';
 import './ManualTriageForm.css';
+import { FiHeart, FiThermometer, FiActivity, FiClock, FiUser } from 'react-icons/fi';
+
+function getInitialTewsProfile(patientData) {
+  const age = Number(patientData?.ageYears ?? patientData?.age);
+  const height = Number(patientData?.height_cm);
+  if (age > 12 || (!Number.isFinite(age) && (!Number.isFinite(height) || height > 150))) return 'adult';
+  if (Number.isFinite(height) && height <= 95) return 'child-younger';
+  return 'child-older';
+}
+
+function scoreBand(value, bands) {
+  if (!Number.isFinite(value)) return 0;
+  return bands.find((band) => band.test(value))?.points ?? 0;
+}
+
+function calculateTews(profile, vitals) {
+  const temperature = Number(vitals.temperature);
+  const heartRate = Number(vitals.heartRate);
+  const respiratoryRate = Number(vitals.respiratoryRate);
+  const systolicBP = Number(vitals.systolicBP);
+  const components = {
+    temperature: scoreBand(temperature, [
+      { test: (v) => v < 35, points: 2 }, { test: (v) => v > 39, points: 3 },
+      { test: (v) => v >= 38.6, points: 2 }, { test: (v) => v >= 38.1, points: 1 }
+    ]),
+    heartRate: 0,
+    respiratoryRate: 0,
+    systolicBP: 0,
+    avpu: { Alert: 0, Voice: 1, Pain: 2, Unresponsive: 3 }[vitals.avpu] ?? 0,
+    mobility: vitals.mobility === 'Walks' ? 0 : 3
+  };
+
+  if (profile === 'adult') {
+    components.heartRate = scoreBand(heartRate, [
+      { test: (v) => v < 40 || v >= 130, points: 3 }, { test: (v) => v >= 111, points: 2 },
+      { test: (v) => v < 60 || v > 100, points: 1 }
+    ]);
+    components.respiratoryRate = scoreBand(respiratoryRate, [
+      { test: (v) => v < 12 || v >= 40, points: 3 }, { test: (v) => v >= 30, points: 2 },
+      { test: (v) => v > 20, points: 1 }
+    ]);
+    components.systolicBP = scoreBand(systolicBP, [
+      { test: (v) => v < 80, points: 3 }, { test: (v) => v >= 200, points: 2 },
+      { test: (v) => v < 100, points: 2 }
+    ]);
+  } else if (profile === 'child-younger') {
+    components.heartRate = scoreBand(heartRate, [
+      { test: (v) => v < 80 || v > 200, points: 3 }, { test: (v) => v < 90 || v > 180, points: 2 },
+      { test: (v) => v < 100 || v > 160, points: 1 }
+    ]);
+    components.respiratoryRate = scoreBand(respiratoryRate, [
+      { test: (v) => v < 30 || v > 60, points: 3 }, { test: (v) => v > 50, points: 2 },
+      { test: (v) => v > 40, points: 1 }
+    ]);
+  } else {
+    components.heartRate = scoreBand(heartRate, [
+      { test: (v) => v < 60 || v > 160, points: 3 }, { test: (v) => v < 70 || v > 140, points: 2 },
+      { test: (v) => v < 80 || v > 120, points: 1 }
+    ]);
+    components.respiratoryRate = scoreBand(respiratoryRate, [
+      { test: (v) => v < 20 || v > 50, points: 3 }, { test: (v) => v > 40, points: 2 },
+      { test: (v) => v > 30, points: 1 }
+    ]);
+    components.systolicBP = scoreBand(systolicBP, [
+      { test: (v) => v < 70 || v >= 180, points: 3 }, { test: (v) => v < 80 || v >= 160, points: 2 },
+      { test: (v) => v < 90 || v >= 130, points: 1 }
+    ]);
+  }
+
+  const total = Object.values(components).reduce((sum, value) => sum + value, 0);
+  const complete = [temperature, heartRate, respiratoryRate, systolicBP].every(Number.isFinite);
+  const priority = total >= 6 ? 'red' : total >= 4 ? 'orange' : total >= 2 ? 'yellow' : 'green';
+  return { total, priority, components, complete };
+}
 
 /**
  * ManualTriageForm - Complete manual triage workflow (SATS - South African Triage Scale)
@@ -17,70 +91,231 @@ import './ManualTriageForm.css';
  * 4. Select available nurse, physician, bed (optional)
  * 5. Submit (routes to appropriate endpoint based on hardware)
  */
-function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => {} }) {
+function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null, onSubmit = () => {}, onPayloadChange = () => {}, onSubmitPayload = () => {}, onAnalysisChange = () => {}, onTewsChange = () => {}, onAssignmentChange = () => {}, onDepartmentChange = () => {}, onAcuityChange = () => {}, onFormReadyChange = () => {}, submitRequest = 0 }) {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
-  // Hardware detection & routing state
-  const [triageEndpoint, setTriageEndpoint] = useState('/api/triage');  // Default to hybrid
-  const [hardwareInfo, setHardwareInfo] = useState(null);
-  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
+  // Manual triage always submits to the dedicated manual triage endpoint
+  const [triageEndpoint] = useState('/api/triage');
   
   // Manual triage form state (SATS: Red/Orange/Yellow/Green)
   const [satsLevel, setSatsLevel] = useState('yellow');
   const [urgencyScore, setUrgencyScore] = useState('50');
-  const [reasoning, setReasoning] = useState('');
+  const [tewsProfile, setTewsProfile] = useState(() => getInitialTewsProfile(patientData));
+  const [tewsHeight, setTewsHeight] = useState(patientData.height_cm || '');
+  const [tewsVitals, setTewsVitals] = useState(() => ({
+    temperature: vitalsData.temp || '',
+    heartRate: vitalsData.hr || '',
+    respiratoryRate: vitalsData.resp || '',
+    systolicBP: vitalsData.bp_systolic || '',
+    avpu: vitalsData.avpu || 'Alert',
+    mobility: 'Walks'
+  }));
+    const [reasoning, setReasoning] = useState('');
+    const reasoningRef = useRef(null);
   const [department, setDepartment] = useState('ED');
   const [interventions, setInterventions] = useState('');
+
+  const inferDepartmentFromPhysicianSpecialty = (specialty, fallback = 'Not assigned') => {
+    if (!specialty || typeof specialty !== 'string') return fallback;
+    return specialty;
+  };
 
   // Staff selection
   const [selectedNurse, setSelectedNurse] = useState(null);
   const [selectedPhysician, setSelectedPhysician] = useState(null);
+  const [selectedSpecialist, setSelectedSpecialist] = useState(null);
   const [selectedBed, setSelectedBed] = useState(null);
+  const [lastSubmitRequest, setLastSubmitRequest] = useState(0);
 
   // UI state
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [showStaffSelection, setShowStaffSelection] = useState(false);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [showTewsModal, setShowTewsModal] = useState(false);
 
-  // Fetch hardware capabilities on mount to determine which endpoint to use
+  // Structured reasoning mode to reduce vertical length: 'structured' (compact fields) or 'full' (large editor)
+  const [reasoningMode, setReasoningMode] = useState('structured');
+  const [keyFindings, setKeyFindings] = useState('');
+  const [assessment, setAssessment] = useState('');
+  const [plan, setPlan] = useState('');
+
+  // AI-style triage analysis fields
+  const [pathophysiology, setPathophysiology] = useState('');
+  const [clinicalSummary, setClinicalSummary] = useState('');
+  const [clinicalDiscriminators, setClinicalDiscriminators] = useState('');
+  const [differentialDiagnoses, setDifferentialDiagnoses] = useState('');
+  const [immediateActions, setImmediateActions] = useState('');
+  const [diagnosticWorkup, setDiagnosticWorkup] = useState('');
+  const [dispositionRationale, setDispositionRationale] = useState('');
+
+  const updateAnalysisField = (field, setter, value) => {
+    setter(value);
+    onAnalysisChange(field, value);
+  };
+
+  // Stepper UI state
+  const steps = ['Triage', 'Clinical Analysis', 'Assign Clinicians & Wards'];
+  const [currentStep, setCurrentStep] = useState(0);
+
+  // Interventions as chips instead of long textarea
+  const [interventionInput, setInterventionInput] = useState('');
+  const [interventionTags, setInterventionTags] = useState([]);
+
+  const tewsResult = calculateTews(tewsProfile, tewsVitals);
+  const tewsComponentsKey = JSON.stringify(tewsResult.components);
+
   useEffect(() => {
-    const fetchCapabilities = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/capabilities`);
-        if (response.ok) {
-          const data = await response.json();
-          setHardwareInfo(data);
-          
-          // Route based on recommended endpoint
-          const endpoint = data.routing?.recommended_endpoint || '/api/triage';
-          setTriageEndpoint(endpoint);
-          
-          console.log(`📡 Triage routing initialized:`);
-          console.log(`   Hardware: ${data.hardware.gpu_available ? '✅ GPU' : '❌ CPU-only'}`);
-          console.log(`   Endpoint: ${endpoint === '/api/triage' ? '🚀 Hybrid (RAG + LLM)' : '⚡ LLM-only'}`);
-        } else {
-          console.error('Failed to fetch capabilities, using default hybrid mode');
-          setTriageEndpoint('/api/triage');
-        }
-      } catch (err) {
-        console.error('Error fetching capabilities:', err);
-        setTriageEndpoint('/api/triage');  // Fallback to hybrid
-      } finally {
-        setCapabilitiesLoading(false);
+    if (!tewsResult.complete) return;
+    setUrgencyScore(String(tewsResult.total));
+    setSatsLevel(tewsResult.priority);
+  }, [tewsResult.complete, tewsResult.total, tewsResult.priority]);
+
+  useEffect(() => {
+    onTewsChange({ profile: tewsProfile, height: tewsHeight, total: tewsResult.total, priority: satsLevel, components: tewsResult.components, complete: tewsResult.complete });
+  }, [onTewsChange, satsLevel, tewsComponentsKey, tewsHeight, tewsProfile, tewsResult.total, tewsResult.complete]);
+
+  const formValid = useMemo(() => {
+    const analysisValid = pathophysiology.trim().length > 0;
+    const immediateActionsValid = immediateActions.trim().length > 0;
+    const heightValid = tewsProfile === 'adult'
+      ? true
+      : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
+
+    return (
+      satsLevel &&
+      ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
+      analysisValid &&
+      immediateActionsValid &&
+      tewsResult.complete &&
+      heightValid &&
+      selectedNurse &&
+      selectedPhysician
+    );
+  }, [satsLevel, pathophysiology, immediateActions, tewsProfile, tewsHeight, tewsResult.complete, selectedNurse, selectedPhysician]);
+
+  useEffect(() => {
+    onFormReadyChange(formValid);
+  }, [formValid, onFormReadyChange]);
+
+  useEffect(() => {
+    onAssignmentChange({ nurse: selectedNurse, physician: selectedPhysician, specialist: selectedSpecialist, bed: selectedBed });
+  }, [onAssignmentChange, selectedBed, selectedNurse, selectedPhysician, selectedSpecialist]);
+
+  const currentTriagePayload = useMemo(() => {
+    return {
+      patientId: patientData.id || patientData._id,
+      encounterId: patientData.encounterId || null,
+      symptoms: typeof patientData.symptoms === 'string' ? patientData.symptoms : (Array.isArray(patientData.symptoms) ? patientData.symptoms.join(', ') : ''),
+      vitalSigns: {
+        temperature: parseFloat(vitalsData.temp) || null,
+        heartRate: parseInt(vitalsData.hr) || null,
+        respiratoryRate: parseInt(vitalsData.resp) || null,
+        systolicBP: vitalsData.bp_systolic || null,
+        diastolicBP: vitalsData.bp_diastolic || null,
+        oxygenSaturation: parseFloat(vitalsData.o2) || null
+      },
+      analysis: {
+        pathophysiology,
+        clinicalSummary,
+        clinicalDiscriminators,
+        differentialDiagnoses,
+        immediateActions,
+        diagnosticWorkup,
+        dispositionRationale
+      },
+      satsLevel,
+      urgencyScore,
+      tews: {
+        profile: tewsProfile,
+        height: tewsHeight === '' ? null : Number(tewsHeight),
+        components: tewsResult.components,
+        total: tewsResult.total,
+        priority: tewsResult.priority,
+        complete: tewsResult.complete
+      },
+      recommendedDepartment: department,
+      interventions: interventionTags,
+      assignments: {
+        nurse: selectedNurse,
+        physician: selectedPhysician,
+        specialist: selectedSpecialist,
+        bed: selectedBed
       }
     };
-    
-    fetchCapabilities();
-  }, [BACKEND_URL]);
+  }, [
+    patientData,
+    vitalsData,
+    pathophysiology,
+    clinicalSummary,
+    clinicalDiscriminators,
+    differentialDiagnoses,
+    immediateActions,
+    diagnosticWorkup,
+    dispositionRationale,
+    satsLevel,
+    urgencyScore,
+    tewsProfile,
+    tewsHeight,
+    tewsComponentsKey,
+    tewsResult.total,
+    tewsResult.priority,
+    tewsResult.complete,
+    department,
+    interventionTags,
+    selectedNurse,
+    selectedPhysician,
+    selectedSpecialist,
+    selectedBed
+  ]);
+
+  useEffect(() => {
+    onPayloadChange(currentTriagePayload);
+  }, [currentTriagePayload, onPayloadChange]);
+
+  useEffect(() => {
+    if (submitRequest > 0 && submitRequest !== lastSubmitRequest) {
+      setLastSubmitRequest(submitRequest);
+      if (formValid) {
+        handleSubmitTriage();
+      }
+    }
+  }, [submitRequest, lastSubmitRequest, formValid]);
+
+  useEffect(() => {
+    if (selectedPhysician) {
+      setDepartment(inferDepartmentFromPhysicianSpecialty(selectedPhysician.specialty));
+    } else {
+      setDepartment('Not assigned');
+    }
+  }, [selectedPhysician]);
+
+  useEffect(() => {
+    onDepartmentChange(department);
+  }, [department, onDepartmentChange]);
+
+  useEffect(() => {
+    onAcuityChange(urgencyScore);
+  }, [onAcuityChange, urgencyScore]);
 
   // Form validation
   // Bed is OPTIONAL - not every patient gets hospitalized
   const isFormValid = () => {
+    const analysisValid = pathophysiology.trim().length > 0;
+    const immediateActionsValid = immediateActions.trim().length > 0;
+    const heightValid = tewsProfile === 'adult'
+      ? true
+      : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
+
     return (
       satsLevel &&
       ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
-      reasoning.trim().length > 0 &&
+      analysisValid &&
+      immediateActionsValid &&
+      tewsResult.complete &&
+      heightValid &&
       selectedNurse &&
       selectedPhysician
       // NOTE: selectedBed is OPTIONAL
@@ -94,14 +329,88 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
     onPhysicianSelect: (physician) => {
       setSelectedPhysician(physician);
     },
+    onSpecialistSelect: (specialist) => {
+      setSelectedSpecialist(specialist);
+    },
     onBedSelect: (bed) => {
       setSelectedBed(bed);
     }
   };
 
+  // Load saved reasoning draft if present (autosave)
+  useEffect(() => {
+    try {
+      const draft = localStorage.getItem('manual_reasoning_draft');
+      if (draft && !reasoning) {
+        setReasoning(draft);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
+  // Autosave reasoning to localStorage (debounced-ish)
+  const [autosaveStatus, setAutosaveStatus] = useState('');
+  useEffect(() => {
+    if (reasoning === '') {
+      localStorage.removeItem('manual_reasoning_draft');
+      setAutosaveStatus('');
+      return;
+    }
+
+    setAutosaveStatus('Saving...');
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem('manual_reasoning_draft', reasoning);
+        setAutosaveStatus('Saved');
+        setTimeout(() => setAutosaveStatus(''), 1200);
+      } catch (err) {
+        setAutosaveStatus('Failed to save');
+      }
+    }, 700);
+
+    return () => clearTimeout(t);
+  }, [reasoning]);
+
+  const insertAtCursor = (text) => {
+    const el = reasoningRef.current;
+    if (!el) return setReasoning((r) => (r ? r + '\n' + text : text));
+    const start = el.selectionStart || 0;
+    const end = el.selectionEnd || 0;
+    const before = reasoning.slice(0, start);
+    const after = reasoning.slice(end);
+    const newText = before + text + after;
+    setReasoning(newText);
+    // move cursor after inserted text
+    requestAnimationFrame(() => {
+      try { el.selectionStart = el.selectionEnd = start + text.length; el.focus(); } catch (e) {}
+    });
+  };
+
+  const handleInsertTemplate = () => {
+    const template = "Key findings:\n- Airway: \n- Breathing: \n- Circulation: \nAssessment:\nPlan:\n";
+    insertAtCursor(template);
+  };
+
+  const handleFormatBold = () => {
+    insertAtCursor('**bold**');
+  };
+
+  const handleFormatBullet = () => {
+    insertAtCursor('\n- ');
+  };
+  
+
   const handleSubmitTriage = async () => {
+    const composedReasoning = [
+      clinicalSummary && `Clinical Summary:\n${clinicalSummary}`,
+      pathophysiology && `Pathophysiology:\n${pathophysiology}`,
+      immediateActions && `Immediate Actions:\n${immediateActions}`,
+      dispositionRationale && `Disposition Rationale:\n${dispositionRationale}`
+    ].filter(Boolean).join('\n\n');
+
     if (!isFormValid()) {
-      setSubmitError('Please complete all required fields: SATS level (Red/Orange/Yellow/Green), clinical reasoning, and assign a nurse & physician. Bed assignment is optional.');
+      setSubmitError('Please complete all required fields: SATS level, clinical analysis, and assign a nurse & physician. Bed assignment is optional.');
       return;
     }
 
@@ -114,7 +423,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
 
       // Build manual triage request (NO computeMode)
       const triagePayload = {
-        triageNurseId: localStorage.getItem('currentStaffId') || 'nurse-001',
+        triageNurseId: localStorage.getItem('currentNurseId') || localStorage.getItem('currentStaffId') || 'nurse-001',
         // NO computeMode - signals MANUAL workflow
         
         // Clinical data from patient intake
@@ -134,22 +443,53 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
         medications: patientData.medications || [],
         allergies: patientData.allergies || [],
         chiefComplaint: patientData.symptoms || 'Patient presenting with reported symptoms',
-        triageNotes: reasoning,
+        triageNotes: composedReasoning,
 
         // Manual SATS from nurse
         manualSatsLevel: satsLevel,  // 'red', 'yellow', or 'green'
         urgencyScore: parseInt(urgencyScore),
-        triageReasoningNotes: reasoning,
+        tewsProfile,
+        tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
+        SATS_reasoning: {
+          chart_version: 'EMSSA SATS 2015',
+          profile: tewsProfile,
+          height_cm: tewsHeight === '' ? null : Number(tewsHeight),
+          components: tewsResult.components,
+          total: tewsResult.total,
+          priority: tewsResult.priority
+        },
+        triageReasoningNotes: composedReasoning,
         recommendedDepartment: department,
-        immediateInterventions: interventions
+        immediateInterventions: immediateActions
           .split('\n')
           .filter((i) => i.trim().length > 0),
+        pathophysiology,
+        clinicalSummary,
+        clinicalDiscriminators: clinicalDiscriminators
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        differentialDiagnoses: differentialDiagnoses
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        immediateActions: immediateActions
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        diagnosticWorkup: diagnosticWorkup
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        dispositionRationale,
 
         // Selected staff
         assignedNurseId: selectedNurse?.id,
         assignedNurseName: selectedNurse?.name || 'Assigned Nurse',
         assignedPhysicianId: selectedPhysician?.id,
         assignedPhysicianName: selectedPhysician?.name || 'Not Assigned',
+        assignedSpecialistId: selectedSpecialist?.id,
+        assignedSpecialistName: selectedSpecialist?.name || 'Not Assigned',
         bedAssigned: selectedBed?.id,
         
         // Patient data (REQUIRED for display in dashboard)
@@ -216,16 +556,19 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
       };
 
       // Call parent callback with enriched triage result
+      if (onSubmitPayload) {
+        onSubmitPayload(triagePayload);
+      }
       if (onSubmit) {
         onSubmit(enrichedResult);
       }
-
       // Show success for 2 seconds, then clear form
       setTimeout(() => {
         setSatsLevel('yellow');
         setUrgencyScore('50');
         setReasoning('');
         setInterventions('');
+        setInterventionTags([]);
         setSelectedNurse(null);
         setSelectedPhysician(null);
         setSelectedBed(null);
@@ -240,266 +583,217 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
   };
 
   return (
-    <div style={containerStyle}>
-      <div style={formHeaderStyle}>
-        <h2>Manual Triage Entry (SATS)</h2>
-        <p style={formSubtitleStyle}>
-          South African Triage Scale - Pure nurse judgment, no AI involvement. 
-          Select SATS level (Red/Orange/Yellow/Green), assign nurse & physician.
-          Bed assignment is optional (not all patients will be hospitalized).
-        </p>
-        
-        {/* Hardware & Routing Status */}
-        {!capabilitiesLoading && hardwareInfo && (
-          <div style={{
-            marginTop: '12px',
-            padding: '8px 12px',
-            backgroundColor: hardwareInfo.hardware?.gpu_available ? '#dcfce7' : '#fef3c7',
-            border: `1px solid ${hardwareInfo.hardware?.gpu_available ? '#22c55e' : '#f59e0b'}`,
-            borderRadius: '4px',
-            fontSize: '12px',
-            color: hardwareInfo.hardware?.gpu_available ? '#166534' : '#92400e',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span style={{ fontSize: '14px' }}>
-              {hardwareInfo.hardware?.gpu_available ? '🚀' : '⚡'}
-            </span>
-            <span>
-              {hardwareInfo.hardware?.gpu_available 
-                ? `GPU Mode: Hybrid (RAG + LLM synthesis)` 
-                : `CPU Mode: LLM-only (fast inference)`}
-            </span>
-            {hardwareInfo.hardware?.gpu_available && hardwareInfo.hardware?.gpu_vram_gb > 0 && (
-              <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.8 }}>
-                {hardwareInfo.hardware.gpu_type} • {hardwareInfo.hardware.gpu_vram_gb}GB VRAM
-              </span>
+    <div className="manual-triage-container">
+      <div className="manual-triage-form manual-triage-grid">
+        <aside className="left-column">
+          <div className="patient-card">
+            <div className="patient-card-header">
+              <div>
+                <div className="patient-name">{patientData.name} {patientData.surname}</div>
+                <div className="patient-sub">ID: {patientData.id || patientData._id || '—'}</div>
+              </div>
+              <div className="patient-meta">
+                <div className="patient-age">{patientData.age || 'N/A'} yrs</div>
+                <div className="patient-gender">{patientData.gender || ''}</div>
+              </div>
+            </div>
+            <div className="patient-complaint">{patientData.symptoms || 'No chief complaint provided'}</div>
+          </div>
+
+          <div className="vitals-card">
+            <h4>Vitals</h4>
+            <div className="vitals-grid">
+              <div className="vital-item"><FiThermometer className="vital-icon"/> <div className="vital-label">Temp</div><div className="vital-value">{vitalsData.temp || '--'} °C</div></div>
+              <div className="vital-item"><FiHeart className="vital-icon"/> <div className="vital-label">HR</div><div className="vital-value">{vitalsData.hr || '--'} bpm</div></div>
+              <div className="vital-item"><FiActivity className="vital-icon"/> <div className="vital-label">Resp</div><div className="vital-value">{vitalsData.resp || '--'}</div></div>
+              <div className="vital-item"><FiClock className="vital-icon"/> <div className="vital-label">O₂ Sat</div><div className="vital-value">{vitalsData.o2 || '--'} %</div></div>
+              <div className="vital-item"><FiUser className="vital-icon"/> <div className="vital-label">AVPU</div><div className="vital-value">{vitalsData.avpu || 'Alert'}</div></div>
+            </div>
+          </div>
+
+          <div className="vitals-card ehr-context-card">
+            <h4>Hospital EHR context</h4>
+            {ehrSummary?.lastEncounter ? (
+              <div className="ehr-context-details">
+                <div><strong>Status:</strong> {ehrSummary.lastEncounter.status || 'Unknown'}</div>
+                <div><strong>Admission:</strong> {ehrSummary.lastEncounter.admissionDate || 'Unknown'}</div>
+                <div><strong>Bed:</strong> {ehrSummary.lastEncounter.bed || 'Not assigned'}</div>
+              </div>
+            ) : (
+              <div className="ehr-context-empty">No prior hospital encounter loaded from EHR.</div>
             )}
           </div>
-        )}
-      </div>
+        </aside>
 
-      {/* Patient Summary */}
-      <div style={patientSummaryStyle}>
-        <h4 style={sectionHeadingStyle}>Patient Info</h4>
-        <div style={patientInfoGridStyle}>
-          <div>
-            <span style={labelStyle}>Name:</span>
-            <span style={valueStyle}>
-              {patientData.name} {patientData.surname}
-            </span>
+        <section className="right-column">
+          <div className="form-header">
+            <h2>Manual Triage Entry (SATS)</h2>
+            <p className="form-subtitle">South African Triage Scale - Nurse-led decision record. Complete required fields and submit for clinical handover.</p>
           </div>
-          <div>
-            <span style={labelStyle}>Age:</span>
-            <span style={valueStyle}>{patientData.age || 'N/A'} years</span>
-          </div>
-          <div>
-            <span style={labelStyle}>Chief Complaint:</span>
-            <span style={valueStyle}>{patientData.symptoms || 'N/A'}</span>
-          </div>
-        </div>
-      </div>
 
-      {/* Vitals Display */}
-      <div style={vitalsBoxStyle}>
-        <h4 style={sectionHeadingStyle}>Current Vitals</h4>
-        <div style={vitalsGridStyle}>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>Temperature</div>
-            <div style={vitalValueStyle}>{vitalsData.temp || '--'} °C</div>
-          </div>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>Heart Rate</div>
-            <div style={vitalValueStyle}>{vitalsData.hr || '--'} bpm</div>
-          </div>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>BP</div>
-            <div style={vitalValueStyle}>{vitalsData.bp || '--'} mmHg</div>
-          </div>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>O₂ Sat</div>
-            <div style={vitalValueStyle}>{vitalsData.o2 || '--'} %</div>
-          </div>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>Resp Rate</div>
-            <div style={vitalValueStyle}>{vitalsData.resp || '--'} breaths/min</div>
-          </div>
-          <div style={vitalItemStyle}>
-            <div style={vitalLabelStyle}>AVPU</div>
-            <div style={vitalValueStyle}>{vitalsData.avpu || 'Alert'}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* SATS Level Selection */}
-      <div style={formGroupStyle}>
-        <label style={labelStyle}>
-          <strong>SATS Level (Your Decision)</strong>
-          <span style={requiredStyle}>*</span>
-        </label>
-        <div style={esiGridStyle}>
-          {['red', 'yellow', 'green'].map((level) => (
-            <button
-              key={level}
-              style={{
-                ...esiButtonStyle,
-                ...(satsLevel === level ? esiSelectedStyle : {}),
-                backgroundColor: getSATSColor(level)
-              }}
-              onClick={() => setSatsLevel(level)}
-              className="sats-button"
-            >
-              <div style={esiLevelNumberStyle}>{level.toUpperCase()}</div>
-              <div style={esiLevelNameStyle}>{getSATSName(level)}</div>
-            </button>
-          ))}
-        </div>
-        <div style={esiDescriptionStyle}>
-          {satsLevel ? `${satsLevel.toUpperCase()} - ${getSATSDescription(satsLevel)}` : 'Select a SATS level'}
-        </div>
-      </div>
-
-      {/* Acuity Score */}
-      <div style={formGroupStyle}>
-        <label style={labelStyle}>
-          <strong>Acuity Score</strong> (0-100)
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="5"
-          value={urgencyScore}
-          onChange={(e) => setUrgencyScore(e.target.value)}
-          style={sliderStyle}
-        />
-        <div style={acuityDisplayStyle}>{urgencyScore}</div>
-      </div>
-
-      {/* Clinical Reasoning */}
-      <div style={formGroupStyle}>
-        <label style={labelStyle}>
-          <strong>Your Clinical Reasoning</strong>
-          <span style={requiredStyle}>*</span>
-        </label>
-        <textarea
-          value={reasoning}
-          onChange={(e) => setReasoning(e.target.value)}
-          placeholder="Describe the key clinical findings that led to your ESI decision..."
-          style={textareaStyle}
-          rows="4"
-        />
-        <div style={charCountStyle}>{reasoning.length} characters</div>
-      </div>
-
-      {/* Department */}
-      <div style={formGroupStyle}>
-        <label style={labelStyle}>
-          <strong>Recommended Department</strong>
-        </label>
-        <select
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="ED">Emergency Department</option>
-          <option value="ICU">Intensive Care Unit</option>
-          <option value="General">General Ward</option>
-          <option value="Pediatric">Pediatric</option>
-          <option value="OB">Obstetrics</option>
-        </select>
-      </div>
-
-      {/* Immediate Interventions */}
-      <div style={formGroupStyle}>
-        <label style={labelStyle}>
-          <strong>Immediate Interventions</strong>
-        </label>
-        <textarea
-          value={interventions}
-          onChange={(e) => setInterventions(e.target.value)}
-          placeholder="List interventions (one per line):&#10;- IV access&#10;- Cardiac monitoring&#10;- Blood work"
-          style={textareaStyle}
-          rows="3"
-        />
-      </div>
-
-      {/* Staff Selection */}
-      <div style={staffSectionStyle}>
-        <div style={staffHeaderStyle}>
-          <h3>Staff & Bed Assignment</h3>
-          <button
-            style={{
-              ...toggleButtonStyle,
-              ...(showStaffSelection ? toggleButtonActiveStyle : {})
-            }}
-            onClick={() => setShowStaffSelection(!showStaffSelection)}
-          >
-            {showStaffSelection ? '▼ Hide' : '▶ Show'} Staff Selection
-          </button>
-        </div>
-
-        {showStaffSelection && (
-          <StaffScheduleDisplay onStaffSelect={handleStaffSelect} />
-        )}
-
-        {/* Selected Staff Display */}
-        <div style={selectedStaffStyle}>
-          <h4>Selected Assignment</h4>
-          <div style={assignmentRowStyle}>
-            <div style={assignmentItemStyle}>
-              <span style={assignmentLabelStyle}>Assigned Nurse:</span>
-              <span style={{...assignmentValueStyle, ...(selectedNurse ? {} : {color: '#cbd5e1'})}}>
-                {selectedNurse ? selectedNurse.name : 'Not selected'}
-              </span>
-              {selectedNurse && <span style={checkmarkStyle}>✓</span>}
+          <div className="form-body">
+            <div className="stepper">
+              {steps.map((s, idx) => (
+                <button
+                  key={s}
+                  className={`step-pill ${idx === currentStep ? 'active' : ''}`}
+                  onClick={() => {
+                    if (s === 'Analysis') {
+                      setCurrentStep(idx);
+                      setShowAnalysisModal(true);
+                    } else {
+                      setCurrentStep(idx);
+                    }
+                  }}
+                  aria-current={idx===currentStep}
+                >
+                  {idx+1}. {s}
+                </button>
+              ))}
             </div>
-            <div style={assignmentItemStyle}>
-              <span style={assignmentLabelStyle}>Assigned Physician:</span>
-              <span style={{...assignmentValueStyle, ...(selectedPhysician ? {} : {color: '#cbd5e1'})}}>
-                {selectedPhysician ? selectedPhysician.name : 'Not selected'}
-              </span>
-              {selectedPhysician && <span style={checkmarkStyle}>✓</span>}
+
+            <div className="step-content">
+              {currentStep === 0 && (
+                <div className="step-panel">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="field-label"><strong>SATS Level</strong></label>
+                      <div className="esi-grid compact">
+                        {['red','orange','yellow','green'].map(l=> (
+                          <button key={l} className={`sats-button esi-button ${satsLevel===l? 'selected':''}`} style={{backgroundColor:getSATSColor(l)}} onClick={()=>setSatsLevel(l)}>{l.toUpperCase()}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="tews-panel tews-summary-panel">
+                      <div className="tews-panel-header">
+                        <div>
+                          <strong>TEWS calculator</strong>
+                          <span>EMSSA SATS 2015 chart profile</span>
+                        </div>
+                        <div className="tews-total">{tewsResult.total} <small>points</small></div>
+                      </div>
+                      <div className="tews-components">{Object.entries(tewsResult.components).map(([key, value]) => <span key={key}>{key}: <strong>{value}</strong></span>)}</div>
+                      <button className="toggle-button" onClick={() => setShowTewsModal(true)}>Open TEWS Calculator</button>
+                    </div>
+                    <div className="form-group narrow-field">
+                      <label className="field-label"><strong>Acuity</strong></label>
+                      <input type="range" min="0" max="100" step="5" value={urgencyScore} onChange={(e)=>setUrgencyScore(e.target.value)} className="range-slider" />
+                      <div className="acuity-display">{urgencyScore}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 1 && (
+                <div className="step-panel">
+                  <h4>Clinical Analysis</h4>
+                  <button className="toggle-button" onClick={() => setShowAnalysisModal(true)}>Open Analysis Modal</button>
+                </div>
+              )}
+
+              {currentStep === 2 && (
+                <div className="step-panel">
+                  <label className="field-label">Assign Clinicians & Wards</label>
+                  <button className="toggle-button" onClick={()=>setShowStaffModal(true)}>Open Clinician & Ward Assignment</button>
+                </div>
+              )}
+
+              {showTewsModal && (
+                <div className="modal-overlay" role="dialog" aria-modal="true">
+                  <div className="modal-content tews-modal-content">
+                    <button className="modal-close" onClick={()=>setShowTewsModal(false)}>✕</button>
+                    <h3>TEWS Calculator</h3>
+                    <div className="tews-panel">
+                      <div className="structured-row">
+                        <select className="field-input" value={tewsProfile} onChange={(e)=>setTewsProfile(e.target.value)}>
+                          <option value="adult">Adult (&gt;12 years)</option>
+                          <option value="child-younger">Child 50-95 cm (approximately 1 week to &lt;3 years)</option>
+                          <option value="child-older">Child 96-150 cm (approximately 3-12 years)</option>
+                        </select>
+                        <input className="field-input" type="number" min="30" max="220" value={tewsHeight} onChange={(e)=>setTewsHeight(e.target.value)} placeholder="Height (cm)" />
+                      </div>
+                      <div className="tews-input-grid">
+                        <label>Temp<input className="field-input" type="number" step="0.1" value={tewsVitals.temperature} onChange={(e)=>setTewsVitals({...tewsVitals, temperature:e.target.value})} /></label>
+                        <label>Heart rate<input className="field-input" type="number" value={tewsVitals.heartRate} onChange={(e)=>setTewsVitals({...tewsVitals, heartRate:e.target.value})} /></label>
+                        <label>Respiratory rate<input className="field-input" type="number" value={tewsVitals.respiratoryRate} onChange={(e)=>setTewsVitals({...tewsVitals, respiratoryRate:e.target.value})} /></label>
+                        <label>SBP<input className="field-input" type="number" value={tewsVitals.systolicBP} onChange={(e)=>setTewsVitals({...tewsVitals, systolicBP:e.target.value})} /></label>
+                        <label>AVPU<select className="field-input" value={tewsVitals.avpu} onChange={(e)=>setTewsVitals({...tewsVitals, avpu:e.target.value})}><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option></select></label>
+                        <label>Mobility<select className="field-input" value={tewsVitals.mobility} onChange={(e)=>setTewsVitals({...tewsVitals, mobility:e.target.value})}><option>Walks</option><option>Not walking</option></select></label>
+                      </div>
+                      <div className="tews-components">{Object.entries(tewsResult.components).map(([key, value]) => <span key={key}>{key}: <strong>{value}</strong></span>)}</div>
+                      <div className="tews-note">TEWS supports, but does not replace, clinical discriminators and nurse judgment. Verify the selected profile, units, and values before submission.</div>
+                    </div>
+                    <button className="submit-button" onClick={()=>setShowTewsModal(false)}>Save and Close</button>
+                  </div>
+                </div>
+              )}
+
+              {showAnalysisModal && (
+                <div className="modal-overlay" role="dialog" aria-modal="true">
+                  <div className="modal-content tews-modal-content">
+                    <button className="modal-close" onClick={()=>setShowAnalysisModal(false)}>✕</button>
+                    <h3>Clinical Analysis</h3>
+                    <div className="form-group">
+                      <label className="field-label">Pathophysiology</label>
+                      <textarea className="field-input" rows="4" value={pathophysiology} onChange={(e)=>updateAnalysisField('pathophysiology', setPathophysiology, e.target.value)} placeholder="Describe underlying pathophysiology" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Clinical Summary</label>
+                      <textarea className="field-input" rows="4" value={clinicalSummary} onChange={(e)=>updateAnalysisField('clinicalSummary', setClinicalSummary, e.target.value)} placeholder="Summarize the clinical picture" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Clinical Discriminators</label>
+                      <textarea className="field-input" rows="3" value={clinicalDiscriminators} onChange={(e)=>updateAnalysisField('clinicalDiscriminators', setClinicalDiscriminators, e.target.value)} placeholder="List discriminators or red flags" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Differential Diagnoses</label>
+                      <textarea className="field-input" rows="3" value={differentialDiagnoses} onChange={(e)=>updateAnalysisField('differentialDiagnoses', setDifferentialDiagnoses, e.target.value)} placeholder="List possible diagnoses" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Immediate Actions</label>
+                      <textarea className="field-input" rows="3" value={immediateActions} onChange={(e)=>updateAnalysisField('immediateActions', setImmediateActions, e.target.value)} placeholder="Document immediate life-saving actions" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Diagnostic Workup</label>
+                      <textarea className="field-input" rows="3" value={diagnosticWorkup} onChange={(e)=>updateAnalysisField('diagnosticWorkup', setDiagnosticWorkup, e.target.value)} placeholder="List tests or imaging needed" />
+                    </div>
+                    <div className="form-group">
+                      <label className="field-label">Disposition Rationale</label>
+                      <textarea className="field-input" rows="3" value={dispositionRationale} onChange={(e)=>updateAnalysisField('dispositionRationale', setDispositionRationale, e.target.value)} placeholder="Explain care disposition / next step rationale" />
+                    </div>
+                    <div className="step-buttons" style={{ marginTop: 12, justifyContent: 'flex-end' }}>
+                      <button className="submit-button" onClick={()=>setShowAnalysisModal(false)}>Save and Close</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showStaffModal && (
+                <div className="modal-overlay" role="dialog" aria-modal="true">
+                  <div className="modal-content tews-modal-content">
+                    <button className="modal-close" onClick={()=>setShowStaffModal(false)}>✕</button>
+                    <h3>Select Staff / Bed</h3>
+                    <StaffScheduleDisplay onStaffSelect={handleStaffSelect} />
+                    <div className="step-buttons" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+                      <button className="submit-button" type="button" onClick={()=>setShowStaffModal(false)}>
+                        Save and Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={assignmentItemStyle}>
-              <span style={assignmentLabelStyle}>Assigned Bed:</span>
-              <span style={{...assignmentValueStyle, ...(selectedBed ? {} : {color: '#cbd5e1'})}}>
-                {selectedBed ? selectedBed.id : 'Not selected'}
-              </span>
-              {selectedBed && <span style={checkmarkStyle}>✓</span>}
+
+            <div className="step-buttons">
+              <button className="toggle-button" onClick={()=>setCurrentStep(Math.max(0,currentStep-1))} disabled={currentStep===0}>◀ Prev</button>
+              {currentStep < steps.length-1 ? (
+                <button className="submit-button" onClick={()=>setCurrentStep(Math.min(steps.length-1,currentStep+1))}>Next ▶</button>
+              ) : (
+                <button className="submit-button" onClick={handleSubmitTriage} disabled={!isFormValid()||submitting}>{submitting? 'Submitting...':'Submit Manual Triage'}</button>
+              )}
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Status Messages */}
-      {submitError && <div style={errorStyle}>{submitError}</div>}
-      {submitSuccess && (
-        <div style={successStyle}>
-          ✓ Manual triage submitted successfully! Patient added to EHR with
-          unattended status in nurse dashboard.
-        </div>
-      )}
-
-      {/* Submit Button */}
-      <button
-        style={{
-          ...submitButtonStyle,
-          ...(isFormValid() ? {} : disabledButtonStyle),
-          ...(submitting ? { opacity: 0.7, cursor: 'not-allowed' } : {})
-        }}
-        onClick={handleSubmitTriage}
-        disabled={!isFormValid() || submitting}
-      >
-        {submitting ? 'Submitting...' : 'Submit Manual Triage'}
-      </button>
-
-      <div style={helpTextStyle}>
-        <strong>Note:</strong> This submission creates a manual triage report
-        with NO AI involvement. The patient will appear in the EHR and in the
-        Nurse Dashboard as unattended (assigned staff shown). Specialist
-        feedback can be added later for accuracy tracking.
+        </section>
       </div>
     </div>
   );
@@ -698,20 +992,35 @@ const acuityDisplayStyle = {
 
 const textareaStyle = {
   width: '100%',
-  padding: '12px',
-  fontSize: '14px',
-  border: '1px solid #cbd5e1',
-  borderRadius: '4px',
+  padding: '14px',
+  fontSize: '15px',
+  border: '1px solid #e6eefc',
+  borderRadius: '12px',
   fontFamily: 'inherit',
   resize: 'vertical',
-  boxSizing: 'border-box'
+  boxSizing: 'border-box',
+  background: 'linear-gradient(180deg, #fff 0%, #fbfdff 100%)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 6px 18px rgba(16,24,40,0.04)',
+  transition: 'box-shadow 150ms ease, border-color 150ms ease'
 };
 
 const charCountStyle = {
   fontSize: '12px',
-  color: '#94a3b8',
-  marginTop: '4px',
+  color: '#64748b',
+  marginTop: '6px',
   textAlign: 'right'
+};
+
+const smallToolbarButton = {
+  padding: '8px 12px',
+  borderRadius: 8,
+  border: '1px solid rgba(14,165,233,0.12)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(245,252,255,0.9))',
+  cursor: 'pointer',
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#0f172a',
+  boxShadow: '0 6px 12px rgba(14,165,233,0.06)'
 };
 
 const selectStyle = {

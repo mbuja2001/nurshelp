@@ -77,10 +77,14 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, onSubmit = () => 
   // Form validation
   // Bed is OPTIONAL - not every patient gets hospitalized
   const isFormValid = () => {
+    const reasoningValid = reasoningMode === 'full'
+      ? reasoning.trim().length > 0
+      : keyFindings.trim().length > 0 && assessment.trim().length > 0 && plan.trim().length > 0;
+
     return (
       satsLevel &&
       ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
-      reasoning.trim().length > 0 &&
+      reasoningValid &&
       selectedNurse &&
       selectedPhysician
       // NOTE: selectedBed is OPTIONAL

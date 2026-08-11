@@ -1,7 +1,7 @@
 // src/PatientSummary/Components/RightColumn.jsx
 import React, { useState, useEffect } from "react";
 
-export default function RightColumn({ vitalsData = {}, triage = null, onOpenForm, onSavePatient, saving }) {
+export default function RightColumn({ vitalsData = {}, triage = null, activeTab = "manual", onOpenForm, onManualTriage, onAiTriage, saving }) {
   const [bedAssigned, setBedAssigned] = useState(false);
   const [doctorNotified, setDoctorNotified] = useState(false);
   const [timeLeft, setTimeLeft] = useState(null);
@@ -171,37 +171,18 @@ export default function RightColumn({ vitalsData = {}, triage = null, onOpenForm
       </div>
 
       {/* ------------------ */}
-      {/* CHECKLIST */}
-      {/* ------------------ */}
-      <div className="block">
-        <div className="action-checklist">
-          <label className={`checklist-item ${bedAssigned ? 'completed' : ''}`}>
-            <input type="checkbox" checked={bedAssigned} onChange={() => setBedAssigned(!bedAssigned)} />
-            <span>Assign Bed</span>
-          </label>
-
-          <label className={`checklist-item ${doctorNotified ? 'completed' : ''}`}>
-            <input type="checkbox" checked={doctorNotified} onChange={() => setDoctorNotified(!doctorNotified)} />
-            <span>Notify Doctor</span>
-          </label>
-        </div>
-      </div>
-
-      {/* ------------------ */}
       {/* ACTIONS */}
-      {/* AI TRIAGE MODE */}
-      {/* Click to submit AI triage (with clinical handover) */}
-      {/* Sends: hospitalId, patientId, triageNurseId + vitals to ESI_Engine */}
-      {/* Returns: ESI level, specialty, assigned physician/nurse */}
       {/* ------------------ */}
       <div className="bottom-action" style={{ display: "flex", gap: 8, flexDirection: "column" }}>
-        <button className="save-file-btn" onClick={onSavePatient} disabled={saving} title="Submit AI Triage with Clinical Handover">
-          {saving ? "🤖 Processing..." : "AI TRIAGE"}
+        <button
+          className="save-file-btn"
+          onClick={activeTab === "manual" ? onManualTriage : onAiTriage}
+          disabled={saving}
+          title={activeTab === "manual" ? "Open manual triage workflow" : "Submit auto-triage with clinical handover"}
+        >
+          {saving ? (activeTab === "manual" ? "⏳ Opening..." : "🤖 Processing...") : (activeTab === "manual" ? "MANUAL TRIAGE" : "AUTO-TRIAGE")}
         </button>
 
-        <button className="edit-action-btn" onClick={handleDownload}>
-          📄 DOWNLOAD PDF
-        </button>
       </div>
     </div>
   );

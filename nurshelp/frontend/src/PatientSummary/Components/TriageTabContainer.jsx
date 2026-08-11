@@ -29,7 +29,7 @@ function TriageTabContainer({
           }}
           onClick={() => onTabChange('ai')}
         >
-          AI-Assisted Triage
+          Auto-Triage
         </button>
       </div>
     </div>

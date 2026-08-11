@@ -5,6 +5,7 @@ import { BedSchedule } from "../models/bedSchedule.model.js";
 import { Vital } from "../models/vitals.model.js";
 import { canAccessEncounter } from "./encounterAccess.js";
 import { normalizeMedicationRequest, isMedicationRequestValid } from "../utils/medicationRequestUtils.js";
+import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
 
 /** Safe transcript parser used across functions */
 const parseTranscript = (transcript) => {
@@ -1652,6 +1653,12 @@ export const updateDisposition = async (req, res) => {
         h.handover_status = 'COMPLETED';
       }
     });
+
+    if (disposition === 'DISCHARGED') {
+      encounter.discharge_report = buildDischargeReportData({ encounter, overrides: { authorId: req.user?.name || req.user?.email || '' } });
+      encounter.discharge_report.status = 'draft';
+      encounter.discharge_report.updatedAt = now;
+    }
 
     if (disposition === 'DISCHARGED' && encounter.assigned_bed && mongoose.Types.ObjectId.isValid(encounter.assigned_bed)) {
       const bed = await BedSchedule.findById(encounter.assigned_bed);

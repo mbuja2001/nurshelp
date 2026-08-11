@@ -311,6 +311,10 @@ const encounterSchema = new mongoose.Schema({
   discharge_scheduled_at: { type: Date, default: null },
   discharge_scheduled_by: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
   discharge_schedule_notes: { type: String, default: '' },
+  discharge_report: {
+    type: Object,
+    default: null
+  },
 
   status: { 
     type: String, 

@@ -23,6 +23,7 @@ import {
 } from "../controllers/encounter.controller.js";
 import { createHandover } from "../controllers/handover.controller.js";
 import { protect } from "../middleware/authmiddleware.js";
+import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
 
 const router = express.Router();
 
@@ -75,6 +76,29 @@ router.put("/:id/inpatient-report", protect, createInpatientProgressReport);
 
 // Update patient discharge/hospitalization status
 router.put("/:id/disposition", protect, updateDisposition);
+
+router.get("/:id/discharge-report", protect, async (req, res) => {
+  try {
+    const encounter = await (await import('../models/encounter.model.js')).Encounter.findById(req.params.id);
+    if (!encounter) return res.status(404).json({ message: 'Encounter not found' });
+    return res.json({ dischargeReport: encounter.discharge_report || null });
+  } catch (error) {
+    return res.status(500).json({ message: 'Unable to fetch discharge report', error: error.message });
+  }
+});
+
+router.post("/:id/discharge-report", protect, async (req, res) => {
+  try {
+    const encounter = await (await import('../models/encounter.model.js')).Encounter.findById(req.params.id);
+    if (!encounter) return res.status(404).json({ message: 'Encounter not found' });
+    const dischargeReport = buildDischargeReportData({ encounter, overrides: { ...req.body, authorId: req.user?.name || req.user?.email || '' } });
+    encounter.discharge_report = dischargeReport;
+    await encounter.save();
+    return res.status(201).json({ dischargeReport });
+  } catch (error) {
+    return res.status(500).json({ message: 'Unable to create discharge report', error: error.message });
+  }
+});
 
 // Record medication administration from pharmacy inventory
 router.post("/:id/medication-administration", protect, recordMedicationAdministration);

@@ -2,12 +2,12 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import TriageTabContainer from "./Components/TriageTabContainer";
 import Footer from "./Components/footer";
 import LeftColumn from "./Components/LeftColumn";
-import MiddleColumn from "./Components/MiddleColumn";
 import RightColumn from "./Components/RightColumn";
 import Vitals from "./Components/Vitals";
+import TriageTabContainer from "./Components/TriageTabContainer";
+import SidebarLayout from "../Dashboard/SidebarLayout";
 
 import "./PS.css";
 import "./PS_index.css";
@@ -43,6 +43,19 @@ const parseBP = (bpStr) => {
   return { bp: bpStr, systolic: null, diastolic: null };
 }
 
+const formatDate = (isoString) => {
+  if (!isoString) return 'Unknown';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric'
+    }).format(new Date(isoString));
+  } catch (e) {
+    return isoString;
+  }
+};
+
+const isSearchable = (query) => query && query.trim().length >= 2;
+
 export default function PS() {
   const navigate = useNavigate();
   const { patientId } = useParams();
@@ -76,7 +89,14 @@ export default function PS() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingEncounter, setLoadingEncounter] = useState(false);
-  const [activeTriageTab, setActiveTriageTab] = useState('manual'); // Default: manual triage tab
+  const [activeTriageTab, setActiveTriageTab] = useState("manual");
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [ehrSummary, setEhrSummary] = useState(null);
+  const [selectedMrn, setSelectedMrn] = useState(null);
+  const [loadingEHR, setLoadingEHR] = useState(false);
 
   // ---------- Persistence ----------
   useEffect(() => { localStorage.setItem("ps_patient", JSON.stringify(patientData)); }, [patientData]);
@@ -105,6 +125,188 @@ export default function PS() {
       }
     }
   }, [patientId]);
+
+  const loadPatientEHR = async (mrn) => {
+    if (!mrn) return;
+    setLoadingEHR(true);
+    setEhrSummary(null);
+    setSearchError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${BACKEND_URL}/api/patients/ehr/${encodeURIComponent(mrn)}`, {
+        headers,
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Unable to load EHR (${res.status})`);
+      }
+
+      const data = await res.json();
+      const encounters = data.encounters || [];
+      setEhrSummary({
+        hospital: data.hospital || null,
+        totalEncounters: data.totalEncounters ?? encounters.length,
+        encounters,
+        lastEncounter: encounters[0] || null
+      });
+      setSelectedMrn(mrn);
+
+      if (encounters.length > 0) {
+        const patient = encounters[0].patient || {};
+        setPatientData((prev) => ({
+          ...prev,
+          id_number: mrn,
+          name: patient.name || prev.name || '',
+          surname: patient.surname || prev.surname || '',
+          gender: patient.gender || prev.gender || '',
+          age: patient.age ?? prev.age ?? null,
+          ageYears: patient.ageYears ?? prev.ageYears ?? null,
+          ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
+          height_cm: patient.height_cm ?? prev.height_cm ?? null,
+          symptoms: patient.symptoms ?? prev.symptoms ?? '',
+          history: patient.history ?? prev.history ?? '',
+          duration: patient.duration ?? prev.duration ?? '',
+          painLevel: patient.painLevel ?? prev.painLevel ?? ''
+        }));
+      }
+    } catch (err) {
+      setSearchError(err.message || 'Failed to load patient EHR');
+    } finally {
+      setLoadingEHR(false);
+    }
+  };
+
+  const handleSearchSubmit = async () => {
+    if (!isSearchable(searchQuery)) {
+      setSearchError('Enter at least 2 characters to search');
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchResults([]);
+
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${BACKEND_URL}/api/patients/search?search=${encodeURIComponent(searchQuery.trim())}`, {
+        headers,
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Search failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      setSearchResults(data.encounters || []);
+      if ((data.encounters || []).length === 0) {
+        setSearchError('No matching patients found. Continue with a new intake.');
+      }
+    } catch (err) {
+      setSearchError(err.message || 'Patient search failed');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handlePatientSelect = async (encounter) => {
+    const patient = encounter.patient || {};
+    const mrn = patient.id_number || encounter.patient?.id_number;
+    if (!mrn) {
+      setSearchError('Selected record is missing MRN');
+      return;
+    }
+
+    setSearchError(null);
+    setSelectedMrn(mrn);
+    setSearchQuery(mrn);
+    setPatientData((prev) => ({
+      ...prev,
+      id_number: mrn,
+      name: patient.name || prev.name || '',
+      surname: patient.surname || prev.surname || '',
+      gender: patient.gender || prev.gender || '',
+      age: patient.age ?? prev.age ?? null,
+      ageYears: patient.ageYears ?? prev.ageYears ?? null,
+      ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
+      height_cm: patient.height_cm ?? prev.height_cm ?? null,
+      symptoms: patient.symptoms ?? prev.symptoms ?? '',
+      history: patient.history ?? prev.history ?? '',
+      duration: patient.duration ?? prev.duration ?? '',
+      painLevel: patient.painLevel ?? prev.painLevel ?? ''
+    }));
+
+    await loadPatientEHR(mrn);
+  };
+
+  const clearPatientSelection = () => {
+    setSelectedMrn(null);
+    setEhrSummary(null);
+    setSearchResults([]);
+    setSearchError(null);
+  };
+
+  const startNewIntake = () => {
+    clearPatientSelection();
+    setSearchQuery('');
+    setPatientData({
+      id_number: '',
+      name: '',
+      surname: '',
+      gender: '',
+      age: null,
+      ageYears: null,
+      ageMonths: null,
+      height_cm: null,
+      symptoms: '',
+      duration: '',
+      painLevel: '',
+      history: ''
+    });
+    setTranscript([]);
+    setVitalsData({
+      temp: '--',
+      bp: '--',
+      hr: '--',
+      o2: '--',
+      resp: '--',
+      avpu: 'A',
+      bp_systolic: null,
+      bp_diastolic: null,
+      bp_left_systolic: null,
+      bp_left_diastolic: null,
+      bp_right_systolic: null,
+      bp_right_diastolic: null
+    });
+  };
+
+  const getPatientAgeLabel = () => {
+    if (patientData?.ageYears != null) return `${patientData.ageYears} yr${patientData.ageYears === 1 ? '' : 's'}`;
+    if (patientData?.age != null) return `${patientData.age} yr${patientData.age === 1 ? '' : 's'}`;
+    return 'Unknown age';
+  };
+
+  const getPatientGenderLabel = () => {
+    return patientData?.gender ? String(patientData.gender).toUpperCase() : 'Unknown gender';
+  };
+
+  const getPatientSearchStatus = () => {
+    if (searchLoading) return 'Searching hospital records…';
+    if (searchError) return searchError;
+    if (searchResults.length > 0) return `${searchResults.length} patient${searchResults.length === 1 ? '' : 's'} found`;
+    return 'Search MRN, first name, or surname to preload patient data from the hospital EHR.';
+  };
 
   // Auto open vitals when route is /summary/new + CLEAR localStorage for fresh encounter
   useEffect(() => {
@@ -290,6 +492,7 @@ export default function PS() {
     };
   };
 
+
   // ---------- Submit AI triage (with clinical handover) ----------
   const handleSavePatient = async () => {
     const vCheck = validateVitals(vitalsData);
@@ -408,60 +611,68 @@ export default function PS() {
   };
 
   // ---------- Render ----------
-  return (
-    <div className="ps-main-page-wrapper">
-      <div className="app-wrapper" style={{ filter: saving ? "blur(4px)" : "none", transition: "filter 0.3s ease", pointerEvents: saving ? "none" : "auto" }}>
-        <TriageTabContainer
-          activeTab={activeTriageTab}
-          onTabChange={(tab) => setActiveTriageTab(tab)}
-        />
+  const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const displayName = storedUser?.name || storedUser?.username || "Staff";
 
-        <main className="main-container">
+  return (
+    <SidebarLayout username={displayName} handleLogout={() => {}}>
+      <div className="ps-main-page-wrapper">
+        <div className="app-wrapper" style={{ filter: saving ? "blur(4px)" : "none", transition: "filter 0.3s ease", pointerEvents: saving ? "none" : "auto" }}>
+            <div className="ps-page-header">
+            <div className="ps-page-headline">
+              <span className="eyebrow-label">Triage Intake</span>
+              <h1>Triage with Health Record Library Search </h1>
+            </div>
+          
+          </div>
+
+          <TriageTabContainer
+            activeTab={activeTriageTab}
+            onTabChange={(tab) => setActiveTriageTab(tab)}
+          />
+
+          <main className="main-container">
           <div className="dashboard-grid" style={{ display: "flex", gap: 20, padding: 20 }}>
-            <LeftColumn data={patientData} setData={setPatientData} />
-            <MiddleColumn 
-              data={transcript}
-              setData={setTranscript}
-              activeTab={activeTriageTab}
-              patientData={patientData}
-              vitalsData={vitalsData}
-              onTriageSubmit={(result) => {
-                console.log("✅ Manual triage confirmed and locked:", result);
-                setTriageResult(result);
-                localStorage.setItem("triageResult", JSON.stringify(result));
-                
-                // Clear the patient data after successful triage
-                localStorage.removeItem("ps_patient");
-                localStorage.removeItem("ps_transcript");
-                localStorage.removeItem("ps_vitals");
-                
-                // Navigate to NurseDashboard after confirmation
-                // Pass the new encounter ID so Dashboard can refresh immediately
-                setTimeout(() => {
-                  navigate("/dashboard", { 
-                    state: { 
-                      newEncounterId: result.triageRequestId,
-                      triageData: result
-                    } 
-                  });
-                }, 500);
-              }}
+            <LeftColumn
+              data={patientData}
+              setData={setPatientData}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              searchResults={searchResults}
+              searchLoading={searchLoading}
+              searchError={searchError}
+              selectedMrn={selectedMrn}
+              handleSearchSubmit={handleSearchSubmit}
+              handlePatientSelect={handlePatientSelect}
+              loadingEHR={loadingEHR}
+              clearPatientSelection={clearPatientSelection}
             />
             <RightColumn
               vitalsData={vitalsData}
               triage={triageResult}
+              activeTab={activeTriageTab}
               onOpenForm={() => setShowForm(true)}
-              onSavePatient={handleSavePatient}
+              onManualTriage={() => {
+                const state = {
+                  patientData,
+                  vitalsData,
+                  ehrSummary,
+                  selectedMrn
+                };
+                localStorage.setItem("manual_triage_report_state", JSON.stringify(state));
+                navigate("/manual-triage-report", { state });
+              }}
+              onAiTriage={handleSavePatient}
               saving={saving}
             />
           </div>
         </main>
 
-        <Footer />
-      </div>
+          <Footer />
+        </div>
 
-      {/* AI Loading Overlay */}
-      {saving && (
+        {/* AI Loading Overlay */}
+        {saving && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -521,26 +732,27 @@ export default function PS() {
         </div>
       )}
 
-      {/* Vitals modal */}
-      {showForm && (
-        <Vitals
-          vitalsData={vitalsData}
-          onComplete={() => setShowForm(false)}
-          onCancel={() => setShowForm(false)}
-          setVitalsData={(v) => {
-            // merge parsed bp components if present and normalize temperature
-            const parsed = parseBP(String(v?.bp ?? ""));
-            setVitalsData((prev) => ({
-              ...prev,
-              ...v,
-              temp: normalizeTemp(v?.temp),
-              bp: parsed.bp ?? v.bp ?? prev.bp,
-              bp_systolic: parsed.systolic ?? (v.bp_systolic ?? prev.bp_systolic),
-              bp_diastolic: parsed.diastolic ?? (v.bp_diastolic ?? prev.bp_diastolic)
-            }));
-          }}
-        />
-      )}
-    </div>
+        {/* Vitals modal */}
+        {showForm && (
+          <Vitals
+            vitalsData={vitalsData}
+            onComplete={() => setShowForm(false)}
+            onCancel={() => setShowForm(false)}
+            setVitalsData={(v) => {
+              // merge parsed bp components if present and normalize temperature
+              const parsed = parseBP(String(v?.bp ?? ""));
+              setVitalsData((prev) => ({
+                ...prev,
+                ...v,
+                temp: normalizeTemp(v?.temp),
+                bp: parsed.bp ?? v.bp ?? prev.bp,
+                bp_systolic: parsed.systolic ?? (v.bp_systolic ?? prev.bp_systolic),
+                bp_diastolic: parsed.diastolic ?? (v.bp_diastolic ?? prev.bp_diastolic)
+              }));
+            }}
+          />
+        )}
+      </div>
+    </SidebarLayout>
   );
 }

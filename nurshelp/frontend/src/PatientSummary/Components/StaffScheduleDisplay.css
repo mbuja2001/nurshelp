@@ -15,6 +15,35 @@
   color: #1e293b;
 }
 
+.staff-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 10px;
+  background: linear-gradient(180deg, #f0f9ff, #ffffff);
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+}
+
+.staff-filter-bar select,
+.staff-filter-bar input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  background: white;
+  color: #0f172a;
+}
+
+.ward-bed-groups { display: grid; gap: 8px; }
+.ward-bed-group { border: 1px solid #bae6fd; border-radius: 10px; background: #f8fafc; overflow: hidden; }
+.ward-bed-group summary { display: flex; justify-content: space-between; gap: 10px; padding: 12px 14px; cursor: pointer; color: #0c4a6e; font-weight: 800; list-style-position: inside; }
+.ward-bed-group summary span { color: #64748b; font-size: 12px; font-weight: 600; }
+.ward-bed-group > div { padding: 0 10px 10px; }
+
 .staff-section {
   margin-bottom: 25px;
 }
@@ -156,7 +185,13 @@
 }
 
 @media (max-width: 768px) {
+  .staff-filter-bar { grid-template-columns: 1fr; }
   .staff-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
+}
+
+@media (max-width: 420px) {
+  .staff-schedule-container { padding: 12px; }
+  .staff-grid { grid-template-columns: 1fr; }
 }

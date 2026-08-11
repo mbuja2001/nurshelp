@@ -1,12 +1,27 @@
 // src/PatientSummary/Components/LeftColumn.jsx
 import React, { useState } from "react";
+import { FaSearch, FaStethoscope, FaTimes } from "react-icons/fa";
 
-export default function LeftColumn({ data = {}, setData }) {
+export default function LeftColumn({
+  data = {},
+  setData,
+  searchQuery,
+  setSearchQuery,
+  searchResults = [],
+  searchLoading = false,
+  searchError = null,
+  selectedMrn = null,
+  handleSearchSubmit,
+  handlePatientSelect,
+  loadingEHR = false,
+  clearPatientSelection
+}) {
   // local UI editing flags
   const [editingPatient, setEditingPatient] = useState(false);
   const [editing, setEditing] = useState({
     symptoms: false, duration: false, painLevel: false, history: false
   });
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
 
   // helper to update top-level patient fields (guard setData)
   const updateField = (field, value) => {
@@ -20,8 +35,104 @@ export default function LeftColumn({ data = {}, setData }) {
     updateField(field, "");
   };
 
+  const openSearchModal = () => {
+    setSearchModalOpen(true);
+  };
+
+  const closeSearchModal = () => {
+    setSearchModalOpen(false);
+  };
+
+  const submitSearch = async () => {
+    if (typeof handleSearchSubmit === "function") {
+      await handleSearchSubmit();
+    }
+  };
+
+  const selectEncounter = async (encounter) => {
+    if (typeof handlePatientSelect === "function") {
+      await handlePatientSelect(encounter);
+    }
+    setSearchModalOpen(false);
+  };
+
   return (
     <div className="left-column-layout">
+      <div className="triage-shell-card">
+        <div className="triage-shell-top">
+          <div className="triage-shell-title">
+            <div className="triage-shell-icon"><FaStethoscope /></div>
+            <div>
+              <div className="triage-shell-eyebrow">Clinical intake</div>
+              <div className="triage-shell-heading">Electronic Health Record database Search</div>
+            </div>
+          </div>
+          <div className="triage-shell-actions">
+            <button className="triage-shell-icon-btn" type="button" onClick={openSearchModal} title="Search EHR">
+              <FaSearch />
+            </button>
+            {selectedMrn && (
+              <span className="triage-shell-status-chip">Loaded • {selectedMrn}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="triage-shell-prompt">
+          Search by ID number, MRN, name, or surname to preload the patient's clinical story before moving to the dedicated manual triage report.
+        </div>
+
+        {searchModalOpen && (
+          <div className="triage-search-modal" role="dialog" aria-modal="true">
+            <div className="triage-search-modal-card">
+              <div className="triage-search-modal-header">
+                <div>
+                  <div className="triage-shell-eyebrow">Quick EHR lookup</div>
+                  <h4>Search hospital records</h4>
+                </div>
+                <button className="triage-shell-icon-btn" type="button" onClick={closeSearchModal} title="Close search">
+                  <FaTimes />
+                </button>
+              </div>
+
+              <div className="triage-search-input-row">
+                <input
+                  value={searchQuery || ""}
+                  onChange={(e) => setSearchQuery?.(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitSearch(); }}
+                  placeholder="Type MRN, first name, or surname"
+                  aria-label="Search patient records"
+                />
+                <button type="button" className="triage-search-button" onClick={submitSearch} disabled={searchLoading}>
+                  {searchLoading ? "Searching…" : "Search"}
+                </button>
+              </div>
+
+              {searchError && <div className="triage-search-feedback error">{searchError}</div>}
+              {loadingEHR && <div className="triage-search-feedback notice">Loading EHR details…</div>}
+
+              {searchResults.length > 0 && (
+                <div className="triage-search-results">
+                  {searchResults.map((encounter) => {
+                    const patient = encounter.patient || {};
+                    const mrn = patient.id_number || "Unknown MRN";
+                    const status = encounter.status || "Unknown status";
+                    return (
+                      <button key={`${mrn}-${encounter._id || encounter.id}`} type="button" className="triage-search-result" onClick={() => selectEncounter(encounter)}>
+                        <div>
+                          <div className="triage-search-result-title">{patient.name || "Unknown"} {patient.surname || ""}</div>
+                          <div className="triage-search-result-meta">{mrn} • {status}</div>
+                        </div>
+                        <span className="triage-search-result-action">Load</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Consolidated Patient Information Box */}
       <div className="block">
         <div className="block-header">
