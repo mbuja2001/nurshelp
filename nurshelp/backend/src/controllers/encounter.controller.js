@@ -3,6 +3,7 @@ import axios from "axios";
 import { Encounter } from "../models/encounter.model.js";
 import { BedSchedule } from "../models/bedSchedule.model.js";
 import { Vital } from "../models/vitals.model.js";
+import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { canAccessEncounter } from "./encounterAccess.js";
 import { normalizeMedicationRequest, isMedicationRequestValid } from "../utils/medicationRequestUtils.js";
 import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
@@ -634,6 +635,26 @@ export const getEncounterById = async (req, res) => {
     obj.specialistDoctor = assignedPhysicianName;
     obj.assignedPhysician = assignedPhysicianName;
     obj.attendedByName = assignedPhysicianName;
+    obj.manual_triage_report = obj.manual_triage_report || obj.triage?.manualTriageReport || {};
+
+    if (!obj.ward_display_info && (obj.manual_triage_report?.assignedWardName || obj.assigned_ward)) {
+      obj.ward_display_info = {
+        name: obj.manual_triage_report?.assignedWardName || obj.assigned_ward?.name || 'General Ward',
+        wardName: obj.manual_triage_report?.assignedWardName || obj.assigned_ward?.name || 'General Ward',
+        department: obj.manual_triage_report?.assignedWardName || 'General Ward',
+        wardId: obj.assigned_ward?.toString?.() || null
+      };
+    }
+
+    if (!obj.bed_display_info && (obj.manual_triage_report?.assignedBedNumber || obj.assigned_bed)) {
+      obj.bed_display_info = {
+        bedId: obj.assigned_bed?.toString?.() || obj.manual_triage_report?.assignedBedNumber || null,
+        bedNumber: obj.manual_triage_report?.assignedBedNumber || obj.assigned_bed?.toString?.() || 'Not Assigned',
+        bed_number: obj.manual_triage_report?.assignedBedNumber || obj.assigned_bed?.toString?.() || 'Not Assigned',
+        department: obj.manual_triage_report?.assignedWardName || 'General',
+        wardName: obj.manual_triage_report?.assignedWardName || 'General Ward'
+      };
+    }
 
     // LOGGING: What's being returned when fetching for confirmation page
     console.log(`[GetEncounterById] Fetching encounter ${id} for confirmation page`);
@@ -650,30 +671,57 @@ export const getEncounterById = async (req, res) => {
       obj.assigned_clinicians = [];
       
       if (obj.assignedPhysicianId) {
+        // Fetch actual physician specialty from ClinicalStaff
+        const physician = await ClinicalStaff.findById(obj.assignedPhysicianId).select('clinicalSpecialty specialty name firstName lastName').lean().catch(() => null);
+        const physicianSpecialty = physician?.clinicalSpecialty || physician?.specialty || 'General';
+        const physicianName = physician?.name || `${physician?.firstName || ''} ${physician?.lastName || ''}`.trim() || obj.assignedPhysicianName || 'Not Assigned';
+        
         obj.assigned_clinicians.push({
           id: obj.assignedPhysicianId,
-          name: obj.assignedPhysicianName || 'Not Assigned',
+          name: physicianName,
           role: 'PHYSICIAN',
-          specialty: 'General',
+          specialty: physicianSpecialty,
           score: 100,
           assigned_at: new Date()
         });
-        console.log(`[GetEncounterById]    ✅ Added physician: ${obj.assignedPhysicianName}`);
+        console.log(`[GetEncounterById]    ✅ Added physician: ${physicianName} (${physicianSpecialty})`);
       }
       
       if (obj.assignedNurseId) {
+        // Fetch actual nurse specialty from ClinicalStaff
+        const nurse = await ClinicalStaff.findById(obj.assignedNurseId).select('clinicalSpecialty specialty name firstName lastName').lean().catch(() => null);
+        const nurseSpecialty = nurse?.clinicalSpecialty || nurse?.specialty || 'Nursing';
+        const nurseName = nurse?.name || `${nurse?.firstName || ''} ${nurse?.lastName || ''}`.trim() || obj.assignedNurseName || 'Assigned Nurse';
+        
         obj.assigned_clinicians.push({
           id: obj.assignedNurseId,
-          name: obj.assignedNurseName || 'Assigned Nurse',
+          name: nurseName,
           role: 'NURSE',
-          specialty: 'Nursing',
+          specialty: nurseSpecialty,
           score: 100,
           assigned_at: new Date()
         });
-        console.log(`[GetEncounterById]    ✅ Added nurse: ${obj.assignedNurseName}`);
+        console.log(`[GetEncounterById]    ✅ Added nurse: ${nurseName} (${nurseSpecialty})`);
       }
       
       console.log(`[GetEncounterById] ✅ assigned_clinicians populated: ${obj.assigned_clinicians.length} clinicians`);
+    } else if (obj.assigned_clinicians && obj.assigned_clinicians.length > 0) {
+      // ENRICH: If assigned_clinicians exist but have missing/empty specialty, fetch from ClinicalStaff
+      console.log(`[GetEncounterById] 🔍 Enriching assigned_clinicians specialty fields...`);
+      
+      for (let i = 0; i < obj.assigned_clinicians.length; i++) {
+        const clinician = obj.assigned_clinicians[i];
+        if (!clinician.specialty || clinician.specialty === 'General' || clinician.specialty === 'Nursing') {
+          // Try to fetch real specialty from ClinicalStaff
+          const staff = await ClinicalStaff.findById(clinician.id).select('clinicalSpecialty specialty').lean().catch(() => null);
+          if (staff && (staff.clinicalSpecialty || staff.specialty)) {
+            const realSpecialty = staff.clinicalSpecialty || staff.specialty;
+            console.log(`[GetEncounterById]    ✅ Enriched ${clinician.name}: '${clinician.specialty}' → '${realSpecialty}'`);
+            obj.assigned_clinicians[i].specialty = realSpecialty;
+          }
+        }
+      }
+      console.log(`[GetEncounterById] ✅ assigned_clinicians enriched with real specialties`);
     }
 
     console.log(`[GetEncounterById] - assigned_clinicians (after fix):`, obj.assigned_clinicians?.map(c => `${c.name} (${c.role})`));

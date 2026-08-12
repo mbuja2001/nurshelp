@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import StaffScheduleDisplay from './StaffScheduleDisplay';
 import './ManualTriageForm.css';
 import { FiHeart, FiThermometer, FiActivity, FiClock, FiUser } from 'react-icons/fi';
+import { buildAssignmentPayload, enrichSelectedBedWithWard } from './assignmentUtils';
 
 function getInitialTewsProfile(patientData) {
   const age = Number(patientData?.ageYears ?? patientData?.age);
@@ -167,19 +168,46 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   const tewsResult = calculateTews(tewsProfile, tewsVitals);
   const tewsComponentsKey = JSON.stringify(tewsResult.components);
 
+  const hasCompleteClinicalAnalysis = () => {
+    const parsedClinicalDiscriminators = clinicalDiscriminators
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const parsedDifferentialDiagnoses = differentialDiagnoses
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const parsedImmediateActions = immediateActions
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const parsedDiagnosticWorkup = diagnosticWorkup
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    return (
+      pathophysiology.trim().length > 0 &&
+      clinicalSummary.trim().length > 0 &&
+      parsedClinicalDiscriminators.length > 0 &&
+      parsedDifferentialDiagnoses.length > 0 &&
+      parsedImmediateActions.length > 0 &&
+      parsedDiagnosticWorkup.length > 0 &&
+      dispositionRationale.trim().length > 0
+    );
+  };
+
   useEffect(() => {
     if (!tewsResult.complete) return;
     setUrgencyScore(String(tewsResult.total));
-    setSatsLevel(tewsResult.priority);
-  }, [tewsResult.complete, tewsResult.total, tewsResult.priority]);
+  }, [tewsResult.complete, tewsResult.total]);
 
   useEffect(() => {
     onTewsChange({ profile: tewsProfile, height: tewsHeight, total: tewsResult.total, priority: satsLevel, components: tewsResult.components, complete: tewsResult.complete });
   }, [onTewsChange, satsLevel, tewsComponentsKey, tewsHeight, tewsProfile, tewsResult.total, tewsResult.complete]);
 
   const formValid = useMemo(() => {
-    const analysisValid = pathophysiology.trim().length > 0;
-    const immediateActionsValid = immediateActions.trim().length > 0;
+    const analysisValid = hasCompleteClinicalAnalysis();
     const heightValid = tewsProfile === 'adult'
       ? true
       : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
@@ -188,13 +216,12 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
       satsLevel &&
       ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
       analysisValid &&
-      immediateActionsValid &&
       tewsResult.complete &&
       heightValid &&
       selectedNurse &&
       selectedPhysician
     );
-  }, [satsLevel, pathophysiology, immediateActions, tewsProfile, tewsHeight, tewsResult.complete, selectedNurse, selectedPhysician]);
+  }, [satsLevel, pathophysiology, clinicalSummary, clinicalDiscriminators, differentialDiagnoses, immediateActions, diagnosticWorkup, dispositionRationale, tewsProfile, tewsHeight, tewsResult.complete, selectedNurse, selectedPhysician]);
 
   useEffect(() => {
     onFormReadyChange(formValid);
@@ -303,8 +330,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   // Form validation
   // Bed is OPTIONAL - not every patient gets hospitalized
   const isFormValid = () => {
-    const analysisValid = pathophysiology.trim().length > 0;
-    const immediateActionsValid = immediateActions.trim().length > 0;
+    const analysisValid = hasCompleteClinicalAnalysis();
     const heightValid = tewsProfile === 'adult'
       ? true
       : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
@@ -313,7 +339,6 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
       satsLevel &&
       ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
       analysisValid &&
-      immediateActionsValid &&
       tewsResult.complete &&
       heightValid &&
       selectedNurse &&
@@ -405,6 +430,9 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
     const composedReasoning = [
       clinicalSummary && `Clinical Summary:\n${clinicalSummary}`,
       pathophysiology && `Pathophysiology:\n${pathophysiology}`,
+      clinicalDiscriminators && `Clinical Discriminators:\n${clinicalDiscriminators}`,
+      differentialDiagnoses && `Differential Diagnoses:\n${differentialDiagnoses}`,
+      diagnosticWorkup && `Diagnostic Workup:\n${diagnosticWorkup}`,
       immediateActions && `Immediate Actions:\n${immediateActions}`,
       dispositionRationale && `Disposition Rationale:\n${dispositionRationale}`
     ].filter(Boolean).join('\n\n');
@@ -420,6 +448,8 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
     try {
       const token = localStorage.getItem('token');
+      const assignmentMeta = buildAssignmentPayload(selectedBed, selectedBed?.ward || null);
+      const enrichedSelectedBed = enrichSelectedBedWithWard(selectedBed, selectedBed?.ward || null);
 
       // Build manual triage request (NO computeMode)
       const triagePayload = {
@@ -482,6 +512,27 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
           .map((item) => item.trim())
           .filter(Boolean),
         dispositionRationale,
+        analysis: {
+          pathophysiology,
+          clinicalSummary,
+          clinicalDiscriminators: clinicalDiscriminators
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          differentialDiagnoses: differentialDiagnoses
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          immediateActions: immediateActions
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          diagnosticWorkup: diagnosticWorkup
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+          dispositionRationale
+        },
 
         // Selected staff
         assignedNurseId: selectedNurse?.id,
@@ -490,7 +541,24 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         assignedPhysicianName: selectedPhysician?.name || 'Not Assigned',
         assignedSpecialistId: selectedSpecialist?.id,
         assignedSpecialistName: selectedSpecialist?.name || 'Not Assigned',
-        bedAssigned: selectedBed?.id,
+        assignedWardId: assignmentMeta.assignedWardId,
+        assignedWardName: assignmentMeta.assignedWardName,
+        bedAssigned: assignmentMeta.bedAssigned,
+        assignedBedNumber: assignmentMeta.assignedBedNumber,
+        selectedBed: enrichedSelectedBed,
+        ward_display_info: enrichedSelectedBed ? {
+          name: assignmentMeta.assignedWardName,
+          wardName: assignmentMeta.assignedWardName,
+          department: enrichedSelectedBed.department || assignmentMeta.assignedWardName,
+          wardId: assignmentMeta.assignedWardId
+        } : null,
+        bed_display_info: enrichedSelectedBed ? {
+          bedId: assignmentMeta.bedAssigned,
+          bedNumber: assignmentMeta.assignedBedNumber,
+          bed_number: assignmentMeta.assignedBedNumber,
+          department: enrichedSelectedBed.department || assignmentMeta.assignedWardName,
+          wardName: assignmentMeta.assignedWardName
+        } : null,
         
         // Patient data (REQUIRED for display in dashboard)
         patientId: patientData.id || patientData._id,

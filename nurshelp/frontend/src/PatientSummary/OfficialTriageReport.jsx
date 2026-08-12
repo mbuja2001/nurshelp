@@ -133,6 +133,19 @@ const OfficialTriageReport = () => {
     return satsMap[prioNum] || { color: '#000000', bgColor: '#f1f5f9', label: priority || 'N/A', border: '#94a3b8' };
   };
 
+  const normalizeSatsLevel = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const asString = String(value).trim();
+    const lowered = asString.toLowerCase();
+    if (['red', 'orange', 'yellow', 'green'].includes(lowered)) return lowered;
+    const numeric = Number(asString.replace(/[^\d]/g, ''));
+    if (numeric === 1) return 'red';
+    if (numeric === 2) return 'orange';
+    if (numeric === 3) return 'yellow';
+    if (numeric === 4) return 'green';
+    return null;
+  };
+
   // Get vitals with flexible property names
   const getVitalValue = (property) => {
     if (!encounter?.vitals) return null;
@@ -243,6 +256,18 @@ const OfficialTriageReport = () => {
   const manualReport = encounter?.manual_triage_report || {};
   const manuallySelected = encounter?.manually_selected_clinicians || [];
   const aiRecommended = encounter?.assigned_clinicians || [];
+  const satsPriority = normalizeSatsLevel(
+    reportType === 'AI'
+      ? (aiReport?.calculated_priority ?? triageData?.priority_code ?? triageData?.SATS_reasoning?.priority ?? 'yellow')
+      : (manualReport?.selected_priority ?? manualReport?.satsLevel ?? triageData?.priority_code ?? triageData?.manualTriageReport?.satsLevel ?? 'yellow')
+  );
+  const satsBadge = satsPriority ? getSATSBadge(satsPriority) : getSATSBadge('N/A');
+  const tewsTotal = reportType === 'AI'
+    ? (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? aiReport?.tews_total ?? null)
+    : (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? manualReport?.tews_total ?? null);
+  const acuityScore = reportType === 'AI'
+    ? (aiReport?.urgencyScore ?? triageData?.urgencyScore ?? null)
+    : (manualReport?.urgencyScore ?? manualReport?.urgency_score ?? triageData?.urgencyScore ?? triageData?.urgency_score ?? null);
 
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '20px' }}>
@@ -272,7 +297,7 @@ const OfficialTriageReport = () => {
               fontSize: 14,
               color: '#64748b'
             }}>
-              {reportType === 'MANUAL' ? 'Manually Confirmed' : 'AI-Assisted'} triage report
+              {reportType === 'MANUAL' ? 'Manual Nurse Triage' : 'AI-Assisted'} triage report
             </p>
           </div>
           <button
@@ -444,48 +469,23 @@ const OfficialTriageReport = () => {
                 <div>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>SATS CLASSIFICATION:</span>
                   <div style={{ marginTop: '4px' }}>
-                    {(() => {
-                      const priority = reportType === 'AI' 
-                        ? (aiReport?.calculated_priority || triageData?.priority_code) 
-                        : (manualReport?.selected_priority || triageData?.priority_code);
-                      
-                      if (!priority) {
-                        return <div style={{ color: '#64748b', fontSize: '10px' }}>Not Available</div>;
-                      }
-                      
-                      const prioNum = parseInt(String(priority).replace(/\D/g, '').substring(0, 1));
-                      const sats = getSATSBadge(priority);
-                      const satsPoints = {
-                        1: '1 - EMERGENT',
-                        2: '2 - URGENT',
-                        3: '3 - SEMI-URGENT',
-                        4: '4 - NON-URGENT',
-                        5: '5 - NOT ILL'
-                      };
-                      
-                      return (
-                        <div>
-                          <div style={{
-                            display: 'inline-block',
-                            background: sats.bgColor,
-                            color: sats.color,
-                            padding: '8px 12px',
-                            borderRadius: '4px',
-                            fontWeight: 700,
-                            fontSize: '12px',
-                            border: `2px solid ${sats.color}`,
-                            letterSpacing: '0.5px'
-                          }}>
-                            SATS {satsPoints[prioNum]}
-                          </div>
-                          {(triageData?.sats_classification || triageData?.sats_points || aiReport?.sats_points) && (
-                            <div style={{ fontSize: '9px', color: '#1e293b', marginTop: '4px', fontWeight: 600 }}>
-                              Points: {triageData?.sats_classification || triageData?.sats_points || aiReport?.sats_points}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    {satsPriority ? (
+                      <div style={{
+                        display: 'inline-block',
+                        background: satsBadge.bgColor,
+                        color: satsBadge.color,
+                        padding: '8px 12px',
+                        borderRadius: '4px',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                        border: `2px solid ${satsBadge.border}`,
+                        letterSpacing: '0.5px'
+                      }}>
+                        {satsBadge.label}
+                      </div>
+                    ) : (
+                      <div style={{ color: '#64748b', fontSize: '10px' }}>Not Available</div>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -496,43 +496,20 @@ const OfficialTriageReport = () => {
                 </div>
               </div>
 
-              {/* TEWS SCORE */}
-              {(triageData?.SATS_reasoning?.tews_total !== undefined || triageData?.tews_total !== undefined) && (
-                <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0' }}>
-                  <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 800, color: '#000000', borderBottom: '2px solid #1e293b', paddingBottom: '3px' }}>TEWS SCORE</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
-                    <div>
-                      <span style={{ color: '#1e293b', fontWeight: 600 }}>TOTAL SCORE:</span>
-                      <div style={{ marginTop: '4px' }}>
-                        <div style={{
-                          display: 'inline-block',
-                          background: '#f1f5f9',
-                          color: '#1e293b',
-                          padding: '8px 12px',
-                          borderRadius: '4px',
-                          fontWeight: 700,
-                          fontSize: '12px',
-                          border: '2px solid #1e293b'
-                        }}>
-                          {triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? 'N/A'} points
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ color: '#1e293b', fontWeight: 600 }}>COMPONENTS:</span>
-                      <div style={{ marginTop: '4px', fontSize: '9px', color: '#1e293b', fontWeight: 600, lineHeight: '1.35' }}>
-                        {(() => {
-                          const tewsComp = triageData?.SATS_reasoning?.tews_components ?? triageData?.tews_components ?? {};
-                          if (!Object.keys(tewsComp).length) return <div style={{ color: '#64748b' }}>Not Available</div>;
-                          return Object.entries(tewsComp).slice(0, 5).map(([k, v]) => (
-                            <div key={k}>{k.replace(/_points/g, '').replace(/_/g, ' ')}: <strong>{v}</strong></div>
-                          ));
-                        })()}
-                      </div>
-                    </div>
+              <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
+                <div>
+                  <span style={{ color: '#1e293b', fontWeight: 600 }}>TEWS SCORE:</span>
+                  <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
+                    {tewsTotal !== null ? `${tewsTotal} points` : 'N/A'}
                   </div>
                 </div>
-              )}
+                <div>
+                  <span style={{ color: '#1e293b', fontWeight: 600 }}>ACUITY / URGENCY SCORE:</span>
+                  <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
+                    {acuityScore !== null ? `${acuityScore}` : 'N/A'}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

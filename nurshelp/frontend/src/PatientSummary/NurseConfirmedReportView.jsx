@@ -298,24 +298,6 @@ export default function NurseConfirmedReportView() {
             </section>
           )}
 
-          {/* Nurse Notes */}
-          {report.nurseNotes && (
-            <section
-              style={{
-                padding: 16,
-                marginBottom: 20,
-                borderRadius: 8,
-                background: "#fef3c7",
-                border: "1px solid #f59e0b"
-              }}
-            >
-              <h3 style={{ margin: "0 0 12px 0" }}>Nurse Notes</h3>
-              <div style={{ fontSize: 14, color: "#78350f", whiteSpace: "pre-wrap" }}>
-                {report.nurseNotes}
-              </div>
-            </section>
-          )}
-
           {/* Recommendations / AI Analysis */}
           {Array.isArray(report.recommendations) && report.recommendations.length > 0 && (
             <section

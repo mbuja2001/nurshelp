@@ -92,9 +92,10 @@ const ConfirmingManualClinicalHandover = () => {
   if (loading) return <div style={{ padding: 20, textAlign: 'center' }}>Loading...</div>;
   if (!encounter) return <div style={{ padding: 20, textAlign: 'center' }}>Encounter not found</div>;
 
-  const manualReport = encounter.manual_triage_report || {};
+  const manualReport = encounter.manual_triage_report || encounter.triage?.manualTriageReport || {};
   const triageData = encounter.triage || {};
   const manuallySelected = encounter.manually_selected_clinicians || [];
+  const assignedClinicians = encounter.assigned_clinicians || [];
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 20 }}>
@@ -355,7 +356,7 @@ const ConfirmingManualClinicalHandover = () => {
           <h3 style={{ margin: '0 0 12px 0', fontSize: 14, fontWeight: 600, color: '#166534' }}>👥 Assigned Clinicians</h3>
           
           {manuallySelected.length > 0 && (
-            <div>
+            <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#059669', marginBottom: 8 }}>📋 Manually Selected from Scheduler:</div>
               <div>
                 {manuallySelected.map((c) => (
@@ -368,7 +369,20 @@ const ConfirmingManualClinicalHandover = () => {
             </div>
           )}
 
-          {manuallySelected.length === 0 && (
+          {assignedClinicians.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#0369a1', marginBottom: 8 }}>👥 Assigned Clinicians:</div>
+              <div>
+                {assignedClinicians.map((c) => (
+                  <div key={c.id} style={{ fontSize: 12, padding: 8, background: '#eff6ff', borderRadius: 4, marginBottom: 6, border: '1px solid #bfdbfe' }}>
+                    • {c.name} ({c.role === 'PHYSICIAN' ? 'MD' : 'RN'}) - {c.specialty || 'General'}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {manuallySelected.length === 0 && assignedClinicians.length === 0 && (
             <div style={{ fontSize: 12, color: '#64748b', padding: 8, background: '#f1f5f9', borderRadius: 4 }}>
               No clinicians selected for this handover
             </div>

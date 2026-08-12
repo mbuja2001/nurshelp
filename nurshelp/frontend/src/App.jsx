@@ -12,6 +12,7 @@ import ClinicianScheduler from "./PatientSummary/ClinicianScheduler.jsx";
 import ConfirmingAIClinicalHandover from "./PatientSummary/ConfirmingAIClinicalHandover.jsx";
 import ConfirmingManualClinicalHandover from "./PatientSummary/ConfirmingManualClinicalHandover.jsx";
 import OfficialTriageReport from "./PatientSummary/OfficialTriageReport.jsx";
+import ManualOfficialTriageReport from "./PatientSummary/ManualOfficialTriageReport.jsx";
 import DoctorTriageReport from "./PatientSummary/DoctorTriageReport.jsx";
 import InpatientReport from "./PatientSummary/InpatientReport.jsx";
 import NurseConfirmedReportView from "./PatientSummary/NurseConfirmedReportView.jsx";
@@ -113,6 +114,7 @@ function App() {
 
           {/* OFFICIAL TRIAGE REPORTS */}
           <Route path="/report/triage/:encounterId" element={<OfficialTriageReport />} />
+          <Route path="/report/manual-triage/:encounterId" element={<ManualOfficialTriageReport />} />
           <Route path="/report/doctor/:encounterId" element={<DoctorTriageReport />} />
           <Route path="/report/inpatient/:encounterId" element={<InpatientReport />} />
 

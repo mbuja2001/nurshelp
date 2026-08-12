@@ -1415,8 +1415,9 @@ export const submitManualTriage = async (req, res) => {
       triageNurseId,
       patientId,
       encounterId,
-      
-      // Clinical data
+      selectedBed,
+      ward_display_info,
+      bed_display_info,
       symptoms,
       vitalSigns,
       medicalHistory,
@@ -1430,13 +1431,28 @@ export const submitManualTriage = async (req, res) => {
       triageReasoningNotes,
       recommendedDepartment,
       immediateInterventions,
+      pathophysiology,
+      clinicalSummary,
+      clinicalDiscriminators,
+      differentialDiagnoses,
+      immediateActions,
+      diagnosticWorkup,
+      dispositionRationale,
+      analysis,
+      tewsProfile,
+      tewsHeight,
+      SATS_reasoning,
       
       // Staff assignment
       assignedNurseId,
       assignedNurseName,
       assignedPhysicianId,
       assignedPhysicianName,
+      assignedSpecialistName,
+      assignedWardId,
+      assignedWardName,
       bedAssigned,
+      assignedBedNumber,
       
       // Patient data for Encounter
       patient,
@@ -1445,6 +1461,27 @@ export const submitManualTriage = async (req, res) => {
       // Optional: AI mode
       computeMode
     } = req.body;
+
+    console.log('[TRIAGE] Received submitManualTriage body keys:', Object.keys(req.body).join(', '));
+    console.log('[TRIAGE] Received submitManualTriage full request body:', JSON.stringify(req.body, null, 2));
+    console.log('[TRIAGE] Received submitManualTriage clinical analysis payload:', {
+      manualSatsLevel,
+      urgencyScore,
+      triageReasoningNotes,
+      recommendedDepartment,
+      immediateInterventions,
+      pathophysiology,
+      clinicalSummary,
+      clinicalDiscriminators,
+      differentialDiagnoses,
+      immediateActions,
+      diagnosticWorkup,
+      dispositionRationale,
+      tewsProfile,
+      tewsHeight,
+      SATS_reasoning,
+      analysis
+    });
 
     // Use authenticated nurse from middleware details
     const authUser = req.user || {};
@@ -1482,6 +1519,23 @@ export const submitManualTriage = async (req, res) => {
         error: "Triage nurse not found"
       });
     }
+
+    const assignedPhysician = assignedPhysicianId
+      ? await ClinicalStaff.findById(assignedPhysicianId).select('firstName lastName name specialty role').lean()
+      : null;
+    const assignedNurse = assignedNurseId
+      ? await ClinicalStaff.findById(assignedNurseId).select('firstName lastName name specialty role').lean()
+      : null;
+
+    const getClinicianDisplayName = (clinician) => {
+      if (!clinician) return null;
+      return clinician.name || `${clinician.firstName || ''} ${clinician.lastName || ''}`.trim() || null;
+    };
+
+    const assignedPhysicianDisplayName = assignedPhysicianName || getClinicianDisplayName(assignedPhysician) || 'Not Assigned';
+    const assignedNurseDisplayName = assignedNurseName || getClinicianDisplayName(assignedNurse) || 'Assigned Nurse';
+    const assignedPhysicianSpecialty = assignedPhysician?.specialty || 'General';
+    const assignedNurseSpecialty = assignedNurse?.specialty || 'Nursing';
     
     const hospitalId = triageNurse.hospitalId || triageHospitalId;
     if (!hospitalId) {
@@ -1493,14 +1547,88 @@ export const submitManualTriage = async (req, res) => {
     
     console.log(`[TRIAGE] Hospital: ${hospitalId}, Nurse: ${triageNurse.firstName} ${triageNurse.lastName}`);
 
+    const normalizedWardInfo = assignedWardName ? {
+      name: assignedWardName,
+      wardName: assignedWardName,
+      department: recommendedDepartment || assignedWardName,
+      wardId: assignedWardId || null
+    } : null;
+
+    const normalizedBedInfo = (bedAssigned || assignedBedNumber) ? {
+      bedId: bedAssigned || assignedBedNumber,
+      bedNumber: assignedBedNumber || bedAssigned || 'Not Assigned',
+      bed_number: assignedBedNumber || bedAssigned || 'Not Assigned',
+      department: recommendedDepartment || assignedWardName || 'General',
+      wardName: assignedWardName || 'General Ward'
+    } : null;
+
+    const clinicalAnalysis = analysis || {
+      pathophysiology,
+      clinicalSummary,
+      clinicalDiscriminators,
+      differentialDiagnoses,
+      immediateActions,
+      diagnosticWorkup,
+      dispositionRationale
+    };
+
     // Create Encounter in database
     const manualTriageReport = {
       satsLevel: manualSatsLevel.toLowerCase(),
       urgencyScore: parseInt(urgencyScore) || 50,
       reasoning: triageReasoningNotes,
       department: recommendedDepartment || "ED",
+      assignedSpecialty: recommendedDepartment || 'ED',
+      assigned_specialty: recommendedDepartment || 'ED',
       interventions: immediateInterventions || [],
-      timestamp: new Date()
+      recommendations: Array.isArray(immediateInterventions) ? immediateInterventions : [immediateInterventions].filter(Boolean),
+      assignedNurse: assignedNurseName || 'Assigned Nurse',
+      assignedPhysician: assignedPhysicianName || 'Not Assigned',
+      assignedSpecialist: assignedSpecialistName || 'Not Assigned',
+      assignedWardName: assignedWardName || 'General Ward',
+      assignedBedNumber: assignedBedNumber || bedAssigned || 'Not Assigned',
+      tewsProfile: tewsProfile || null,
+      tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
+      SATS_reasoning: SATS_reasoning || null,
+      clinicalAnalysis,
+      pathophysiology: clinicalAnalysis.pathophysiology || '',
+      clinicalSummary: clinicalAnalysis.clinicalSummary || clinicalAnalysis.clinical_summary || '',
+      clinicalDiscriminators: Array.isArray(clinicalAnalysis.clinicalDiscriminators) ? clinicalAnalysis.clinicalDiscriminators : Array.isArray(clinicalAnalysis.clinical_discriminators) ? clinicalAnalysis.clinical_discriminators : [clinicalAnalysis.clinicalDiscriminators || clinicalAnalysis.clinical_discriminators].filter(Boolean),
+      differentialDiagnoses: Array.isArray(clinicalAnalysis.differentialDiagnoses) ? clinicalAnalysis.differentialDiagnoses : Array.isArray(clinicalAnalysis.differential_diagnoses) ? clinicalAnalysis.differential_diagnoses : [clinicalAnalysis.differentialDiagnoses || clinicalAnalysis.differential_diagnoses].filter(Boolean),
+      immediateActions: Array.isArray(clinicalAnalysis.immediateActions) ? clinicalAnalysis.immediateActions : Array.isArray(clinicalAnalysis.immediate_actions) ? clinicalAnalysis.immediate_actions : [clinicalAnalysis.immediateActions || clinicalAnalysis.immediate_actions || clinicalAnalysis.recommendations].filter(Boolean),
+      diagnosticWorkup: Array.isArray(clinicalAnalysis.diagnosticWorkup) ? clinicalAnalysis.diagnosticWorkup : Array.isArray(clinicalAnalysis.diagnostic_workup) ? clinicalAnalysis.diagnostic_workup : [clinicalAnalysis.diagnosticWorkup || clinicalAnalysis.diagnostic_workup].filter(Boolean),
+      dispositionRationale: clinicalAnalysis.dispositionRationale || clinicalAnalysis.disposition_rationale || '',
+      timestamp: new Date(),
+      recommendedDepartment: recommendedDepartment || 'ED'
+    };
+
+    const topLevelManualTriageReport = {
+      ai_summary: clinicalAnalysis.clinicalSummary || clinicalAnalysis.clinical_summary || '',
+      clinicalSummary: clinicalAnalysis.clinicalSummary || clinicalAnalysis.clinical_summary || '',
+      pathophysiology: clinicalAnalysis.pathophysiology || '',
+      clinicalDiscriminators: Array.isArray(clinicalAnalysis.clinicalDiscriminators) ? clinicalAnalysis.clinicalDiscriminators : Array.isArray(clinicalAnalysis.clinical_discriminators) ? clinicalAnalysis.clinical_discriminators : [clinicalAnalysis.clinicalDiscriminators || clinicalAnalysis.clinical_discriminators].filter(Boolean),
+      differentialDiagnoses: Array.isArray(clinicalAnalysis.differentialDiagnoses) ? clinicalAnalysis.differentialDiagnoses : Array.isArray(clinicalAnalysis.differential_diagnoses) ? clinicalAnalysis.differential_diagnoses : [clinicalAnalysis.differentialDiagnoses || clinicalAnalysis.differential_diagnoses].filter(Boolean),
+      immediateActions: Array.isArray(clinicalAnalysis.immediateActions) ? clinicalAnalysis.immediateActions : Array.isArray(clinicalAnalysis.immediate_actions) ? clinicalAnalysis.immediate_actions : [clinicalAnalysis.immediateActions || clinicalAnalysis.immediate_actions || clinicalAnalysis.recommendations].filter(Boolean),
+      diagnosticWorkup: Array.isArray(clinicalAnalysis.diagnosticWorkup) ? clinicalAnalysis.diagnosticWorkup : Array.isArray(clinicalAnalysis.diagnostic_workup) ? clinicalAnalysis.diagnostic_workup : [clinicalAnalysis.diagnosticWorkup || clinicalAnalysis.diagnostic_workup].filter(Boolean),
+      dispositionRationale: clinicalAnalysis.dispositionRationale || clinicalAnalysis.disposition_rationale || '',
+      assigned_specialty: recommendedDepartment || 'ED',
+      assignedPhysician: assignedPhysicianName || 'Not Assigned',
+      assignedNurse: assignedNurseName || 'Assigned Nurse',
+      assignedSpecialist: assignedSpecialistName || 'Not Assigned',
+      assignedWardName: assignedWardName || 'General Ward',
+      assignedBedNumber: assignedBedNumber || bedAssigned || 'Not Assigned',
+      department: recommendedDepartment || 'ED',
+      recommendations: Array.isArray(immediateInterventions) ? immediateInterventions : [immediateInterventions].filter(Boolean),
+      discriminators: Array.isArray(clinicalAnalysis.clinicalDiscriminators) ? clinicalAnalysis.clinicalDiscriminators : Array.isArray(clinicalAnalysis.clinical_discriminators) ? clinicalAnalysis.clinical_discriminators : [clinicalAnalysis.clinicalDiscriminators || clinicalAnalysis.clinical_discriminators].filter(Boolean),
+      notes: triageReasoningNotes || '',
+      sats_points: parseInt(urgencyScore) || 50,
+      sats_color: manualSatsLevel?.toLowerCase() || 'yellow',
+      satsLevel: manualSatsLevel?.toLowerCase() || 'yellow',
+      urgencyScore: parseInt(urgencyScore) || 50,
+      tewsProfile: tewsProfile || null,
+      tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
+      SATS_reasoning: SATS_reasoning || null,
+      clinicalAnalysis
     };
 
     // Convert symptoms to string if it's an array
@@ -1519,6 +1647,10 @@ export const submitManualTriage = async (req, res) => {
       assignedNurseName: assignedNurseName || 'Assigned Nurse',
       assignedPhysicianId: assignedPhysicianId,
       assignedPhysicianName: assignedPhysicianName || 'Not Assigned',
+      assigned_ward: assignedWardId || null,
+      assigned_bed: bedAssigned || assignedBedNumber || null,
+      ward_display_info: normalizedWardInfo,
+      bed_display_info: normalizedBedInfo,
       patient: patient || {
         id_number: patientId || "",
         name: "",
@@ -1534,27 +1666,32 @@ export const submitManualTriage = async (req, res) => {
       },
       triage: {
         manualTriageReport,
+        assigned_specialty: recommendedDepartment || 'General',
+        assignedSpecialty: recommendedDepartment || 'General',
+        assignedWardName: assignedWardName || 'General Ward',
+        assignedBedNumber: assignedBedNumber || bedAssigned || 'Not Assigned',
         confirmed: false,
         triageType: 'MANUAL_ONLY',
         // ===== TIMESTAMP TRACKING FOR AUDIT TRAIL =====
         triage_created_at: new Date(),  // When manual triage was created
         triage_updated_at: new Date()   // When triage was last updated
       },
+      manual_triage_report: topLevelManualTriageReport,
       // ===== POPULATE ASSIGNED_CLINICIANS FOR HANDOVER =====
       assigned_clinicians: [
         ...(assignedPhysicianId ? [{
           id: assignedPhysicianId,
-          name: assignedPhysicianName || 'Not Assigned',
+          name: assignedPhysicianDisplayName,
           role: 'PHYSICIAN',
-          specialty: 'General',
+          specialty: assignedPhysicianSpecialty,
           score: 100,
           assigned_at: new Date()
         }] : []),
         ...(assignedNurseId ? [{
           id: assignedNurseId,
-          name: assignedNurseName || 'Assigned Nurse',
+          name: assignedNurseDisplayName,
           role: 'NURSE',
-          specialty: 'Nursing',
+          specialty: assignedNurseSpecialty,
           score: 100,
           assigned_at: new Date()
         }] : [])
@@ -1589,6 +1726,7 @@ export const submitManualTriage = async (req, res) => {
       triageHospitalId: hospitalId,
       assignedNurseId,
       assignedPhysicianId,
+      assignedSpecialistName,
       bedAssigned: bedAssigned || null,
 
       manualTriageReport,

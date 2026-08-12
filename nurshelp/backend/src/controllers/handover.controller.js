@@ -249,12 +249,13 @@ export const saveAIFields = async (req, res) => {
     const triage = reqBody.triage || changedFields.triage;
     const nurseNotes = reqBody.nurseNotes || changedFields.nurseNotes;
     const triage_nurse = reqBody.triage_nurse;
+    const manual_triage_report = reqBody.manual_triage_report || changedFields.manual_triage_report;
     
     // Extract display info for bed/ward (for UI display in confirmation page)
     const ward_display_info = reqBody.ward_display_info || changedFields.ward_display_info;
     const bed_display_info = reqBody.bed_display_info || changedFields.bed_display_info;
-    const assigned_ward = changedFields.assigned_ward;
-    const assigned_bed = changedFields.assigned_bed;
+    const assigned_ward = reqBody.assigned_ward ?? changedFields.assigned_ward;
+    const assigned_bed = reqBody.assigned_bed ?? changedFields.assigned_bed;
 
     const { hospitalId: requestingHospitalId } = req.user;
 
@@ -271,6 +272,7 @@ export const saveAIFields = async (req, res) => {
           assigned_clinicians,
           manually_selected_clinicians,
           ...(nurseNotes && { nurseNotes }),
+          ...(manual_triage_report && { manual_triage_report }),
           ...(ward_display_info && { ward_display_info }),
           ...(bed_display_info && { bed_display_info }),
           ...(assigned_ward !== undefined && { assigned_ward }),
@@ -298,6 +300,7 @@ export const saveAIFields = async (req, res) => {
     console.log('[AI-FIELDS] Triage nurse:', triage_nurse?.nurse_name);
     console.log('[AI-FIELDS] Clinicians assigned:', assigned_clinicians?.length || 0);
     console.log('[AI-FIELDS] Manually selected:', manually_selected_clinicians?.length || 0);
+    console.log('[AI-FIELDS] Manual report saved:', !!manual_triage_report);
     console.log('[AI-FIELDS] Ward display info saved:', ward_display_info?.name || 'none');
     console.log('[AI-FIELDS] Bed display info saved:', bed_display_info?.bedNumber || 'none');
 

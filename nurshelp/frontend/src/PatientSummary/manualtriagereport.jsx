@@ -278,7 +278,6 @@ export default function ManualTriageReport() {
                     </div>
                     <div style={{ marginTop: 10, color: "#475569", fontSize: 12 }}>Profile: {formatTewsProfile(tewsData.profile)}{tewsData.height ? ` • ${tewsData.height} cm` : ""}</div>
                   </div>
-                  <div style={analysisHeadingStyle}>Clinical analysis</div>
                   <AnalysisBlock label="Pathophysiology" value={analysisData.pathophysiology} />
                   <AnalysisBlock label="Clinical Summary" value={analysisData.clinicalSummary} />
                   <AnalysisBlock label="Clinical Discriminators" value={analysisData.clinicalDiscriminators} />

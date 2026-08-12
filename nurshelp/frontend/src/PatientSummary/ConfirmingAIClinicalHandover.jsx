@@ -607,32 +607,6 @@ const ConfirmingAIClinicalHandover = () => {
               </div>
             </div>
           )}
-          {aiReport?.clinical_findings && (
-            <div style={{ marginBottom: 16 }}>
-              <span style={{ color: '#64748b', fontWeight: 600, fontSize: 12 }}>Clinical Findings</span>
-              <div style={{ background: '#eff6ff', padding: 12, borderRadius: 6, marginTop: 6, fontSize: 13, color: '#1e293b', lineHeight: 1.6 }}>
-                {Array.isArray(aiReport.clinical_findings) ? (
-                  <ul style={{ margin: 0, paddingLeft: 20 }}>
-                    {aiReport.clinical_findings.map((f, i) => (
-                      <li key={i}>{typeof f === 'string' ? f : JSON.stringify(f)}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  aiReport.clinical_findings
-                )}
-              </div>
-            </div>
-          )}
-
-          {aiReport?.clinical_analysis && (
-            <div style={{ marginBottom: 16 }}>
-              <span style={{ color: '#64748b', fontWeight: 600, fontSize: 12 }}>Clinical Analysis</span>
-              <div style={{ background: '#eff6ff', padding: 12, borderRadius: 6, marginTop: 6, fontSize: 13, color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                {aiReport.clinical_analysis}
-              </div>
-            </div>
-          )}
-
           {triageData.sats_classification && (
             <div style={{ marginBottom: 16, padding: 12, background: '#f0fdf4', borderRadius: 6, borderLeft: '4px solid #22c55e' }}>
               <span style={{ color: '#166534', fontWeight: 700, fontSize: 13 }}>SATS Classification & Points</span>
@@ -743,16 +717,6 @@ const ConfirmingAIClinicalHandover = () => {
             </div>
           )}
         </div>
-
-        {/* Nurse Notes */}
-        {encounter.nurseNotes && (
-          <div style={{ background: 'white', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #fed7aa', borderLeft: '4px solid #f59e0b' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: 14, fontWeight: 600, color: '#92400e' }}>Nurse Notes</h3>
-            <div style={{ background: '#fffbeb', padding: 12, borderRadius: 6, fontSize: 13, color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-              {encounter.nurseNotes}
-            </div>
-          </div>
-        )}
 
         {/* Triage Nurse Information - Extracted from JWT Token */}
         <div style={{ background: 'white', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #dbeafe', borderLeft: '4px solid #0284c7' }}>

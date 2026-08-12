@@ -98,18 +98,8 @@ const encounterSchema = new mongoose.Schema({
   // ===== TRIAGE REPORTS (Two-way system: AI-generated + Manual overrides) =====
   ai_triage_report: { type: Object, default: {} }, // Original AI-generated report (unchanged audit trail)
   manual_triage_report: {
-    // Nurse's manual overrides/confirmations of AI fields
-    ai_summary: String,
-    assigned_specialty: String,
-    assigned_physician: String,
-    discriminators: [String],
-    sats_points: Number,
-    sats_color: String,
-    recommendations: [String],
-    notes: String,
-    overridden_at: Date,
-    overridden_by: mongoose.Schema.Types.ObjectId, // Reference to nurse who made override
-    field_changes: { type: Object, default: {} } // Tracks which fields were changed: { field_name: { original, override } }
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
 
   // Backward compatibility: Keep legacy triage field (maps to ai_triage_report)
