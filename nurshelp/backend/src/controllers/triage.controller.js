@@ -1621,15 +1621,25 @@ export const submitManualTriage = async (req, res) => {
       recommendations: Array.isArray(immediateInterventions) ? immediateInterventions : [immediateInterventions].filter(Boolean),
       discriminators: Array.isArray(clinicalAnalysis.clinicalDiscriminators) ? clinicalAnalysis.clinicalDiscriminators : Array.isArray(clinicalAnalysis.clinical_discriminators) ? clinicalAnalysis.clinical_discriminators : [clinicalAnalysis.clinicalDiscriminators || clinicalAnalysis.clinical_discriminators].filter(Boolean),
       notes: triageReasoningNotes || '',
-      sats_points: parseInt(urgencyScore) || 50,
+      // CRITICAL FIX: sats_points should be the SATS priority level (1-5), NOT the urgencyScore (TEWS numeric total)
+      sats_points: manualSatsLevel === 'red' ? 5 : (manualSatsLevel === 'orange' ? 4 : (manualSatsLevel === 'yellow' ? 3 : 1)),
       sats_color: manualSatsLevel?.toLowerCase() || 'yellow',
       satsLevel: manualSatsLevel?.toLowerCase() || 'yellow',
       urgencyScore: parseInt(urgencyScore) || 50,
+      tewsTotal: parseInt(urgencyScore) || 50,
       tewsProfile: tewsProfile || null,
       tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
       SATS_reasoning: SATS_reasoning || null,
       clinicalAnalysis
     };
+    
+    console.log('[TRIAGE] 🔧 ACUITY FIX - Manual triage report mappings:', {
+      satsLevel: manualSatsLevel,
+      sats_points_numeric: topLevelManualTriageReport.sats_points,
+      urgencyScore: urgencyScore,
+      tewsTotal: parseInt(urgencyScore),
+      note: 'sats_points is now SATS level (1-5), urgencyScore is TEWS numeric, tewsTotal tracks TEWS points'
+    });
 
     // Convert symptoms to string if it's an array
     const symptomString = Array.isArray(symptoms) 

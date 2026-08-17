@@ -91,7 +91,24 @@ router.post("/:id/discharge-report", protect, async (req, res) => {
   try {
     const encounter = await (await import('../models/encounter.model.js')).Encounter.findById(req.params.id);
     if (!encounter) return res.status(404).json({ message: 'Encounter not found' });
-    const dischargeReport = buildDischargeReportData({ encounter, overrides: { ...req.body, authorId: req.user?.name || req.user?.email || '' } });
+    
+    // Fetch full clinician record with credentials for signature
+    let signingClinician = null;
+    if (req.user?._id) {
+      try {
+        const { Practitioner } = await import('../models/clinicalstaff.model.js');
+        signingClinician = await Practitioner.findById(req.user._id).lean();
+      } catch (err) {
+        console.warn('[Discharge Route] Failed to fetch clinician for signature:', err.message);
+      }
+    }
+
+    const { buildDischargeReportData } = await import('../utils/dischargeReportBuilder.js');
+    const dischargeReport = buildDischargeReportData({ 
+      encounter, 
+      clinician: signingClinician,
+      overrides: { ...req.body, authorId: req.user?.name || req.user?.email || '' } 
+    });
     encounter.discharge_report = dischargeReport;
     await encounter.save();
     return res.status(201).json({ dischargeReport });

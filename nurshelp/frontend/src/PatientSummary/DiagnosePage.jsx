@@ -17,8 +17,6 @@ const DiagnosePage = () => {
   const [recommendations, setRecommendations] = useState([]);
   const [newRecommendation, setNewRecommendation] = useState({ description: "", recommendation_type: "ADMISSION", priority: "MEDIUM" });
   const [progressionNote, setProgressionNote] = useState("");
-  const [medicationRequests, setMedicationRequests] = useState([]);
-  const [newMedicationRequest, setNewMedicationRequest] = useState({ medication_name: "", dosage: "", frequency: "", route: "Oral", indication: "" });
 
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
   const token = localStorage.getItem("token");
@@ -38,7 +36,6 @@ const DiagnosePage = () => {
         setDiagnosisText(enc.diagnosis || "");
         setTreatments(enc.treatments || []);
         setRecommendations(enc.recommendations || []);
-        setMedicationRequests(enc.medication_requests || []);
       } catch (err) {
         console.error("Fetch error:", err);
         setError(err.message);
@@ -51,7 +48,7 @@ const DiagnosePage = () => {
   }, [id, token, BACKEND_URL]);
 
   // Persist diagnosis & clinical data
-  const persistDiagnosis = async (overrideDiagnosis = diagnosisText, requestList = medicationRequests) => {
+  const persistDiagnosis = async (overrideDiagnosis = diagnosisText) => {
     const headers = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -66,8 +63,7 @@ const DiagnosePage = () => {
         notes: progressionNote || "Clinical diagnosis and treatment plan documented",
         treatments: treatments,
         recommendations: recommendations,
-        progression_notes: progressionNote ? [{ content: progressionNote, note_type: "ASSESSMENT", recorded_at: new Date() }] : [],
-        medication_requests: requestList
+        progression_notes: progressionNote ? [{ content: progressionNote, note_type: "ASSESSMENT", recorded_at: new Date() }] : []
       })
     });
 
@@ -80,7 +76,7 @@ const DiagnosePage = () => {
     return data.encounter || data;
   };
 
-  const persistInpatientProgressReport = async (overrideDiagnosis = diagnosisText, requestList = medicationRequests) => {
+  const persistInpatientProgressReport = async (overrideDiagnosis = diagnosisText) => {
     const headers = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json"
@@ -95,8 +91,7 @@ const DiagnosePage = () => {
         notes: progressionNote || "Inpatient progression report documented",
         treatments: treatments,
         recommendations: recommendations,
-        progression_notes: progressionNote ? [{ content: progressionNote, note_type: "PROGRESS", recorded_at: new Date() }] : [],
-        medication_requests: requestList
+        progression_notes: progressionNote ? [{ content: progressionNote, note_type: "PROGRESS", recorded_at: new Date() }] : []
       })
     });
 
@@ -109,9 +104,36 @@ const DiagnosePage = () => {
     return data.encounter || data;
   };
 
+  // Helper to determine which fields apply to each intervention type
+  const getFieldsForType = (type) => {
+    const fieldMap = {
+      MEDICATION: { dosage: true, frequency: true, route: true, indication: true },
+      PROCEDURE: { frequency: true, indication: true },
+      THERAPY: { frequency: true, indication: true },
+      MONITORING: { frequency: true, indication: true },
+      IMAGING: { indication: true },
+      LAB: { indication: true }
+    };
+    return fieldMap[type] || fieldMap.MEDICATION;
+  };
+
   const handleAddTreatment = () => {
     if (newTreatment.name.trim()) {
-      setTreatments([...treatments, { ...newTreatment, prescribed_at: new Date(), status: "PRESCRIBED" }]);
+      // Only include fields that are relevant for this intervention type
+      const fieldsToInclude = getFieldsForType(newTreatment.intervention_type);
+      const treatmentData = {
+        name: newTreatment.name,
+        intervention_type: newTreatment.intervention_type,
+        prescribed_at: new Date(),
+        status: "PRESCRIBED"
+      };
+      
+      if (fieldsToInclude.dosage) treatmentData.dosage = newTreatment.dosage;
+      if (fieldsToInclude.frequency) treatmentData.frequency = newTreatment.frequency;
+      if (fieldsToInclude.route) treatmentData.route = newTreatment.route;
+      if (fieldsToInclude.indication) treatmentData.indication = newTreatment.indication;
+      
+      setTreatments([...treatments, treatmentData]);
       setNewTreatment({ name: "", intervention_type: "MEDICATION", dosage: "", frequency: "", route: "Oral", indication: "" });
     }
   };
@@ -129,37 +151,6 @@ const DiagnosePage = () => {
 
   const handleRemoveRecommendation = (idx) => {
     setRecommendations(recommendations.filter((_, i) => i !== idx));
-  };
-
-  const handleAddMedicationRequest = async () => {
-    if (!newMedicationRequest.medication_name.trim()) return;
-
-    const nextMedicationRequests = [...medicationRequests, {
-      ...newMedicationRequest,
-      status: 'PENDING',
-      requested_at: new Date()
-    }];
-
-    setMedicationRequests(nextMedicationRequests);
-    setNewMedicationRequest({ medication_name: '', dosage: '', frequency: '', route: 'Oral', indication: '' });
-
-    try {
-      const persistedEncounter = isAlreadyHospitalized
-        ? await persistInpatientProgressReport(diagnosisText, nextMedicationRequests)
-        : await persistDiagnosis(diagnosisText, nextMedicationRequests);
-
-      if (persistedEncounter) {
-        setEncounter(persistedEncounter);
-        setMessage('Medication request queued for pharmacy review.');
-      }
-    } catch (err) {
-      console.error('Medication request save error:', err);
-      setError(err.message || 'Failed to queue medication request for pharmacy review');
-    }
-  };
-
-  const handleRemoveMedicationRequest = (idx) => {
-    setMedicationRequests(medicationRequests.filter((_, i) => i !== idx));
   };
 
   const handleDisposition = async (disposition) => {
@@ -362,33 +353,59 @@ const DiagnosePage = () => {
                   style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-                <input
-                  type="text"
-                  placeholder="Dosage (e.g., 500mg)"
-                  value={newTreatment.dosage}
-                  onChange={(e) => setNewTreatment({ ...newTreatment, dosage: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-                <input
-                  type="text"
-                  placeholder="Frequency (e.g., Q4-6h)"
-                  value={newTreatment.frequency}
-                  onChange={(e) => setNewTreatment({ ...newTreatment, frequency: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-                <select
-                  value={newTreatment.route}
-                  onChange={(e) => setNewTreatment({ ...newTreatment, route: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                >
-                  <option>Oral</option>
-                  <option>IV</option>
-                  <option>IM</option>
-                  <option>SC</option>
-                  <option>Topical</option>
-                </select>
-              </div>
+
+              {/* Conditional fields based on intervention type */}
+              {getFieldsForType(newTreatment.intervention_type).dosage && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    placeholder="Dosage (e.g., 500mg)"
+                    value={newTreatment.dosage}
+                    onChange={(e) => setNewTreatment({ ...newTreatment, dosage: e.target.value })}
+                    style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Frequency (e.g., Q4-6h)"
+                    value={newTreatment.frequency}
+                    onChange={(e) => setNewTreatment({ ...newTreatment, frequency: e.target.value })}
+                    style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
+                  />
+                </div>
+              )}
+
+              {/* Route field - only for medications */}
+              {getFieldsForType(newTreatment.intervention_type).route && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <select
+                    value={newTreatment.route}
+                    onChange={(e) => setNewTreatment({ ...newTreatment, route: e.target.value })}
+                    style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
+                  >
+                    <option>Oral</option>
+                    <option>IV</option>
+                    <option>IM</option>
+                    <option>SC</option>
+                    <option>Topical</option>
+                  </select>
+                  <div></div>
+                </div>
+              )}
+
+              {/* Frequency field - for non-medication types that need it */}
+              {!getFieldsForType(newTreatment.intervention_type).route && getFieldsForType(newTreatment.intervention_type).frequency && (
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    placeholder="Frequency (e.g., Q4-6h, Once daily)"
+                    value={newTreatment.frequency}
+                    onChange={(e) => setNewTreatment({ ...newTreatment, frequency: e.target.value })}
+                    style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
+                  />
+                </div>
+              )}
+
+              {/* Indication field - shown for all types */}
               <input
                 type="text"
                 placeholder="Indication (why this treatment?)"
@@ -482,82 +499,6 @@ const DiagnosePage = () => {
                     </div>
                     <button
                       onClick={() => handleRemoveRecommendation(idx)}
-                      style={{ background: "transparent", border: "none", color: "#dc2626", cursor: "pointer", fontWeight: 700, fontSize: 16 }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* MEDICATION REQUESTS */}
-          <section style={{ marginBottom: 28 }}>
-            <h3 style={{ margin: "0 0 16px 0", fontSize: 14, fontWeight: 700, color: "#111827", textTransform: "uppercase", letterSpacing: "0.05em" }}>Medication Requests for Pharmacy Review</h3>
-            <p style={{ margin: "0 0 12px 0", color: "#64748b", fontSize: 12 }}>These requests are routed to the pharmacy review queue for pharmacist authorization and follow-up.</p>
-            <div style={{ padding: 16, background: "#fef3c7", borderRadius: 12, border: "1px solid #fde68a", marginBottom: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr", gap: 12, marginBottom: 12 }}>
-                <input
-                  type="text"
-                  placeholder="Medication name"
-                  value={newMedicationRequest.medication_name}
-                  onChange={(e) => setNewMedicationRequest({ ...newMedicationRequest, medication_name: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-                <input
-                  type="text"
-                  placeholder="Dose"
-                  value={newMedicationRequest.dosage}
-                  onChange={(e) => setNewMedicationRequest({ ...newMedicationRequest, dosage: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-                <input
-                  type="text"
-                  placeholder="Frequency"
-                  value={newMedicationRequest.frequency}
-                  onChange={(e) => setNewMedicationRequest({ ...newMedicationRequest, frequency: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "0.7fr 1.2fr", gap: 12, marginBottom: 12 }}>
-                <select
-                  value={newMedicationRequest.route}
-                  onChange={(e) => setNewMedicationRequest({ ...newMedicationRequest, route: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                >
-                  <option>Oral</option>
-                  <option>IV</option>
-                  <option>IM</option>
-                  <option>SC</option>
-                  <option>Topical</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder="Clinical indication"
-                  value={newMedicationRequest.indication}
-                  onChange={(e) => setNewMedicationRequest({ ...newMedicationRequest, indication: e.target.value })}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 }}
-                />
-              </div>
-              <button
-                onClick={handleAddMedicationRequest}
-                style={{ width: "100%", padding: 10, background: "#f59e0b", color: "white", border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer", fontSize: 13 }}
-              >
-                + Send to pharmacy
-              </button>
-            </div>
-            {medicationRequests.length > 0 && (
-              <div style={{ display: "grid", gap: 10 }}>
-                {medicationRequests.map((request, idx) => (
-                  <div key={idx} style={{ padding: 12, background: "#fffbeb", borderRadius: 10, border: "1px solid #fde68a", display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                    <div style={{ fontSize: 13, color: "#92400e" }}>
-                      <strong>{request.medication_name || request.name}</strong> • {request.dosage || '—'} • {request.frequency || '—'} • {request.route || 'Oral'}
-                      {request.indication ? <div style={{ marginTop: 4, color: "#a16207" }}>→ {request.indication}</div> : null}
-                      <div style={{ marginTop: 4, fontSize: 12, color: "#b45309" }}>Status: {request.status || 'PENDING'}</div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveMedicationRequest(idx)}
                       style={{ background: "transparent", border: "none", color: "#dc2626", cursor: "pointer", fontWeight: 700, fontSize: 16 }}
                     >
                       ✕

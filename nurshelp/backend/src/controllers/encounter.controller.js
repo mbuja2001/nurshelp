@@ -927,27 +927,41 @@ export const getEncountersForNurse = async (req, res) => {
     }
     
     console.log('[GET_ENCOUNTERS] Nurse ID:', nurseId.toString());
+    console.log('[GET_ENCOUNTERS] User role:', req.user?.role);
     const currentNurse = req.user;
     
     // Support filtering by status or handover_status via query parameter
-    const { status, handover_status } = req.query;
-    let query = { nurse_id: nurseId };
+    const { status, handover_status, bypassNurseFilter } = req.query;
+    
+    // Allow admins/managers to bypass nurse_id filter to view ALL historical encounters
+    const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
+    const shouldBypassFilter = bypassNurseFilter === 'true' && isAdmin;
+    
+    console.log('[GET_ENCOUNTERS] isAdmin:', isAdmin, 'bypassNurseFilter:', bypassNurseFilter, 'shouldBypass:', shouldBypassFilter);
+    
+    let query = shouldBypassFilter ? {} : { nurse_id: nurseId };
     
     if (handover_status) {
-      // Query for encounters for this nurse where any clinician handover is in the requested state(s)
+      // Query for encounters where any clinician handover is in the requested state(s)
       const statuses = String(handover_status)
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
 
       query = {
-        nurse_id: nurseId,
+        ...query,
         "clinical_handovers.handover_status": statuses.length > 1 ? { $in: statuses } : statuses[0]
       };
-      console.log('[GET_ENCOUNTERS] Filtering by nurse_id and handover_status:', statuses);
+      console.log('[GET_ENCOUNTERS] Filtering by handover_status:', statuses);
     } else if (status) {
-      query.status = status;
-      console.log('[GET_ENCOUNTERS] Filtering by nurse_id and status:', status);
+      // Support comma-separated statuses
+      const statusList = String(status)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      
+      query.status = statusList.length > 1 ? { $in: statusList } : statusList[0];
+      console.log('[GET_ENCOUNTERS] Filtering by status:', statusList);
     } else {
       console.log('[GET_ENCOUNTERS] No status filter');
     }
@@ -956,8 +970,9 @@ export const getEncountersForNurse = async (req, res) => {
     const encounters = await Encounter.find(query).sort({ createdAt: -1 });
     
     console.log('[GET_ENCOUNTERS] Found', encounters.length, 'encounters');
-    if (status && encounters.length > 0) {
-      console.log('[GET_ENCOUNTERS] Statuses found:', encounters.map(e => e.status));
+    if (encounters.length > 0) {
+      console.log('[GET_ENCOUNTERS] First encounter status:', encounters[0].status);
+      console.log('[GET_ENCOUNTERS] Sample nurse_ids:', encounters.slice(0, 3).map(e => e.nurse_id?.toString()));
     }
     
     // Format encounters for frontend display
@@ -1356,7 +1371,7 @@ export const recordDiagnosis = async (req, res) => {
     if (!req.user?._id) return res.status(401).json({ message: "Not authorized" });
     
     const { id } = req.params;
-    const { diagnosis, treatment_plan, notes, treatments, recommendations, progression_notes, medication_requests } = req.body;
+    const { diagnosis, treatment_plan, notes, treatments, recommendations, progression_notes } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid encounter ID" });
@@ -1409,15 +1424,8 @@ export const recordDiagnosis = async (req, res) => {
       }));
     }
 
-    if (Array.isArray(medication_requests) && medication_requests.length > 0) {
-      encounter.medication_requests = medication_requests
-        .filter(isMedicationRequestValid)
-        .map((request) => ({
-          ...normalizeMedicationRequest(request),
-          requested_by: clinicianHandover.clinician_name,
-          requested_at: new Date()
-        }));
-    }
+    // NOTE: Medication requests are now created via separate pharmacy endpoint in bed modal workflow
+    // This keeps diagnosis endpoint focused on treatment plan only (diagnosis, treatments, recommendations)
     
     // Update physician reference
     encounter.assigned_physician = {
@@ -1475,7 +1483,7 @@ export const createInpatientProgressReport = async (req, res) => {
     if (!req.user?._id) return res.status(401).json({ message: "Not authorized" });
 
     const { id } = req.params;
-    const { diagnosis, treatment_plan, notes, treatments, recommendations, progression_notes, medication_requests } = req.body;
+    const { diagnosis, treatment_plan, notes, treatments, recommendations, progression_notes } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid encounter ID" });
@@ -1547,18 +1555,7 @@ export const createInpatientProgressReport = async (req, res) => {
       ];
     }
 
-    if (Array.isArray(medication_requests) && medication_requests.length > 0) {
-      encounter.medication_requests = [
-        ...(encounter.medication_requests || []),
-        ...medication_requests
-          .filter(isMedicationRequestValid)
-          .map((request) => ({
-            ...normalizeMedicationRequest(request),
-            requested_by: clinicianName,
-            requested_at: new Date()
-          }))
-      ];
-    }
+    // NOTE: Medication requests are now created via separate pharmacy endpoint in bed modal workflow
 
     encounter.isHospitalized = true;
     encounter.status = encounter.status === "DISCHARGED" ? "HOSPITALIZED" : (encounter.status || "HOSPITALIZED");
@@ -1703,7 +1700,23 @@ export const updateDisposition = async (req, res) => {
     });
 
     if (disposition === 'DISCHARGED') {
-      encounter.discharge_report = buildDischargeReportData({ encounter, overrides: { authorId: req.user?.name || req.user?.email || '' } });
+      // Fetch full clinician record with credentials for signature
+      let signingClinician = null;
+      if (req.user?._id) {
+        try {
+          const { Practitioner } = await import('../models/clinicalstaff.model.js');
+          signingClinician = await Practitioner.findById(req.user._id).lean();
+        } catch (err) {
+          console.warn('[Encounter] Failed to fetch clinician for discharge signature:', err.message);
+        }
+      }
+
+      // Build discharge report with clinician signature
+      encounter.discharge_report = buildDischargeReportData({ 
+        encounter, 
+        clinician: signingClinician,
+        overrides: { authorId: req.user?.name || req.user?.email || '' } 
+      });
       encounter.discharge_report.status = 'draft';
       encounter.discharge_report.updatedAt = now;
     }

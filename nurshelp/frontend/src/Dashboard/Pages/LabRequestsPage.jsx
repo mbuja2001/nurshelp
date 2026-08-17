@@ -170,6 +170,17 @@ export default function LabRequestsPage() {
     urgent: labRequests.filter(r => r.priority === 'URGENT').length
   };
 
+  const getLabJourneyStage = (status) => {
+    const normalized = String(status || '').toUpperCase();
+    if (['PENDING', 'SUBMITTED', 'ORDERED'].includes(normalized)) return 0;
+    if (['ACKNOWLEDGED', 'RECEIVED'].includes(normalized)) return 1;
+    if (['IN_PROGRESS', 'APPROVED', 'STARTED', 'PROCESSING'].includes(normalized)) return 2;
+    if (['COMPLETED', 'REVIEWED', 'RESULTS_SENT'].includes(normalized)) return 3;
+    return 0;
+  };
+
+  const journeyStages = ['Order placed', 'Acknowledged', 'Test started', 'Results sent'];
+
   return (
     <div style={{ padding: 24, maxWidth: 1320, margin: '0 auto', fontFamily: 'system-ui, -apple-system, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>
       {/* Header */}
@@ -234,6 +245,32 @@ export default function LabRequestsPage() {
           >
             Refresh
           </button>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 22, padding: 18, background: '#fff', borderRadius: 16, border: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+          <FaChartLine style={{ fontSize: 18, color: '#2563eb' }} />
+          <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Clinical Lab Logistics Journey</h3>
+        </div>
+        <p style={{ margin: '0 0 16px', color: '#475569', fontSize: 14, lineHeight: 1.6 }}>
+          Nurses and physicians can track the full clinical communication flow from order request to specialist acknowledgment, active testing, and final report release.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, alignItems: 'center' }}>
+          {journeyStages.map((stage, index) => {
+            const isActive = getLabJourneyStage((filteredRequests[0] || {}).status) >= index;
+            const isCurrent = getLabJourneyStage((filteredRequests[0] || {}).status) === index;
+            return (
+              <div key={stage} style={{ position: 'relative', textAlign: 'center' }}>
+                <div style={{ height: 10, borderRadius: 999, background: isActive ? '#2563eb' : '#e2e8f0', marginBottom: 8 }} />
+                <div style={{ fontSize: 11, fontWeight: isCurrent ? 700 : 600, color: isActive ? '#0f172a' : '#64748b' }}>{stage}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 12, fontSize: 12, color: '#475569' }}>
+          Current milestone: <strong>{journeyStages[getLabJourneyStage((filteredRequests[0] || {}).status)] || 'Order placed'}</strong>
         </div>
       </div>
 

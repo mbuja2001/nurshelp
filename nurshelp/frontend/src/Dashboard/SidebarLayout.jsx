@@ -6,7 +6,7 @@ import { MdLibraryBooks } from 'react-icons/md';
 import { FaBed } from 'react-icons/fa';
 import nhpLogo from './NHP_Icon.png';
 import { styles } from "./styles";
-import { decodeJwt } from "../utils/jwt";
+import { decodeJwt, normalizeRoleLabel } from "../utils/jwt";
 import { notificationService } from '../services/notificationService';
 
 const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }) => {
@@ -183,9 +183,12 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
 
   const token = localStorage.getItem('token');
   const decoded = decodeJwt(token) || {};
-  const canAccessPharmacyAdmin = ['PHARMACIST', 'ADMIN', 'MANAGER'].includes((decoded.role || '').toUpperCase()) || (String(decoded.specialty || '').toUpperCase().includes('PHARM'));
+  const normalizedRole = normalizeRoleLabel(decoded.role, decoded.specialty || decoded.clinicalSpecialty || decoded.department);
+  const isSpecialistRole = ['PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST'].includes(normalizedRole);
 
-  const pharmacyPath = canAccessPharmacyAdmin ? '/pharmacy' : '/pharmacy-public';
+  const pharmacyPath = normalizedRole === 'PHARMACIST' ? '/pharmacy' : '/ordered-meds';
+  const radiologyPath = normalizedRole === 'RADIOLOGIST' ? '/radiology' : '/lab-requests?specialty=RADIOLOGY';
+  const pathologyPath = normalizedRole === 'PATHOLOGIST' ? '/pathology' : '/lab-requests?specialty=PATHOLOGY';
 
   const navItems = [
     { id: 'nav-dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiHome size={16} /> },
@@ -193,8 +196,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
     { id: 'nav-profile', label: 'Profile', path: '/profile', icon: <FiUser size={16} /> },
     { id: 'nav-ehr', label: 'EHR', path: '/ehr', icon: <FiFileText size={16} /> },
     { id: 'nav-pharmacy', label: 'Pharmacy', path: pharmacyPath, icon: <FaPills size={16} /> },
-    { id: 'nav-radiology', label: 'Radiology', path: '/radiology', icon: <FaRadiation size={16} /> },
-    { id: 'nav-pathology', label: 'Pathology', path: '/pathology', icon: <FaFlask size={16} /> },
+    { id: 'nav-radiology', label: 'Radiology', path: radiologyPath, icon: <FaRadiation size={16} /> },
+    { id: 'nav-pathology', label: 'Pathology', path: pathologyPath, icon: <FaFlask size={16} /> },
     { id: 'nav-beds', label: 'Beds Allocation', path: '/beds', icon: <FaBed size={16} /> },
     { id: 'nav-staff-team', label: 'Staff Team', path: '/staff-team', icon: <FiUsers size={16} /> },
     { id: 'nav-reference', label: 'Reference Cases Library', path: '/reference-cases', icon: <MdLibraryBooks size={16} /> },

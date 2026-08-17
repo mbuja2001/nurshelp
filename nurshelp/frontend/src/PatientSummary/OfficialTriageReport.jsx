@@ -586,15 +586,46 @@ const OfficialTriageReport = () => {
             </div>
           )}
 
-          {/* ASSIGNED CLINICIANS - Bottom of page */}
+          {/* ASSIGNED CLINICIANS & CREDENTIALS - Bottom of page */}
           <div style={{ marginTop: '9px', paddingTop: '7px', borderTop: '2px solid #1e293b' }}>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 600, color: '#000000' }}>ASSIGNED CLINICIANS</h4>
-            <div style={{ fontSize: '10px', color: '#000000', fontWeight: 500 }}>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 600, color: '#000000' }}>ASSIGNED CLINICIANS & CREDENTIALS</h4>
+            <div style={{ fontSize: '9px', color: '#000000', fontWeight: 500 }}>
               {[...(manuallySelected || []), ...(aiRecommended || [])].map((clinician, idx) => (
-                <div key={idx} style={{ padding: '3px' }}>
-                  ▪ {clinician.name} ({clinician.role}) - {clinician.specialty}
+                <div key={idx} style={{ padding: '4px', marginBottom: '5px', background: '#f9fafb', borderLeft: '2px solid #1e293b', paddingLeft: '6px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '10px' }}>
+                    ▪ {clinician.name} ({clinician.role}) - {clinician.specialty}
+                  </div>
+                  {clinician.credentials?.licenseNumber && (
+                    <div style={{ fontSize: '9px', color: '#1e293b', marginTop: '2px' }}>
+                      License: {clinician.credentials.licenseNumber}
+                      {clinician.credentials?.title && ` | Qualification: ${clinician.credentials.title}`}
+                    </div>
+                  )}
+                  {clinician.credentials?.npiNumber && (
+                    <div style={{ fontSize: '9px', color: '#1e293b', marginTop: '1px' }}>
+                      NPI: {clinician.credentials.npiNumber}
+                    </div>
+                  )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* SIGNATURE BLOCK */}
+          <div style={{ marginTop: '9px', paddingTop: '7px', borderTop: '2px solid #1e293b' }}>
+            <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 600, color: '#000000' }}>AUTHORIZED SIGNATURE</h4>
+            <div style={{ fontSize: '9px', color: '#000000', fontWeight: 500 }}>
+              <div style={{ padding: '4px', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 600 }}>Signed by:</span> {triageNurse?.name || 'Unknown'}
+              </div>
+              {triageNurse?.email && (
+                <div style={{ padding: '4px', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: 600 }}>Email:</span> {triageNurse.email}
+                </div>
+              )}
+              <div style={{ padding: '4px' }}>
+                <span style={{ fontWeight: 600 }}>Date/Time:</span> {new Date(encounter?.updatedAt || encounter?.createdAt).toLocaleString()}
+              </div>
             </div>
           </div>
         </div>

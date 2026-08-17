@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FiChevronLeft, FiClock, FiSearch, FiArrowRight, FiFilter } from 'react-icons/fi';
+import { FaPills } from 'react-icons/fa';
 import SidebarLayout from '../SidebarLayout';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
@@ -93,7 +94,20 @@ const OrderedMeds = () => {
     loadOrderedMeds();
   }, [patientIdFilter, startDate, endDate]);
 
+  const getMedicationJourneyStage = (status) => {
+    const normalized = String(status || '').toUpperCase();
+    if (['PENDING', 'ISSUED', 'SUBMITTED'].includes(normalized)) return 0;
+    if (['ACKNOWLEDGED', 'RECEIVED', 'ACCEPTED'].includes(normalized)) return 1;
+    if (['IN_PROGRESS', 'PREPARING', 'APPROVED', 'STARTED'].includes(normalized)) return 2;
+    if (['DISPENSED', 'COMPLETED', 'ADMINISTERED'].includes(normalized)) return 3;
+    return 0;
+  };
+
+  const medicationJourneyStages = ['Request & order', 'Pharmacy acknowledgment', 'Approval & fill', 'Dispensed'];
+
   const selectedPrescription = prescriptions.find((p) => String(p._id) === String(selectedPrescriptionId)) || prescriptions[0] || null;
+  const activeMedStage = getMedicationJourneyStage(selectedPrescription?.status || 'PENDING');
+
   const listItems = prescriptions.map((prescription) => {
     const primaryMedication = prescription.items?.[0] || {};
     return (
@@ -158,6 +172,31 @@ const OrderedMeds = () => {
               onClick={() => navigate('/dashboard')}
               style={{ borderRadius: 999, border: '1px solid #e2e8f0', background: '#fff', color: '#0f172a', padding: '10px 16px', cursor: 'pointer', fontWeight: 700 }}
             ><FiChevronLeft size={16} style={{ marginRight: 6 }} /> Back to Dashboard</button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 24, padding: 18, borderRadius: 18, border: '1px solid #e2e8f0', background: '#ffffff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <FaPills color="#0f766e" size={18} />
+            <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Medication Logistics Journey</h3>
+          </div>
+          <p style={{ margin: '0 0 14px', color: '#475569', fontSize: 14, lineHeight: 1.6 }}>
+            Nurses and physicians can follow the medication lifecycle from order placement, to pharmacist acknowledgment and approval, through dispensing and completion.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+            {medicationJourneyStages.map((stage, index) => {
+              const isComplete = activeMedStage >= index;
+              const isCurrent = activeMedStage === index;
+              return (
+                <div key={stage} style={{ textAlign: 'center' }}>
+                  <div style={{ height: 10, borderRadius: 999, background: isComplete ? '#0f766e' : '#e2e8f0', marginBottom: 8 }} />
+                  <div style={{ fontSize: 11, fontWeight: isCurrent ? 700 : 600, color: isComplete ? '#0f172a' : '#64748b' }}>{stage}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12, color: '#475569' }}>
+            Current milestone: <strong>{medicationJourneyStages[activeMedStage] || 'Request & order'}</strong>
           </div>
         </div>
 

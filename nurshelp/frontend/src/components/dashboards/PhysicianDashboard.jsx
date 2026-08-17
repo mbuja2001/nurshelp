@@ -786,15 +786,7 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       return;
     }
 
-    const baseEncounter = bedModalData || { _id: encounterId, patientName: patientName || 'Patient' };
-    setBedModalData(baseEncounter);
-    setLabRequestForm({
-      specialty: 'RADIOLOGY',
-      lab_type: '',
-      description: '',
-      priority: 'MEDIUM'
-    });
-    setShowLabRequestModal(true);
+    navigate(`/request-lab/${encounterId}`, { state: { encounter: bedModalData || { _id: encounterId, patientName: patientName || 'Patient' } } });
   };
 
   const handleAcknowledge = async (encounterId) => {
@@ -853,6 +845,16 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
     patientLike?.isHospitalized ||
     patientLike?.status === 'HOSPITALIZED' ||
     patientLike?.disposition === 'HOSPITALIZED'
+  );
+
+  const isPatientAcknowledged = (patientLike) => Boolean(
+    patientLike?.handover?.handover_status === 'ACKNOWLEDGED' ||
+    patientLike?.handover_status === 'ACKNOWLEDGED' ||
+    patientLike?.status === 'ACKNOWLEDGED' ||
+    patientLike?.status === 'DIAGNOSED' ||
+    patientLike?.status === 'HOSPITALIZED' ||
+    patientLike?.status === 'DISCHARGED' ||
+    Array.isArray(patientLike?.clinical_handovers) && patientLike.clinical_handovers.some((handover) => ['ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED'].includes(handover?.handover_status))
   );
 
   // ============ HOSPITALIZE PATIENT ============
@@ -1033,6 +1035,13 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       return;
     }
 
+    const patientIsAcknowledged = isPatientAcknowledged(encounterData);
+
+    if (!patientIsAcknowledged) {
+      alert('Patient must be acknowledged by a clinician before diagnosis can begin.');
+      return;
+    }
+
     console.log('[PHYSICIAN DIAGNOSE] Navigating to diagnosis page for:', encounterId);
     navigate(`/diagnose/${encounterId}`, { state: { encounter: encounterData } });
   };
@@ -1043,20 +1052,7 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       return;
     }
 
-    console.log('[PHYSICIAN ORDER MEDICATION] Opening medication order modal');
-    await fetchPharmacyInventory();
-    setMedicationOrderForm({
-      medicationId: '',
-      medication_name: '',
-      dosage: '',
-      frequency: '',
-      route: 'Oral',
-      schedule: 'Schedule 3',
-      indication: '',
-      priority: 'MEDIUM',
-      prescriptionNotes: ''
-    });
-    setShowMedicationOrderModal(true);
+    navigate(`/order-medication/${bedModalData._id}`, { state: { encounter: bedModalData } });
   };
 
   const handleSubmitMedicationOrder = async () => {
@@ -2622,28 +2618,28 @@ Update medications, procedures, or notes there.`);
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginLeft: '12px' }}>
                       <button
                         onClick={() => handleAcknowledge(patient._id)}
-                        disabled={acknowledging[patient._id]}
-                        title="Acknowledge patient"
+                        disabled={acknowledging[patient._id] || isPatientAcknowledged(patient)}
+                        title={isPatientAcknowledged(patient) ? 'This patient has already been acknowledged' : 'Acknowledge patient'}
                         aria-label="Acknowledge patient"
                         style={{
                           padding: '8px 12px',
-                          background: '#10b981',
+                          background: isPatientAcknowledged(patient) ? '#94a3b8' : '#10b981',
                           color: 'white',
                           border: 'none',
                           borderRadius: '6px',
-                          cursor: acknowledging[patient._id] ? 'wait' : 'pointer',
+                          cursor: acknowledging[patient._id] || isPatientAcknowledged(patient) ? 'not-allowed' : 'pointer',
                           fontWeight: 600,
                           fontSize: '11px',
                           transition: 'all 0.2s ease',
-                          opacity: acknowledging[patient._id] ? 0.7 : 1,
+                          opacity: acknowledging[patient._id] || isPatientAcknowledged(patient) ? 0.7 : 1,
                           whiteSpace: 'nowrap'
                         }}
                         onMouseEnter={(e) => {
-                          if (!acknowledging[patient._id]) e.target.style.background = '#059669';
+                          if (!acknowledging[patient._id] && !isPatientAcknowledged(patient)) e.target.style.background = '#059669';
                         }}
-                        onMouseLeave={(e) => e.target.style.background = '#10b981'}
+                        onMouseLeave={(e) => e.target.style.background = isPatientAcknowledged(patient) ? '#94a3b8' : '#10b981'}
                       >
-                        {acknowledging[patient._id] ? '⏳ Acknowledging' : '✓ Acknowledge'}
+                        {acknowledging[patient._id] ? '⏳ Acknowledging' : isPatientAcknowledged(patient) ? '✓ Acknowledged' : '✓ Acknowledge'}
                       </button>
 
                       <button
@@ -2693,28 +2689,28 @@ Update medications, procedures, or notes there.`);
                       {userInfo.role === 'PHYSICIAN' ? (
                         <button
                           onClick={() => handleDiagnose(patient._id, patient)}
-                          disabled={diagnosing[patient._id]}
-                          title="Open diagnosis workflow"
+                          disabled={diagnosing[patient._id] || !isPatientAcknowledged(patient)}
+                          title={!isPatientAcknowledged(patient) ? 'Patient must be acknowledged before diagnosis' : 'Open diagnosis workflow'}
                           aria-label="Open diagnosis workflow"
                           style={{
                             padding: '8px 12px',
-                            background: '#f59e0b',
+                            background: !isPatientAcknowledged(patient) ? '#cbd5e1' : '#f59e0b',
                             color: 'white',
                             border: 'none',
                             borderRadius: '6px',
-                            cursor: diagnosing[patient._id] ? 'wait' : 'pointer',
+                            cursor: diagnosing[patient._id] || !isPatientAcknowledged(patient) ? 'not-allowed' : 'pointer',
                             fontWeight: 600,
                             fontSize: '11px',
                             transition: 'all 0.2s ease',
-                            opacity: diagnosing[patient._id] ? 0.7 : 1,
+                            opacity: diagnosing[patient._id] || !isPatientAcknowledged(patient) ? 0.7 : 1,
                             whiteSpace: 'nowrap'
                           }}
                           onMouseEnter={(e) => {
-                            if (!diagnosing[patient._id]) e.target.style.background = '#d97706';
+                            if (!diagnosing[patient._id] && isPatientAcknowledged(patient)) e.target.style.background = '#d97706';
                           }}
-                          onMouseLeave={(e) => e.target.style.background = '#f59e0b'}
+                          onMouseLeave={(e) => e.target.style.background = !isPatientAcknowledged(patient) ? '#cbd5e1' : '#f59e0b'}
                         >
-                          🩺 Diagnose
+                          {isPatientAcknowledged(patient) ? '🩺 Diagnose' : '🔒 Diagnose'}
                         </button>
                       ) : (
                         <button

@@ -100,6 +100,20 @@ export const createLabRequest = async (req, res) => {
       encounter.lab_requests = [];
     }
 
+    // Fetch full clinician record with credentials for signature
+    let signingClinician = null;
+    if (req.user?._id) {
+      try {
+        const { Practitioner } = await import('../models/clinicalstaff.model.js');
+        signingClinician = await Practitioner.findById(req.user._id).lean();
+      } catch (err) {
+        console.warn('[Lab Controller] Failed to fetch clinician for request signature:', err.message);
+      }
+    }
+
+    // Import signature utility
+    const { generateClinicianSignature } = await import('../utils/clinicianSignature.js');
+
     // Create new lab request
     const newLabRequest = {
       request_id: new mongoose.Types.ObjectId(),
@@ -113,6 +127,19 @@ export const createLabRequest = async (req, res) => {
       created_at: new Date(),
       updated_at: new Date()
     };
+
+    // Attach clinician signature metadata if clinician provided
+    if (signingClinician) {
+      try {
+        newLabRequest.clinicianSignature = generateClinicianSignature({
+          clinician: signingClinician,
+          documentData: newLabRequest,
+          documentType: 'LAB_REQUEST'
+        });
+      } catch (err) {
+        console.warn('[Lab Controller] Failed to generate signature for lab request:', err.message);
+      }
+    }
 
     encounter.lab_requests.push(newLabRequest);
 
@@ -346,6 +373,20 @@ export const submitLabReport = async (req, res) => {
       return res.status(404).json({ message: 'Lab request not found' });
     }
 
+    // Fetch full clinician record with credentials for signature
+    let signingClinician = null;
+    if (req.user?._id) {
+      try {
+        const { Practitioner } = await import('../models/clinicalstaff.model.js');
+        signingClinician = await Practitioner.findById(req.user._id).lean();
+      } catch (err) {
+        console.warn('[Lab Controller] Failed to fetch clinician for report signature:', err.message);
+      }
+    }
+
+    // Import signature utility
+    const { generateClinicianSignature } = await import('../utils/clinicianSignature.js');
+
     // Update lab request with report
     labRequest.report_content = report_content || '';
     labRequest.report_images = report_images || [];
@@ -355,6 +396,19 @@ export const submitLabReport = async (req, res) => {
     labRequest.submitted_at = new Date();
     labRequest.submitted_by = submitted_by || req.user.name;
     labRequest.updated_at = new Date();
+
+    // Attach clinician signature metadata if clinician provided
+    if (signingClinician) {
+      try {
+        labRequest.clinicianSignature = generateClinicianSignature({
+          clinician: signingClinician,
+          documentData: labRequest,
+          documentType: 'LAB_REPORT'
+        });
+      } catch (err) {
+        console.warn('[Lab Controller] Failed to generate signature:', err.message);
+      }
+    }
 
     // Update status history
     if (!encounter.status_history) {

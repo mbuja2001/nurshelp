@@ -17,6 +17,8 @@ import DoctorTriageReport from "./PatientSummary/DoctorTriageReport.jsx";
 import InpatientReport from "./PatientSummary/InpatientReport.jsx";
 import NurseConfirmedReportView from "./PatientSummary/NurseConfirmedReportView.jsx";
 import ManualTriageReport from "./PatientSummary/manualtriagereport.jsx";
+import OrderMedicationPage from "./PatientSummary/OrderMedicationPage.jsx";
+import RequestLabPage from "./PatientSummary/RequestLabPage.jsx";
 import AssignPatientaWardAndBed from "./PatientSummary/AssignPatientaWardAndBed.jsx";
 import ReferenceCase from "./PatientSummary/ReferenceCase.jsx";
 import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
@@ -117,6 +119,9 @@ function App() {
           <Route path="/report/manual-triage/:encounterId" element={<ManualOfficialTriageReport />} />
           <Route path="/report/doctor/:encounterId" element={<DoctorTriageReport />} />
           <Route path="/report/inpatient/:encounterId" element={<InpatientReport />} />
+          <Route path="/order-medication/:encounterId" element={<OrderMedicationPage />} />
+          <Route path="/request-lab/:encounterId" element={<RequestLabPage />} />
+          <Route path="/request-lab/:encounterId/:specialty" element={<RequestLabPage />} />
 
           {/* NURSE CONFIRMED REPORT (read-only final) ✅ */}
           <Route path="/confirmed/:id" element={<NurseConfirmedReportView />} />
@@ -134,10 +139,10 @@ function App() {
             (() => {
               const token = localStorage.getItem('token');
               const user = getUserFromToken(token) || {};
-              return user.role === 'PHARMACIST' ? <Pharmacy /> : <PharmacyPublic />;
+              return user.role === 'PHARMACIST' ? <Pharmacy /> : <OrderedMeds />;
             })()
           } />
-          <Route path="/pharmacy-public" element={<PharmacyPublic />} />
+          <Route path="/pharmacy-public" element={<OrderedMeds />} />
           <Route path="/staff-to-pharmacist" element={<StaffToPharmacist />} />
           <Route path="/dashboard-tools" element={<DashboardTools />} />
           <Route path="/staff-chat" element={<StaffTeamChat />} />
@@ -147,7 +152,20 @@ function App() {
           <Route path="/lab-requests" element={<LabRequestsPage />} />
           <Route path="/scheduled-surgeries" element={<ScheduledSurgeriesPage />} />
           <Route path="/ordered-meds" element={<OrderedMeds />} />
-          <Route path="/pathology" element={<PathologyDashboard />} />
+          <Route path="/radiology" element={
+            (() => {
+              const token = localStorage.getItem('token');
+              const user = getUserFromToken(token) || {};
+              return user.role === 'RADIOLOGIST' ? <RadiologyDashboard /> : <LabRequestsPage />;
+            })()
+          } />
+          <Route path="/pathology" element={
+            (() => {
+              const token = localStorage.getItem('token');
+              const user = getUserFromToken(token) || {};
+              return user.role === 'PATHOLOGIST' ? <PathologyDashboard /> : <LabRequestsPage />;
+            })()
+          } />
           <Route path="/triaged" element={<TriagedPatients />} />
           <Route path="/beds" element={<BedsAllocation />} />
           <Route path="/staff-team" element={<StaffScheduleManager />} />
