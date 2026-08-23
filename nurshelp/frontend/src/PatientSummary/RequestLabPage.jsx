@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
@@ -29,7 +27,6 @@ const RequestLabPage = () => {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
-  const [downloading, setDownloading] = useState(false);
   const [selectedSpecialty, setSelectedSpecialty] = useState(routeSpecialty ? routeSpecialty.toUpperCase() : 'RADIOLOGY');
   const [form, setForm] = useState({
     specialty: routeSpecialty ? routeSpecialty.toUpperCase() : 'RADIOLOGY',
@@ -110,6 +107,11 @@ const RequestLabPage = () => {
     };
   }, [encounter]);
 
+  const openPatientHistory = () => {
+    const identifier = encounter?.patient?.id_number || encounter?._id || encounterId;
+    if (identifier) navigate(`/ehr?patient=${encodeURIComponent(identifier)}`);
+  };
+
   const handleSpecialtySelect = (specialty) => {
     const normalized = String(specialty).toUpperCase();
     setSelectedSpecialty(normalized);
@@ -168,8 +170,15 @@ const RequestLabPage = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Failed to create lab request');
 
-      setSuccess('Official lab request submitted successfully.');
-      setTimeout(() => navigate(-1), 700);
+      setSuccess('Official lab request submitted successfully. Opening the signed request...');
+      navigate(`/report/lab/${encounterId}`, {
+        state: {
+          request: data.request || data.labRequest || data,
+          form,
+          specialty: selectedSpecialty,
+          hospitalContext
+        }
+      });
     } catch (err) {
       setError(err.message || 'Failed to create lab request');
     } finally {
@@ -177,24 +186,6 @@ const RequestLabPage = () => {
     }
   };
 
-  const handleDownloadPDF = async () => {
-    const element = document.getElementById('official-lab-request');
-    if (!element) return;
-    try {
-      setDownloading(true);
-      const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false });
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const margin = 10;
-      const width = pdf.internal.pageSize.getWidth() - margin * 2;
-      const height = Math.min((canvas.height * width) / canvas.width, pdf.internal.pageSize.getHeight() - margin * 2);
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, width, height);
-      pdf.save(`Official_${selectedSpecialty}_Request_${hospitalContext.patientName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
-    } catch (err) {
-      alert(`Failed to download official lab request: ${err.message}`);
-    } finally {
-      setDownloading(false);
-    }
-  };
 
   if (loading) {
     return <div style={{ padding: 32, color: '#475569' }}>Loading lab request workflow…</div>;
@@ -278,9 +269,6 @@ const RequestLabPage = () => {
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={() => navigate(-1)} style={secondaryButton}>Back</button>
-            <button onClick={handleDownloadPDF} disabled={downloading} style={primaryButton}>
-              {downloading ? 'Preparing PDF...' : 'Download PDF'}
-            </button>
           </div>
         </div>
 
@@ -469,67 +457,12 @@ const RequestLabPage = () => {
         </section>
 
         <aside style={{ background: '#fff', borderRadius: 22, border: '1px solid #e2e8f0', padding: 22, boxShadow: '0 12px 24px rgba(15, 23, 42, 0.04)' }}>
-          <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#475569', fontWeight: 700 }}>Official report</div>
-          <h3 style={{ margin: '10px 0 14px', fontSize: 22, color: '#0f172a' }}>Request preview</h3>
-
-          <div id="official-lab-request" style={{ background: '#ffffff', borderRadius: 18, border: '1px solid #e2e8f0', padding: 18, fontFamily: 'system-ui, sans-serif' }}>
-            <div style={{ borderBottom: '2px solid #0f172a', paddingBottom: 8, marginBottom: 12 }}>
-              <div style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#475569', fontWeight: 700 }}>Hospital Request Form</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>{selectedSpecialty === 'RADIOLOGY' ? 'Radiology Request' : 'Pathology Request'}</div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 11, color: '#0f172a' }}>
-              <div><strong>Patient Full Name:</strong> {hospitalContext.patientName}</div>
-              <div><strong>DOB:</strong> {hospitalContext.dob}</div>
-              <div><strong>MRN:</strong> {hospitalContext.mrn}</div>
-              <div><strong>Location:</strong> {hospitalContext.location}</div>
-            </div>
-
-            <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a' }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Clinical Context & Query</div>
-              <div><strong>Principal symptom / duration:</strong> {valueOrNA(form.description)}</div>
-              <div style={{ marginTop: 6 }}><strong>Core clinical question:</strong> {valueOrNA(form.description)}</div>
-            </div>
-
-            {selectedSpecialty === 'RADIOLOGY' ? (
-              <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a' }}>
-                <div style={{ fontWeight: 800, marginBottom: 6 }}>Safety & Contrast Screening</div>
-                <div>Pregnancy Status: {valueOrNA(form.patientPregnancyStatus)}</div>
-                <div>Allergies: {valueOrNA(form.allergies)}</div>
-                <div>eGFR: {valueOrNA(form.eGFR)} | Creatinine: {valueOrNA(form.serumCreatinine)}</div>
-                <div>Implants: {valueOrNA(form.implants)}</div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a' }}>
-                <div style={{ fontWeight: 800, marginBottom: 6 }}>Specimen & Clinical Context</div>
-                <div>Test requested: {valueOrNA(form.lab_type)}</div>
-                <div>Specimen: {valueOrNA(form.bodyPart)}</div>
-                <div>Priority: {valueOrNA(form.priority)}</div>
-              </div>
-            )}
-
-            <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a' }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Examination Details</div>
-              <div>Requested test: {valueOrNA(form.lab_type)}</div>
-              <div>Modality: {valueOrNA(form.modality || 'N/A')}</div>
-              <div>Body part / protocol: {valueOrNA(form.bodyPart || 'N/A')}</div>
-              {selectedSpecialty === 'PATHOLOGY' && (
-                <div>Specimen Type: {valueOrNA(form.specimenType || 'N/A')}</div>
-              )}
-            </div>
-
-            <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a' }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>Requesting Physician</div>
-              <div>Doctor Name & Signature: {valueOrNA(form.clinicianName)}</div>
-              <div>Contact/Bleep: {valueOrNA(form.contactNumber)}</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
-            <HistoryCard title="Past medications" items={hospitalContext.history.pastMeds} accent="#10b981" compact />
-            <HistoryCard title="Lab requests" items={hospitalContext.history.pastLabs} accent="#3b82f6" compact />
-            <HistoryCard title="Past surgeries" items={hospitalContext.history.pastSurgeries} accent="#8b5cf6" compact />
-          </div>
+          <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#475569', fontWeight: 700 }}>EHR context</div>
+          <h3 style={{ margin: '10px 0 14px', fontSize: 22, color: '#0f172a' }}>Patient history rail</h3>
+          <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.55, margin: '0 0 16px' }}>This request becomes a timestamped event in the longitudinal EHR after submission.</p>
+          <button type="button" onClick={openPatientHistory} style={{ width: '100%', marginBottom: 18, border: '1px solid #0f766e', borderRadius: 10, background: '#ecfdf5', color: '#115e59', padding: '10px 12px', cursor: 'pointer', fontWeight: 700 }}>
+            View Patient History
+          </button>
         </aside>
       </div>
     </div>
