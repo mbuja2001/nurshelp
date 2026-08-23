@@ -3,6 +3,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import {
   searchHospitalPatients,
   getPatientEHR,
+  getFHIRPatient,
   getPatientTriageReports,
   getPatientHandoverTimeline,
   getPatientNotifications,
@@ -13,6 +14,9 @@ const router = express.Router();
 
 // Search for patients in hospital (by MRN, name, etc)
 router.get('/search', authenticateToken, searchHospitalPatients);
+
+// FHIR R4 Patient representation backed by the hospital's Encounter records
+router.get('/fhir/Patient/:id', authenticateToken, getFHIRPatient);
 
 // Get complete EHR by patient MRN (hospital-isolated)
 router.get('/ehr/:mrn', authenticateToken, getPatientEHR);

@@ -1,5 +1,33 @@
 import { Encounter } from '../models/encounter.model.js';
 import { Notification } from '../models/notification.model.js';
+import mongoose from 'mongoose';
+import { fhirOperationOutcome, mapEncounterToFHIRPatient } from '../utils/fhirMapper.js';
+
+export const getFHIRPatient = async (req, res) => {
+  try {
+    const { hospitalId } = req.user;
+    const { id } = req.params;
+    const patient = await Encounter.findOne({
+      hospitalId,
+      $or: [
+        { _id: id },
+        { 'patient.id_number': id }
+      ]
+    }).sort({ createdAt: -1 }).lean();
+
+    if (!patient) {
+      return res.status(404).type('application/fhir+json').json(
+        fhirOperationOutcome('error', 'not-found', 'Patient not found')
+      );
+    }
+
+    return res.status(200).type('application/fhir+json').json(mapEncounterToFHIRPatient(patient));
+  } catch (error) {
+    return res.status(500).type('application/fhir+json').json(
+      fhirOperationOutcome('fatal', 'exception', error.message)
+    );
+  }
+};
 
 /**
  * Search for patients in hospital (current user's hospital only)
@@ -9,6 +37,13 @@ export const searchHospitalPatients = async (req, res) => {
   try {
     const { hospitalId } = req.user;  // From JWT token
     const { search, limit = 50, skip = 0 } = req.query;
+
+    console.log('[SEARCH] Request received:', {
+      hospitalId,
+      search: search?.trim() || '',
+      limit,
+      skip
+    });
 
     if (!hospitalId) {
       return res.status(401).json({ error: 'Hospital ID not found in token' });
@@ -29,8 +64,6 @@ export const searchHospitalPatients = async (req, res) => {
     // Fetch encounters for this hospital
     const encounters = await Encounter.find(query)
       .populate('hospitalId', 'name code')
-      .populate('original_triage_nurse', 'name email role')
-      .populate('assigned_clinicians', 'name role specialty')
       .select({
         'patient': 1,
         'status': 1,
@@ -49,6 +82,12 @@ export const searchHospitalPatients = async (req, res) => {
     const total = await Encounter.countDocuments(query);
 
     console.log('[SEARCH] Hospital:', hospitalId, '| Found:', encounters.length, 'of', total);
+    console.log('[SEARCH] Matches:', encounters.map((encounter) => ({
+      name: encounter.patient?.name,
+      surname: encounter.patient?.surname,
+      mrn: encounter.patient?.id_number,
+      status: encounter.status
+    })));
 
     res.json({
       success: true,
@@ -85,30 +124,38 @@ export const getPatientEHR = async (req, res) => {
 
     console.log('[EHR] Retrieving for MRN:', mrn, 'from hospital:', hospitalId);
 
-    // Query MUST include hospitalId for isolation
-    const patientEncounters = await Encounter.find({
-      hospitalId,
-      'patient.id_number': mrn
-    })
-      .populate('hospitalId', 'name code country')
-      .populate('original_triage_nurse', 'name email role')
-      .populate('assigned_clinicians', 'name role specialty')
-      .populate('assigned_ward', 'wardName department')
-      .populate('assigned_bed', 'bedId bedNumber roomNumber')
-      .populate('clinical_handovers.clinician_id', 'name role specialty')
-      .sort({ createdAt: -1 })
-      .lean();
+    const identifierQuery = mongoose.Types.ObjectId.isValid(mrn)
+      ? { $or: [{ 'patient.id_number': mrn }, { _id: mrn }] }
+      : { 'patient.id_number': mrn };
+    const anchor = await Encounter.findOne({ hospitalId, ...identifierQuery }).lean();
 
-    if (!patientEncounters || patientEncounters.length === 0) {
-      console.log('[EHR] No encounters found for MRN:', mrn, 'in hospital:', hospitalId);
+    if (!anchor) {
+      console.log('[EHR] No encounters found for identifier:', mrn, 'in hospital:', hospitalId);
       return res.status(404).json({ error: 'Patient not found in your hospital' });
     }
+
+    const patientIdentity = anchor.patient || {};
+    const patientQuery = patientIdentity.id_number
+      ? { hospitalId, 'patient.id_number': patientIdentity.id_number }
+      : {
+          hospitalId,
+          'patient.name': patientIdentity.name || '',
+          'patient.surname': patientIdentity.surname || ''
+        };
+
+    const patientEncounters = await Encounter.find(patientQuery)
+      .populate('hospitalId', 'name code country')
+      .populate('assigned_ward', 'wardName department')
+      .populate('assigned_bed', 'bedId bedNumber roomNumber')
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log('[EHR] Found', patientEncounters.length, 'encounters for patient');
 
     res.json({
       success: true,
-      mrn,
+      mrn: patientIdentity.id_number || null,
+      patientIdentifier: patientIdentity.id_number || String(anchor._id),
       hospital: patientEncounters[0].hospitalId,
       totalEncounters: patientEncounters.length,
       encounters: patientEncounters
