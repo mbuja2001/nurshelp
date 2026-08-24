@@ -1,0 +1,221 @@
+MVP:
+
+finish patient encounter lifecycle so you can have discharge papers and then have a full EHR patient to start building the EHR Library Database
+
+Full Complete EHR lifecycle Hospital EHR context feature
+
+the priority queuing algorithm: put messages of why the patient moved up the priority queuing'
+
+lets make sure the shortcut toolbar very flexible and adjustable as you can replace functions for your liking and style
+
+the algorithm for showing patients who need attention based on health state
+
+Lets fix and perfect the clinical nurse interface
+
+In Triage, there should be clinical discriminator helpers and keywords
+
+In triaging choosing beds, i should be able to see their equipment data and configurations
+
+perfect the responsiveness of sidebarlayout.jsx and make sure every button is navigatable and every page is live and perfect in ui design and logic es[ecially the staff contact chat shortcut. Lets also do filtering for it to only render online staff members. there's different statuses for staff
+
+perfect Ordered Meds
+
+perfect surgery recording interface and data capturing
+
+triage tables perfecting
+
+the default state interface for showing patient beds per ward, it should render first the filter on the beds where it ranks the beds diagonally based on the priority queue ranking. so the dropdown has the priority queue wards that just ranks all the most urgent patients
+
+the mechanism from inpatient report should be ingested in every EHR library contextual functions that relate to clinical decisions even in triage
+
+Find all clinical events connected to this patient,
+then all related orders,
+then all results,
+then all follow-up actions.
+
+in requesting labs, the preview is not what we want. we want it to be the next navigation. same way a diagnoses.jsx creates the inpatientreport.jsx
+where we can scroll through events with each timestamp
+that is the mechanism for our EHR Library
+where we can search patients
+have that mni calandar inpatient has to the day and each time stamp by the split second
+that is our EHR Library
+Fix the and make the new library in sidebarlayout.js  the nav that says EHR, it should lead us to this new sensatrional EHR library page with the consitent theme and stylistic choises and sedigns we have across the the whole application
+we're obviously being clinical but I'll allow a bit of creativity.
+We are designing so lets see what you come up with. but be heavily inspired and stick to how we have these pages work with the buttons and ui and postioning
+
+lets improve the search capabilities and add search suggestions based on the data in the database
+Then we add search history 
+
+
+
+
+
+
+"8:27:26
+•
+17 Aug"
+
+these should be the same pill ui button functions that navigate to shiftschedulemanager.jsx which is the home for the clinical staff scheduled shifts
+these shifts should then allow the staff members just to clock in by themselves 
+
+The profile in sidebarlayout.jsx, it shouldn't just say time, it should represent shift status and its start and end time only. if you're not on call. it should say "Off-Duty" , if you have clocked in, it shows the start time and finish with a separated dash for start time and finish. this is still the exact same ui color and design
+only thing changing is what structured data do we have to render for hospital maneuverings
+
+fix analytical dashboards squares (Basic)
+
+This is for the hospital context EHR:
+"Clinical intake
+Electronic Health Record database Search
+Search by ID number, MRN, name, or surname to preload the patient's clinical story before moving to the dedicated manual triage report."
+Instead of Clinical intake", it should say "Connect to Patient Records Library"
+
+lets remove the add bed in "bed Allocation" nav from SIdebarlayou.jsx. 
+
+and 
+
+
+lets the logic for transferring patients from ward beds to beds
+
+Perfect chat system & Alert System
+
+Perfect analytics dashboard 
+
+System Performance 
+
+Perfect Settings and Profile
+
+perfect admin dashboard
+
+Perfect website landing page
+
+Organize codebase with readme as deployment instructions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+perfect the specialized dashboards
+
+lets the logic for transferring patients from ward beds to beds
+
+Perfect chat system
+
+Perfect analytics dashboard
+
+Perfect Settings and Profile
+
+Perfect bed selection
+
+perfect admin dashboard
+
+Perfect website landing page
+
+make sure the prioritizing algorithm is perfected
+There should be a messages of why things are are a priority and study as much material as possible, perfect this job you should be the best.
+
+triage dashboard (nursedashboard.jsx) shouldn't render the patient if they haven't been assigned. it doesn't count as an official triage
+
+we need to put in logic for how to administer meds and scheduling surgeries then capturing the surgery time
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+lets make sure we have official documents with signatures for requested labs and discharge papers 
+Right now in the Health record lifecycle I'm on requested labs
+
+I can already triage with an official triage record. all that is missing there is the same way we have signatures for ePrescription
+we need the signature and qualification for each record created by the clinicians so then we can work on building EHR Library
+
+
+Why Nurses contact Labs send urgent orders: Nurses call labs to ask for fast results in emergencies.Track down results: Nurses check on missing blood tests or X-ray reports.Fix label errors: Nurses correct wrong patient names or missing dates on test tubes.Give patient history: Nurses share key details like allergies or kidney health before a scan with contrast dye.Report critical values: Nurses call doctors right away when a lab calls them with a dangerous test result.Would you like to know how nurses talk with doctors about these lab results, or do you need details on a specific type of lab test?
+
+nurses and doctors logged in should be able to see the progress of ordered labs and prescriptions visually through a Logistics Journey tracker
+physicians can monitor requested labs and ordered meds visually as a horizontal bar scaled from beginning niddle and end
+1st stage is the request and order. 2nd is acknowledge, then its approved meds and accepted and imaging started accepted lab request and start lab test
+the last stage is either dispense medicine or send lab results. this then creates the official lab results document report much like other official reports renders 
+
+
+Sarah Chen
+Physician full name on signature line
+DATE / TIME
+2026/08/15, 07:50:24
+Date and time of issue
+Document prepared for the official hospital clinical record • Reference: 444801B1
+
+with 
+under the doctor's signature should be the pharmacist's who approved
+
+signature should be in triage report
+
+after approving, it should be clear from the dashboards. only available in history records
+
+history actions pages should be per specific user
+
+
+abstract context:
+"Nurses call labs to ask for fast results in emergencies.Track down results: Nurses check on missing blood tests or X-ray reports.Fix label errors: Nurses correct wrong patient names or missing dates on test tubes.Give patient history: Nurses share key details like allergies or kidney health before a scan with contrast dye.Report critical values: Nurses call doctors right away when a lab calls them with a dangerous test result.Would you like to know how nurses talk with doctors about these lab results, or do you need details on a specific type of lab test?
+
+nurses and doctors logged in should be able to see the progress of ordered labs and prescriptions visually through a Logistics Journey tracker
+physicians can monitor requested labs and ordered meds visually as a horizontal bar scaled from beginning niddle and end
+1st stage: is the request and order. 2nd is acknowledging of the Pathologist/Radiologist/Pharmacist, then its approved meds/accepted and started lab test and then, the last stage is either dispense medicine or send lab results. this then creates the official lab results document report much like other official reports renders"
+
+That means when a nurse or a doctor when they are loggedin and they login, we need to put conditionals to decode the jwt token to see the user's identity so that they dont navigate to the three unique speciaalities like radiology, pathology labs, pharmacy dashboards. so we need to define the interfdace relationships a nurse and other spreciality domain doctors have with these unique unique speciaalities like radiology, pathology labs. i havve already defined the interfaces for you in the abstract above
+
+so there's the dashboardrouter.jsx
+then there's out jwt decoder to route a role based dashboarding system,
+however, every staff member gets the same clnicalbarsidebarlayout.
+so which means for clincalsidebarlayout.jsx, when staff members navigate to the specific navs like pharmacy, radiology and pathology, they should interface wiith the list of requested labs and ePrescriptions and monitor their progress like have the meds request been approved, does the approval report from the pharmacists exist, have the meds been recieved by the physician or nurse, do the labs test results report exist
+has it be been acknowledged by the physician that they have seen the results those very critical  data communication.
+this is what this application is primarily about hospital communcations and logistics as well as a national Health record library system
+so if we have these reports,we can build the EHr libratry system from the life cycle of health record.
+Ok so firstly we are going to create these pages for how nursedashboard.jsx interact with the pharmacy navigation in clinicalsidebarlayout.jsx
+then we do the same for physiciandashboard.jsx
+
+*Note: specifically for pharmacy, this type of logic already exists for physiciandashboard.jsx and nursedashboard.jsx
+so we just upgrade the page for our feature specfications i mentioned in the abstract.
+For radiology and pathology, the sidebarlayout.jsx just navigates to nowhere a random navigation to the app landing page:
+for pathology, it actually routes to the dashboard for the actual Pathologist, not the interface we want for nurses and physicians to communicate with the pathologist.
+Both pathology and bradiology should have the same logic engineering of the life cycle of requested labs
+let me remind you again:
+
+Nurses and Physicians can monitor requested labs and ordered meds visually as a horizontal bar scaled from beginning middle and end
+1st stage: is the request and order. 2nd is acknowledging of the Pathologist/Radiologist/Pharmacist, then its approved meds/accepted and started lab test and then, the last stage is either dispense medicine or send lab results. this then creates the official lab results document report much like other official reports renders"
+
+
+make sure when the dashboard is checking for roles, there should be a loading page to avoid loading the wrong dashboard as default
+
+make a version 1 under construction to deploy

@@ -1,4 +1,20 @@
 // Utility helpers to normalize manual triage data to AI-style structure
+export const SATS_TEWS_RULES = Object.freeze([
+  { level: 'red', min: 7, max: Infinity, label: 'RED', description: '7 or more' },
+  { level: 'orange', min: 5, max: 6, label: 'ORANGE', description: '5-6' },
+  { level: 'yellow', min: 3, max: 4, label: 'YELLOW', description: '3-4' },
+  { level: 'green', min: 0, max: 2, label: 'GREEN', description: '0-2' }
+]);
+
+export const getSatsAcuityFromTews = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 'green';
+  if (numeric >= 7) return 'red';
+  if (numeric >= 5) return 'orange';
+  if (numeric >= 3) return 'yellow';
+  return 'green';
+};
+
 export const normalizeSatsLevel = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const asString = String(value).trim();
@@ -100,6 +116,8 @@ export const normalizeClinicalAnalysis = (manualReport = {}) => {
 };
 
 export default {
+  SATS_TEWS_RULES,
+  getSatsAcuityFromTews,
   normalizeSatsLevel,
   getSATSBadge,
   normalizeClinicalAnalysis

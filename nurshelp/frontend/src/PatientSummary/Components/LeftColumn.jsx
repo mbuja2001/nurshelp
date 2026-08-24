@@ -1,5 +1,6 @@
 // src/PatientSummary/Components/LeftColumn.jsx
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { FaSearch, FaStethoscope, FaTimes } from "react-icons/fa";
 
 export default function LeftColumn({
@@ -14,8 +15,11 @@ export default function LeftColumn({
   handleSearchSubmit,
   handlePatientSelect,
   loadingEHR = false,
-  clearPatientSelection
+  clearPatientSelection,
+  cancelSearch,
+  cancelEHRLoad
 }) {
+  const navigate = useNavigate();
   // local UI editing flags
   const [editingPatient, setEditingPatient] = useState(false);
   const [editing, setEditing] = useState({
@@ -58,21 +62,39 @@ export default function LeftColumn({
 
   return (
     <div className="left-column-layout">
-      <div className="triage-shell-card">
+      <div
+        className="triage-shell-card"
+        onClick={openSearchModal}
+        style={{ cursor: "pointer" }}
+        title="Open patient records search"
+      >
         <div className="triage-shell-top">
           <div className="triage-shell-title">
             <div className="triage-shell-icon"><FaStethoscope /></div>
             <div>
-              <div className="triage-shell-eyebrow">Clinical intake</div>
-              <div className="triage-shell-heading">Electronic Health Record database Search</div>
+              <div className="triage-shell-eyebrow">Connect Patient Record</div>
+              <div className="triage-shell-heading">Electronic Health Database Search</div>
             </div>
           </div>
           <div className="triage-shell-actions">
-            <button className="triage-shell-icon-btn" type="button" onClick={openSearchModal} title="Search EHR">
+            <button className="triage-shell-icon-btn" type="button" onClick={(event) => { event.stopPropagation(); openSearchModal(); }} title="Search EHR">
               <FaSearch />
             </button>
             {selectedMrn && (
-              <span className="triage-shell-status-chip">Loaded • {selectedMrn}</span>
+              <>
+                <span className="triage-shell-status-chip">Loaded • {selectedMrn}</span>
+                <button
+                  
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    clearPatientSelection?.();
+                    openSearchModal();
+                  }}
+                >
+                  Choose another patient
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -82,7 +104,7 @@ export default function LeftColumn({
         </div>
 
         {searchModalOpen && (
-          <div className="triage-search-modal" role="dialog" aria-modal="true">
+          <div className="triage-search-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="triage-search-modal-card">
               <div className="triage-search-modal-header">
                 <div>
@@ -102,19 +124,30 @@ export default function LeftColumn({
                   placeholder="Type MRN, first name, or surname"
                   aria-label="Search patient records"
                 />
-                <button type="button" className="triage-search-button" onClick={submitSearch} disabled={searchLoading}>
-                  {searchLoading ? "Searching…" : "Search"}
-                </button>
+                {searchLoading ? (
+                  <button type="button" className="triage-search-button" onClick={cancelSearch}>
+                    Cancel search
+                  </button>
+                ) : (
+                  <button type="button" className="triage-search-button" onClick={submitSearch}>
+                    Search
+                  </button>
+                )}
               </div>
 
               {searchError && <div className="triage-search-feedback error">{searchError}</div>}
-              {loadingEHR && <div className="triage-search-feedback notice">Loading EHR details…</div>}
+              {loadingEHR && (
+                <div className="triage-search-feedback notice">
+                  Loading EHR details…
+                  <button type="button" className="triage-search-button" onClick={cancelEHRLoad}>Cancel load</button>
+                </div>
+              )}
 
               {searchResults.length > 0 && (
                 <div className="triage-search-results">
                   {searchResults.map((encounter) => {
                     const patient = encounter.patient || {};
-                    const mrn = patient.id_number || "Unknown MRN";
+                    const mrn = patient.id_number || "Encounter record";
                     const status = encounter.status || "Unknown status";
                     return (
                       <button key={`${mrn}-${encounter._id || encounter.id}`} type="button" className="triage-search-result" onClick={() => selectEncounter(encounter)}>
@@ -275,8 +308,7 @@ export default function LeftColumn({
       {[
         { key: "symptoms", label: "Symptoms" },
         { key: "duration", label: "Duration" },
-        { key: "painLevel", label: "Pain Level" },
-        { key: "history", label: "History" }
+        { key: "painLevel", label: "Pain Level" }
       ].map((sec) => (
         <div className="block" key={sec.key}>
           <div className="block-header">
@@ -303,6 +335,49 @@ export default function LeftColumn({
           )}
         </div>
       ))}
+
+      {selectedMrn ? <div className="block">
+        <div className="block-header">
+          <h4 className="block-label">History</h4>
+        </div>
+        <div
+          className="content-area"
+        >
+          <div>
+            Open the Patient Records Library to review the complete clinical history.
+          </div>
+          <button
+            type="button"
+            className="triage-search-button"
+            style={{ display: "block", margin: "12px auto 0" }}
+            onClick={() => navigate(`/ehr?patient=${encodeURIComponent(selectedMrn)}`)}
+          >
+            Open patient history
+          </button>
+        </div>
+      </div> : <div className="block">
+        <div className="block-header">
+          <h4 className="block-label">History</h4>
+          <div className="action-group">
+            <button
+              className="edit-action-btn"
+              onClick={() => setEditing(prev => ({ ...prev, history: !prev.history }))}
+            >
+              {editing.history ? "✅" : "✎"}
+            </button>
+            <button className="delete-btn" onClick={() => handleClear("history")}>×</button>
+          </div>
+        </div>
+        {editing.history ? (
+          <textarea
+            className="edit-textarea"
+            value={data?.history || ""}
+            onChange={(e) => updateField("history", e.target.value)}
+          />
+        ) : (
+          <div className="content-area">{data?.history || <em>Not provided</em>}</div>
+        )}
+      </div>}
     </div>
   );
 }

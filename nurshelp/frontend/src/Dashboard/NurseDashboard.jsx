@@ -12,6 +12,7 @@ import ClinicalNurseDashboard from '../components/dashboards/ClinicalNurseDashbo
 import PhysicianDashboard from '../components/dashboards/PhysicianDashboard';
 import OffDutyDashboard from '../components/dashboards/OffDutyDashboard';
 import { decodeJwt } from '../utils/jwt';
+import { isAwaitingPhysicianAcknowledgment, ACKNOWLEDGED_HANDOVER_STATUSES } from '../utils/handoverStatusUtils';
 import './DashboardTheme.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -193,7 +194,8 @@ const NurseDashboard = ({
     return () => clearInterval(iv);
   }, []);
 
-  // Fetch encounters that have been handed over but not yet seen by physician
+  // Fetch encounters that have been handed over but not yet acknowledged by physician
+  // Status: AWAITING_PHYSICIAN + handover_status: NOTIFIED (physician not yet acknowledged)
   const fetchHandedOverEncounters = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -202,8 +204,8 @@ const NurseDashboard = ({
     }
     try {
       setHandoverLoading(true);
-      console.log('[DASHBOARD_FETCH] Fetching handed over encounters...');
-      const res = await fetch(`${BACKEND_URL}/api/encounters?status=AWAITING_PHYSICIAN`, {
+      console.log('[DASHBOARD_FETCH] Fetching handed over encounters (awaiting acknowledgment)...');
+      const res = await fetch(`${BACKEND_URL}/api/encounters?status=AWAITING_PHYSICIAN&handover_status=NOTIFIED`, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
       
@@ -216,8 +218,14 @@ const NurseDashboard = ({
       console.log('[DASHBOARD_FETCH] Response data:', data);
       
       if (res.ok && data.success && Array.isArray(data.encounters)) {
-        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'encounters awaiting physician');
-        setHandedOverEncounters(data.encounters);
+        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'encounters from backend');
+        
+        // Frontend filter: exclude encounters that have ANY acknowledged handover
+        // (in case multiple handovers exist for same encounter with mixed statuses)
+        const filtered = data.encounters.filter((enc) => isAwaitingPhysicianAcknowledgment(enc));
+        
+        console.log('[DASHBOARD_FETCH] After filtering acknowledged:', filtered.length, 'encounters awaiting physician acknowledgment');
+        setHandedOverEncounters(filtered);
       } else {
         console.log('[DASHBOARD_FETCH] ❌ Invalid response format or not ok');
         setHandedOverEncounters([]);
@@ -250,8 +258,15 @@ const NurseDashboard = ({
       });
       
       if (res.ok && data.success && Array.isArray(data.encounters)) {
-        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'active specialist encounters');
-        setAcknowledgedEncounters(data.encounters);
+        const filtered = data.encounters.filter((enc) => {
+          const acknowledged = Array.isArray(enc.clinical_handovers)
+            ? enc.clinical_handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status))
+            : false;
+          return acknowledged;
+        });
+
+        console.log('[DASHBOARD_FETCH] Found', filtered.length, 'active specialist encounters after filtering');
+        setAcknowledgedEncounters(filtered);
       } else {
         console.log('[DASHBOARD_FETCH] No active specialist encounters');
         setAcknowledgedEncounters([]);
@@ -1530,14 +1545,9 @@ const NurseDashboard = ({
                     fontSize: '13px',
                     color: '#64748b'
                   }}>
-                    Total: <strong>{acknowledgedEncounters.filter(enc => {
-                      const handovers = enc.clinical_handovers || [];
-                      const clinicians = enc.assigned_clinicians || [];
-                      const physician = clinicians.find(c => c.role === 'PHYSICIAN');
-                      const nurse = clinicians.find(c => c.role === 'NURSE');
-                      const physicianHandover = handovers.find(h => physician && physician._id?.toString?.() === h.clinician_id?.toString?.());
-                      const nurseHandover = handovers.find(h => nurse && nurse._id?.toString?.() === h.clinician_id?.toString?.());
-                      return physicianHandover?.handover_status === 'ACKNOWLEDGED' || nurseHandover?.handover_status === 'ACKNOWLEDGED';
+                    Total: <strong>{acknowledgedEncounters.filter((enc) => {
+                      const handovers = Array.isArray(enc.clinical_handovers) ? enc.clinical_handovers : [];
+                      return handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status));
                     }).length}</strong> acknowledged
                   </p>
                 </div>
@@ -1594,12 +1604,15 @@ const NurseDashboard = ({
                             _id: enc.triage.assigned_physician._id || enc.triage.assigned_physician.id || physician?._id
                           };
                         }
-                        const physicianHandover = handovers.find(h => 
-                          physician && physician._id?.toString?.() === h.clinician_id?.toString?.()
-                        );
-                        const physicianAckStatus = physicianHandover?.handover_status === 'ACKNOWLEDGED' ? '✓' : '—';
+                        const physicianHandover = handovers.find((h) => {
+                          const idMatch = physician && physician._id?.toString?.() === h.clinician_id?.toString?.();
+                          const nameMatch = physician?.name && h.clinician_name === physician.name;
+                          const roleMatch = h.clinician_role === 'PHYSICIAN';
+                          return idMatch || nameMatch || roleMatch;
+                        }) || handovers.find((h) => h.clinician_role === 'PHYSICIAN');
+                        const physicianAckStatus = ACKNOWLEDGED_HANDOVER_STATUSES.includes(physicianHandover?.handover_status) ? '✓' : '—';
                         const physicianSpecialty = physician?.specialty || '—';
-                        const physicianDiagnosed = physicianHandover?.notes?.includes('diagnosed') ? '✓' : '—';
+                        const physicianDiagnosed = enc.diagnosis?.trim() ? '✓' : '—';
                       
                         // Extract nurse info - try assigned_clinicians first, then fall back to triage.assigned_nurse
                         let nurse = clinicians.find(c => c.role === 'NURSE');
@@ -1611,14 +1624,16 @@ const NurseDashboard = ({
                             _id: enc.triage.assigned_nurse._id || enc.triage.assigned_nurse.id || nurse?._id
                           };
                         }
-                        const nurseHandover = handovers.find(h => 
-                          nurse && nurse._id?.toString?.() === h.clinician_id?.toString?.()
-                        );
-                        const nurseAckStatus = nurseHandover?.handover_status === 'ACKNOWLEDGED' ? '✓' : '—';
+                        const nurseHandover = handovers.find((h) => {
+                          const idMatch = nurse && nurse._id?.toString?.() === h.clinician_id?.toString?.();
+                          const nameMatch = nurse?.name && h.clinician_name === nurse.name;
+                          const roleMatch = h.clinician_role === 'NURSE';
+                          return idMatch || nameMatch || roleMatch;
+                        }) || handovers.find((h) => h.clinician_role === 'NURSE');
+                        const nurseAckStatus = ACKNOWLEDGED_HANDOVER_STATUSES.includes(nurseHandover?.handover_status) ? '✓' : '—';
                         const nurseCaredFor = nurseHandover?.notes?.includes('cared') ? '✓' : '—';
                       
-                        // Only render if at least one specialist has acknowledged
-                        const hasAcknowledged = physicianAckStatus === '✓' || nurseAckStatus === '✓';
+                        const hasAcknowledged = handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status));
                         if (!hasAcknowledged) return null;
                       
                         const rpt = enc.triage?.aiTriageReport || enc.triage?.manualTriageReport || {};

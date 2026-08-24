@@ -4,6 +4,7 @@ import { BedStatusHistory } from "../models/bedStatusHistory.model.js";
 import { Bed } from "../models/bed.model.js";
 import { LabOrder, LabEquipment } from "../models/lab.model.js";
 import { buildOccupantSummary } from "../utils/bedOccupantSummary.js";
+import { buildWardDefinitionsFromBeds, inferBedType, normalizeWardDepartment } from "../utils/bedWardBootstrap.js";
 
 // =====================================================
 // BATCH BED CREATION (Hospital Registration)
@@ -91,16 +92,120 @@ export const createBedsBatch = async (req, res) => {
       });
     }
 
-    // Create beds
+    // Create the legacy hospital bed records and live bed schedule/ward records used by the dashboard.
     const createdBeds = await Bed.insertMany(bedsWithHospitalId);
 
-    console.log(`[BED BATCH CREATE] Successfully created ${createdBeds.length} beds`);
+    const wardTemplates = buildWardDefinitionsFromBeds(bedsWithHospitalId);
+    const createdWardDocs = [];
+    const wardMap = new Map();
+
+    for (const template of wardTemplates) {
+      const wardRecord = await Ward.findOneAndUpdate(
+        { hospitalId: hospitalIdForQuery, department: template.department },
+        {
+          $set: {
+            wardId: template.wardId,
+            wardName: template.wardName,
+            department: template.department,
+            hospitalId: hospitalIdForQuery,
+            location: {
+              floor: template.floor,
+              wing: template.wing,
+              area: ""
+            },
+            totalBeds: template.totalBeds,
+            occupiedBeds: 0,
+            availableBeds: template.totalBeds,
+            cleaningBeds: 0,
+            maintenanceBeds: 0,
+            isActive: true,
+          }
+        },
+        {
+          upsert: true,
+          new: true,
+          runValidators: true,
+          setDefaultsOnInsert: true,
+        }
+      );
+
+      wardMap.set(template.department, wardRecord);
+      createdWardDocs.push(wardRecord);
+    }
+
+    const bedsByWard = new Map();
+    for (const bed of bedsWithHospitalId) {
+      const dept = normalizeWardDepartment(bed.ward_unit);
+      if (!bedsByWard.has(dept)) bedsByWard.set(dept, []);
+      bedsByWard.get(dept).push(bed);
+    }
+
+    const bedScheduleDocs = [];
+    for (const [department, wardBeds] of bedsByWard.entries()) {
+      const ward = wardMap.get(department);
+      if (!ward) continue;
+
+      for (const bed of wardBeds) {
+        const bedDoc = new BedSchedule({
+          wardId: ward._id,
+          bedId: bed.bed_id,
+          roomNumber: bed.bed_id,
+          department,
+          bedType: inferBedType(bed),
+          status: 'AVAILABLE',
+          statusChangedAt: new Date(),
+          currentEncounterId: null,
+          assignedNurseId: null,
+          occupancyStartTime: null,
+          expectedDischargeTime: null,
+          acuityLevel: 'MODERATE',
+          hasMonitor: (bed.equipment_baseline || []).some((item) => /monitor|ventilator|defibrillator|dialysis|oxygen/i.test(item)),
+          hasVentilator: (bed.equipment_baseline || []).some((item) => /ventilator/i.test(item)),
+          hasDialysis: (bed.equipment_baseline || []).some((item) => /dialysis/i.test(item)),
+          canIsolate: false,
+        });
+
+        bedScheduleDocs.push(bedDoc);
+      }
+    }
+
+    if (bedScheduleDocs.length === 0) {
+      throw new Error(`No BedSchedule documents were generated for hospital ${hospitalId}`);
+    }
+
+    const createdBedSchedules = await BedSchedule.insertMany(bedScheduleDocs);
+
+    for (const [department, wardBeds] of bedsByWard.entries()) {
+      const ward = wardMap.get(department);
+      if (!ward) continue;
+
+      const ids = createdBedSchedules
+        .filter((bedSchedule) => bedSchedule.department === department)
+        .map((bedSchedule) => bedSchedule._id);
+
+      ward.beds = ids;
+      ward.totalBeds = ids.length;
+      ward.occupiedBeds = 0;
+      ward.availableBeds = ids.length;
+      ward.cleaningBeds = 0;
+      ward.maintenanceBeds = 0;
+      await ward.save();
+    }
+
+    console.log(`[BED BATCH CREATE] Successfully created ${createdBeds.length} legacy beds and ${createdBedSchedules.length} BedSchedule records across ${createdWardDocs.length} wards`);
 
     res.status(201).json({
       success: true,
       message: `${createdBeds.length} beds created successfully`,
       count: createdBeds.length,
-      beds: createdBeds
+      beds: createdBeds,
+      wards: createdWardDocs.map((ward) => ({
+        _id: ward._id,
+        wardName: ward.wardName,
+        department: ward.department,
+        totalBeds: ward.totalBeds,
+      })),
+      bedScheduleCount: createdBedSchedules.length,
     });
   } catch (err) {
     console.error('[BED BATCH CREATE ERROR]:', err);
@@ -642,11 +747,26 @@ export const assignPatientToBed = async (req, res) => {
       });
     }
 
+    console.log('[BED ASSIGN] Bed before update:', {
+      bedId: bed.bedId,
+      previousStatus: bed.status,
+      currentEncounterId: bed.currentEncounterId,
+      encounterId,
+      nurseName
+    });
+
     bed.currentEncounterId = encounterId;
     bed.assignedNurseId = nurseName;
     bed.status = "OCCUPIED";
     bed.occupancyStartTime = new Date();
     await bed.save();
+
+    console.log('[BED ASSIGN] Bed after update:', {
+      bedId: bed.bedId,
+      newStatus: bed.status,
+      currentEncounterId: bed.currentEncounterId,
+      occupancyStartTime: bed.occupancyStartTime
+    });
 
     // Record in history
     const historyEntry = new BedStatusHistory({
@@ -706,6 +826,14 @@ export const dischargePatientFromBed = async (req, res) => {
       ? (Date.now() - new Date(bed.occupancyStartTime).getTime()) / (1000 * 60)
       : 0;
 
+    console.log('[BED DISCHARGE] Bed before discharge:', {
+      bedId: bed.bedId,
+      previousStatus,
+      currentEncounterId: bed.currentEncounterId,
+      occupancyStartTime: bed.occupancyStartTime,
+      occupancyDurationMinutes: Math.round(occupancyDuration)
+    });
+
     // Move bed to CLEANING status
     bed.status = "CLEANING";
     bed.statusChangedAt = new Date();
@@ -714,6 +842,15 @@ export const dischargePatientFromBed = async (req, res) => {
     bed.totalOccupancyCount += 1;
 
     await bed.save();
+
+    console.log('[BED DISCHARGE] Bed after discharge:', {
+      bedId: bed.bedId,
+      newStatus: bed.status,
+      currentEncounterId: bed.currentEncounterId,
+      assignedNurseId: bed.assignedNurseId,
+      totalOccupancyCount: bed.totalOccupancyCount,
+      statusChangedAt: bed.statusChangedAt
+    });
 
     // Record in history
     const historyEntry = new BedStatusHistory({

@@ -1,0 +1,39 @@
+lets focus on booking scheduled surgeries, administering meds to patient based on ordered meds that have status received from pharmacist
+then we discharcge.
+
+thats our mvp. we done
+lets talk about what you think is the journey based on every other clinical actions in bed modal in physiciandashboard.jsx.  based on what the user jouirney has from that point all thats left is this stuff:
+"scheduled surgeries, administering meds to patient based on ordered meds that have status received from pharmacist"
+
+we need to perfect the calandar but its almost there its good for starting. lets perfect with these features. firstly lets improve the interface drastially to match physiciandashboard.jsx. remember this is a very important tool as this manages his tasks.
+
+then we need to wire thew end points of booking from surgeryworkflow. those need to be livee endpoints so they can pull scheduled surgeries
+
+
+
+lets work on scheduling the discharge of the patients.
+this will automatically discharge the patient on the day on the specific hour and minute. but it should have logic to check if requests are pending like requested labs, ordered meds but unadminstered (this will have a logic to say(can be admistered at home), scheduled surgeries that havent happened yet. so yuh this is our last 4th last sprint
+whats left is completing the staff messaging system, then the analytics feature page capturing wasted resources and errors and successes in thehospital to have a fiull analytical picture of the hospital. Then we work on system performance which is just pulling live real-time ram usage of the server and the performnces and the ai configurations.
+then we perfect profile by making it live and then we work on the settings page to make sure its live.  
+
+this is the full application. lets write an md of where we are and lets push on main as a checkpoint with proper ettiquetie commite messaging
+
+
+
+ok. it's time to perfect the hospital workflow. we have the skeleton
+we can triage. we can request labs, we can order meds from pharmacist
+we can discharge.
+these scheduling for meetings and surgeries are happening however, 
+
+whats missing is actually data entying when the surgery is actually happening
+when we schedule, we want to accept the surgery event and can record how long was the surgery 
+
+lets write an md about this
+
+
+
+okay now that this goal is defined to you, we have to work on low hanging fruit first because why? We've discharged the patient.
+we need to have discharge reports just like theres lab reports, oredered meds Prescription report, to finish off
+then we finish surgery event capturing
+then we have a working application
+

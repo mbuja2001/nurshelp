@@ -1,8 +1,13 @@
 import crypto from 'crypto';
+import { generateClinicianSignature } from './clinicianSignature.js';
 
-export const buildDischargeReportData = ({ encounter = {}, overrides = {} }) => {
+export const buildDischargeReportData = ({ encounter = {}, overrides = {}, clinician = null }) => {
   const patient = encounter.patient || {};
   const dischargeDate = overrideDate(encounter.discharge_date || encounter.discharge_scheduled_at || encounter.updatedAt || new Date());
+  
+  // Use clinician object from overrides or method parameter
+  const signingClinician = overrides.clinician || clinician;
+  
   const report = {
     reportId: `DR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
     patientId: patient.id_number || encounter.patientId || encounter.patient?.id || '',
@@ -25,10 +30,24 @@ export const buildDischargeReportData = ({ encounter = {}, overrides = {} }) => 
     followUpInstructions: overrides.followUpInstructions || encounter.follow_up_instructions || encounter.treatment_plan || '',
     notes: overrides.notes || encounter.physician_notes || '',
     authorId: overrides.authorId || encounter.assigned_physician?.name || encounter.assignedPhysicianName || '',
-    signedOffBy: overrides.signedOffBy || '',
+    signedOffBy: signingClinician?.name || overrides.signedOffBy || '',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
+
+  // Attach clinician signature and qualification metadata if clinician provided
+  if (signingClinician) {
+    try {
+      report.clinicianSignature = generateClinicianSignature({
+        clinician: signingClinician,
+        documentData: report,
+        documentType: 'DISCHARGE_REPORT'
+      });
+    } catch (err) {
+      console.warn('[DischargeReportBuilder] Failed to generate signature:', err.message);
+      // Proceed without signature but log the error
+    }
+  }
 
   return report;
 };

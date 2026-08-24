@@ -1,6 +1,7 @@
 // src/PatientSummary/PS.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useRef } from "react";
 
 import Footer from "./Components/footer";
 import LeftColumn from "./Components/LeftColumn";
@@ -97,6 +98,8 @@ export default function PS() {
   const [ehrSummary, setEhrSummary] = useState(null);
   const [selectedMrn, setSelectedMrn] = useState(null);
   const [loadingEHR, setLoadingEHR] = useState(false);
+  const searchRequestRef = useRef(null);
+  const ehrRequestRef = useRef(null);
 
   // ---------- Persistence ----------
   useEffect(() => { localStorage.setItem("ps_patient", JSON.stringify(patientData)); }, [patientData]);
@@ -128,6 +131,9 @@ export default function PS() {
 
   const loadPatientEHR = async (mrn) => {
     if (!mrn) return;
+    ehrRequestRef.current?.abort();
+    const controller = new AbortController();
+    ehrRequestRef.current = controller;
     setLoadingEHR(true);
     setEhrSummary(null);
     setSearchError(null);
@@ -139,7 +145,8 @@ export default function PS() {
 
       const res = await fetch(`${BACKEND_URL}/api/patients/ehr/${encodeURIComponent(mrn)}`, {
         headers,
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
 
       if (!res.ok) {
@@ -161,7 +168,7 @@ export default function PS() {
         const patient = encounters[0].patient || {};
         setPatientData((prev) => ({
           ...prev,
-          id_number: mrn,
+          id_number: patient.id_number || prev.id_number || '',
           name: patient.name || prev.name || '',
           surname: patient.surname || prev.surname || '',
           gender: patient.gender || prev.gender || '',
@@ -169,16 +176,20 @@ export default function PS() {
           ageYears: patient.ageYears ?? prev.ageYears ?? null,
           ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
           height_cm: patient.height_cm ?? prev.height_cm ?? null,
-          symptoms: patient.symptoms ?? prev.symptoms ?? '',
-          history: patient.history ?? prev.history ?? '',
-          duration: patient.duration ?? prev.duration ?? '',
-          painLevel: patient.painLevel ?? prev.painLevel ?? ''
+          symptoms: '',
+          history: '',
+          duration: '',
+          painLevel: ''
         }));
       }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       setSearchError(err.message || 'Failed to load patient EHR');
     } finally {
-      setLoadingEHR(false);
+      if (ehrRequestRef.current === controller) {
+        ehrRequestRef.current = null;
+        setLoadingEHR(false);
+      }
     }
   };
 
@@ -192,6 +203,9 @@ export default function PS() {
     setSearchLoading(true);
     setSearchError(null);
     setSearchResults([]);
+    searchRequestRef.current?.abort();
+    const controller = new AbortController();
+    searchRequestRef.current = controller;
 
     try {
       const token = localStorage.getItem('token');
@@ -200,7 +214,8 @@ export default function PS() {
 
       const res = await fetch(`${BACKEND_URL}/api/patients/search?search=${encodeURIComponent(searchQuery.trim())}`, {
         headers,
-        cache: 'no-store'
+        cache: 'no-store',
+        signal: controller.signal
       });
 
       if (!res.ok) {
@@ -214,26 +229,30 @@ export default function PS() {
         setSearchError('No matching patients found. Continue with a new intake.');
       }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       setSearchError(err.message || 'Patient search failed');
     } finally {
-      setSearchLoading(false);
+      if (searchRequestRef.current === controller) {
+        searchRequestRef.current = null;
+        setSearchLoading(false);
+      }
     }
   };
 
   const handlePatientSelect = async (encounter) => {
     const patient = encounter.patient || {};
-    const mrn = patient.id_number || encounter.patient?.id_number;
-    if (!mrn) {
-      setSearchError('Selected record is missing MRN');
+    const identifier = patient.id_number || encounter._id || encounter.id;
+    if (!identifier) {
+      setSearchError('Selected record is missing a patient identifier');
       return;
     }
 
     setSearchError(null);
-    setSelectedMrn(mrn);
-    setSearchQuery(mrn);
+    setSelectedMrn(identifier);
+    setSearchQuery(patient.id_number || identifier);
     setPatientData((prev) => ({
       ...prev,
-      id_number: mrn,
+      id_number: patient.id_number || '',
       name: patient.name || prev.name || '',
       surname: patient.surname || prev.surname || '',
       gender: patient.gender || prev.gender || '',
@@ -241,20 +260,36 @@ export default function PS() {
       ageYears: patient.ageYears ?? prev.ageYears ?? null,
       ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
       height_cm: patient.height_cm ?? prev.height_cm ?? null,
-      symptoms: patient.symptoms ?? prev.symptoms ?? '',
-      history: patient.history ?? prev.history ?? '',
-      duration: patient.duration ?? prev.duration ?? '',
-      painLevel: patient.painLevel ?? prev.painLevel ?? ''
+      symptoms: '',
+      history: '',
+      duration: '',
+      painLevel: ''
     }));
 
-    await loadPatientEHR(mrn);
+    await loadPatientEHR(identifier);
   };
 
   const clearPatientSelection = () => {
+    ehrRequestRef.current?.abort();
+    searchRequestRef.current?.abort();
+    ehrRequestRef.current = null;
+    searchRequestRef.current = null;
+    setLoadingEHR(false);
+    setSearchLoading(false);
     setSelectedMrn(null);
     setEhrSummary(null);
     setSearchResults([]);
     setSearchError(null);
+  };
+
+  const cancelSearch = () => {
+    searchRequestRef.current?.abort();
+    searchRequestRef.current = null;
+    setSearchLoading(false);
+  };
+
+  const cancelEHRLoad = () => {
+    clearPatientSelection();
   };
 
   const startNewIntake = () => {
@@ -646,6 +681,8 @@ export default function PS() {
               handlePatientSelect={handlePatientSelect}
               loadingEHR={loadingEHR}
               clearPatientSelection={clearPatientSelection}
+              cancelSearch={cancelSearch}
+              cancelEHRLoad={cancelEHRLoad}
             />
             <RightColumn
               vitalsData={vitalsData}

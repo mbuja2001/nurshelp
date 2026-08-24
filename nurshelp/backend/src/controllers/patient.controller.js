@@ -1,7 +1,97 @@
 import { Encounter } from '../models/encounter.model.js';
 import { Notification } from '../models/notification.model.js';
 import mongoose from 'mongoose';
+import { UserSearchHistory } from '../models/userSearchHistory.model.js';
 import { fhirOperationOutcome, mapEncounterToFHIRPatient } from '../utils/fhirMapper.js';
+
+export const getUserSearchHistory = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'User not authenticated' });
+    }
+
+    const history = await UserSearchHistory.find({ userId })
+      .sort({ updatedAt: -1 })
+      .limit(8)
+      .lean();
+
+    return res.json({
+      success: true,
+      history: history.map((entry) => entry.term).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('[USER SEARCH HISTORY] Load failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const recordUserSearchHistory = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'User not authenticated' });
+    }
+
+    const term = String(req.body?.term || req.query?.term || '').trim();
+    if (!term) {
+      return res.status(400).json({ success: false, error: 'Search term is required' });
+    }
+
+    const rawUserModel = req.user?.constructor?.modelName || 'ClinicalStaff';
+    const userModel = ['ClinicalStaff', 'Manager', 'Practitioner'].includes(rawUserModel)
+      ? rawUserModel
+      : 'ClinicalStaff';
+    const normalized = term.replace(/\s+/g, ' ');
+
+    const existing = await UserSearchHistory.findOne({
+      userId,
+      term: { $regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+    }).lean();
+
+    if (existing) {
+      await UserSearchHistory.updateOne({ _id: existing._id }, { $set: { updatedAt: new Date(), term: normalized } });
+    } else {
+      await UserSearchHistory.create({
+        userId,
+        userModel,
+        term: normalized,
+      });
+    }
+
+    const history = await UserSearchHistory.find({ userId })
+      .sort({ updatedAt: -1 })
+      .limit(8)
+      .lean();
+
+    return res.json({
+      success: true,
+      history: history.map((entry) => entry.term).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('[USER SEARCH HISTORY] Save failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const clearUserSearchHistory = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'User not authenticated' });
+    }
+
+    await UserSearchHistory.deleteMany({ userId });
+
+    return res.json({
+      success: true,
+      history: []
+    });
+  } catch (error) {
+    console.error('[USER SEARCH HISTORY] Clear failed:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
 
 export const getFHIRPatient = async (req, res) => {
   try {
@@ -102,6 +192,60 @@ export const searchHospitalPatients = async (req, res) => {
   } catch (err) {
     console.error('[SEARCH] Error:', err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+export const suggestHospitalPatients = async (req, res) => {
+  try {
+    const { hospitalId } = req.user;
+    const search = String(req.query.search || '').trim();
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
+
+    if (!hospitalId) {
+      return res.status(401).json({ error: 'Hospital ID not found in token' });
+    }
+    if (search.length < 2) return res.json({ success: true, suggestions: [] });
+
+    const regex = { $regex: search, $options: 'i' };
+    const encounters = await Encounter.find({
+      hospitalId,
+      $or: [
+        { 'patient.id_number': regex },
+        { 'patient.name': regex },
+        { 'patient.surname': regex }
+      ]
+    })
+      .select({ patient: 1, status: 1, createdAt: 1 })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    const seen = new Set();
+    const suggestions = [];
+    for (const encounter of encounters) {
+      const patient = encounter.patient || {};
+      const name = [patient.name, patient.surname].filter(Boolean).join(' ').trim();
+      const value = patient.id_number || String(encounter._id);
+      const key = `${value}|${name}`.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push({
+        value,
+        label: name || 'Unnamed patient',
+        name: patient.name || '',
+        surname: patient.surname || '',
+        mrn: patient.id_number || '',
+        encounterId: String(encounter._id),
+        status: encounter.status || 'ACTIVE'
+      });
+      if (suggestions.length >= limit) break;
+    }
+
+    console.log('[SEARCH SUGGESTIONS]', { hospitalId, search, count: suggestions.length });
+    return res.json({ success: true, suggestions });
+  } catch (err) {
+    console.error('[SEARCH SUGGESTIONS] Error:', err);
+    return res.status(500).json({ error: err.message });
   }
 };
 

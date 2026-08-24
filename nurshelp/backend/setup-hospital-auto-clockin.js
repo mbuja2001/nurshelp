@@ -24,6 +24,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildWardDefinitionsFromBeds, inferBedType, normalizeWardDepartment } from './src/utils/bedWardBootstrap.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -255,7 +256,9 @@ async function setupCompleteHospital(hospitalName) {
     const ShiftModel = await import('./src/models/shift.model.js').then(m => m.Shift);
     const NurseClockRecordModel = await import('./src/models/staffClockRecord.model.js').then(m => m.NurseClockRecord);
     const EncounterModel = await import('./src/models/encounter.model.js').then(m => m.Encounter);
+    const WardModel = await import('./src/models/ward.model.js').then(m => m.Ward);
     const BedModel = await import('./src/models/bed.model.js').then(m => m.Bed);
+    const BedScheduleModel = await import('./src/models/bedSchedule.model.js').then(m => m.BedSchedule);
     const PharmacyModels = await import('./src/models/pharmacy.model.js');
     const PharmacyInventoryModel = PharmacyModels.PharmacyInventory;
     const PharmaceuticalModel = PharmacyModels.Pharmaceutical;
@@ -285,10 +288,18 @@ async function setupCompleteHospital(hospitalName) {
     log('Deleting all encounters...');
     const encounterDeleted = await EncounterModel.deleteMany({});
     log(`  ✓ Deleted ${encounterDeleted.deletedCount} encounters`);
-    
-    log('Deleting all beds...');
+
+    log('Deleting all wards...');
+    const wardDeleted = await WardModel.deleteMany({});
+    log(`  ✓ Deleted ${wardDeleted.deletedCount} wards`);
+
+    log('Deleting all legacy bed records (Bed collection)...');
     const bedDeleted = await BedModel.deleteMany({});
-    log(`  ✓ Deleted ${bedDeleted.deletedCount} beds`);
+    log(`  ✓ Deleted ${bedDeleted.deletedCount} legacy bed records`);
+
+    log('Deleting all live bed schedule records (BedSchedule collection)...');
+    const bedScheduleDeleted = await BedScheduleModel.deleteMany({});
+    log(`  ✓ Deleted ${bedScheduleDeleted.deletedCount} BedSchedule records`);
     
     log('Deleting all pharmacy inventory...');
     const pharmDeleted = await PharmacyInventoryModel.deleteMany({});
@@ -461,8 +472,85 @@ async function setupCompleteHospital(hospitalName) {
       equipment_baseline: bed.equipment_baseline,
     }));
 
-    await makeAuthenticatedRequest('POST', '/beds/batch', { beds: bedsPayload }, token);
-    success(`✓ Created ${BEDS.length} beds across departments\n`);
+    log(`Preparing to create ${bedsPayload.length} beds with hospitalId ${hospital.hospitalID}`);
+    const createdBedsResponse = await makeAuthenticatedRequest('POST', '/beds/batch', { beds: bedsPayload }, token);
+    log(`Bed creation response: ${JSON.stringify({ success: createdBedsResponse.success, count: createdBedsResponse.count, message: createdBedsResponse.message, bedScheduleCount: createdBedsResponse.bedScheduleCount })}`);
+    success(`✓ Created ${createdBedsResponse.count || BEDS.length} beds across departments\n`);
+
+    if ((createdBedsResponse.bedScheduleCount || 0) === 0) {
+      log('BedSchedule count was 0 after batch create; forcing direct live rehydration for hospital data.');
+      await mongoose.connect(MONGO_URI);
+      const hospitalObjectId = user.hospitalId;
+      const wardDocs = await WardModel.find({ hospitalId: hospitalObjectId }).lean();
+      const wardMap = new Map(wardDocs.map((ward) => [ward.department, ward]));
+      const liveDocs = [];
+
+      for (const bed of bedsPayload) {
+        const department = normalizeWardDepartment(bed.ward_unit);
+        const ward = wardMap.get(department);
+        if (!ward) continue;
+
+        liveDocs.push({
+          wardId: ward._id,
+          bedId: bed.bed_id,
+          roomNumber: bed.bed_id,
+          department,
+          bedType: inferBedType(bed),
+          status: 'AVAILABLE',
+          statusChangedAt: new Date(),
+          currentEncounterId: null,
+          assignedNurseId: null,
+          occupancyStartTime: null,
+          expectedDischargeTime: null,
+          acuityLevel: 'MODERATE',
+          hasMonitor: (bed.equipment_baseline || []).some((item) => /monitor|ventilator|defibrillator|dialysis|oxygen/i.test(item)),
+          hasVentilator: (bed.equipment_baseline || []).some((item) => /ventilator/i.test(item)),
+          hasDialysis: (bed.equipment_baseline || []).some((item) => /dialysis/i.test(item)),
+          canIsolate: false,
+        });
+      }
+
+      if (liveDocs.length > 0) {
+        const inserted = await BedScheduleModel.insertMany(liveDocs);
+        log(`Direct fallback inserted ${inserted.length} BedSchedule rows`);
+
+        for (const doc of wardDocs) {
+          const matchingInserted = inserted.filter((bed) => bed.department === doc.department);
+          if (matchingInserted.length === 0) continue;
+
+          await WardModel.updateOne(
+            { _id: doc._id },
+            {
+              $set: {
+                totalBeds: matchingInserted.length,
+                availableBeds: matchingInserted.length,
+                occupiedBeds: 0,
+                cleaningBeds: 0,
+                maintenanceBeds: 0,
+                beds: matchingInserted.map((bed) => bed._id),
+              }
+            }
+          );
+        }
+      }
+
+      await mongoose.disconnect();
+    }
+
+    try {
+      await mongoose.connect(MONGO_URI);
+      const hospitalObjectId = user.hospitalId;
+      const liveWardCount = await WardModel.countDocuments({ hospitalId: hospitalObjectId });
+      const liveBedCount = await BedScheduleModel.countDocuments({ wardId: { $exists: true } });
+      const hospitalBedCount = await BedScheduleModel.countDocuments({});
+      const legacyBedCount = await BedModel.countDocuments({ hospitalId: hospitalObjectId });
+      log(`Ward count for hospital after creation: ${liveWardCount}`);
+      log(`Live BedSchedule count for hospital after creation: ${hospitalBedCount}`);
+      log(`Legacy Bed collection count for hospital after creation: ${legacyBedCount}`);
+      await mongoose.disconnect();
+    } catch (verifyErr) {
+      console.warn('[SETUP] Bed verification warning:', verifyErr.message);
+    }
 
     // 4. Create Pharmaceutical Inventory
     section('Step 4: Creating Pharmaceutical Inventory');

@@ -107,8 +107,17 @@ const ConfirmingManualClinicalHandover = () => {
         tews_total: normalized.tews_total ?? rawManual.tews_total ?? null,
         urgencyScore: normalized.urgencyScore ?? rawManual.urgencyScore ?? rawManual.urgency_score ?? null,
         selected_priority: normalized.priority_code ?? rawManual.selected_priority ?? rawManual.satsLevel ?? rawManual.sats_color ?? null,
-        satsLevel: normalized.sats_level ?? rawManual.satsLevel ?? rawManual.sats_color ?? null
+        satsLevel: normalized.sats_level ?? rawManual.satsLevel ?? rawManual.sats_color ?? null,
+        acuityLevel: satsAcuityLevel
       };
+
+      console.log('[ConfirmingManual] 🎯 HANDOVER - Final acuity mapping before send:', {
+        tews_total: manual_triage_report.tews_total,
+        urgencyScore: manual_triage_report.urgencyScore,
+        satsLevel: manual_triage_report.satsLevel,
+        acuityLevel: manual_triage_report.acuityLevel,
+        resolution: 'acuityLevel = satsLevel (SATS priority), NOT urgencyScore (numeric TEWS)'
+      });
 
       const savePayload = {
         triage: encounter.triage,
@@ -269,23 +278,35 @@ const ConfirmingManualClinicalHandover = () => {
       triageData?.SATS_reasoning?.tews_total ??
       triageData?.SATS_reasoning?.total ??
       triageData?.tews_total ??
-      manualReport?.urgencyScore ??
-      manualReport?.urgency_score ??
-      encounter?.triage?.urgencyScore ??
-      encounter?.triage?.urgency_score ??
       null
     )
   );
-  const acuityScore = Number(
-    manualReport?.acuityScore ??
-    manualReport?.urgencyScore ??
-    manualReport?.urgency_score ??
-    triageBundle?.urgencyScore ??
-    triageBundle?.urgency_score ??
-    encounter?.triage?.urgencyScore ??
-    encounter?.triage?.urgency_score ??
-    null
+  // CRITICAL FIX: acuityScore should be the SATS priority level (red/orange/yellow/green or 1-5),
+  // NOT the numeric tews_total or urgencyScore which are numeric values!
+  const satsAcuityLevel = normalizeSatsLevel(
+    (clinicalAnalysis?.priority_code ?? clinicalAnalysis?.sats_level) ??
+    manualReport?.selected_priority ??
+    manualReport?.satsLevel ??
+    manualReport?.sats_color ??
+    triageBundle?.satsLevel ??
+    triageBundle?.sats_color ??
+    triageData?.satsLevel ??
+    triageData?.sats_color ??
+    'yellow'
   );
+  
+  console.log('[ConfirmingManual] 🔍 ACUITY FIELD FIX - Post-normalization check:', {
+    tewsTotal: tewsTotal,
+    satsAcuityLevel: satsAcuityLevel,
+    manualReport_satsLevel: manualReport?.satsLevel,
+    manualReport_urgencyScore: manualReport?.urgencyScore,
+    clinicalAnalysis_tews_total: clinicalAnalysis?.tews_total,
+    issue: 'urgencyScore was incorrectly used as acuity - now using satsLevel instead',
+    correctMapping: {
+      tewsNumericTotal: tewsTotal,
+      acuityLevel: satsAcuityLevel
+    }
+  });
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 20 }}>
@@ -650,12 +671,12 @@ const ConfirmingManualClinicalHandover = () => {
             </div>
           )}
 
-          {(Number.isFinite(tewsTotal) || Number.isFinite(acuityScore) || manualReport?.sats_points || manualReport?.sats_points === 0) && (
+          {(Number.isFinite(tewsTotal) || manualReport?.sats_points || manualReport?.sats_points === 0) && (
             <div style={{ marginBottom: 16 }}>
-              <span style={{ color: '#64748b', fontWeight: 600, fontSize: 12 }}>TEWS Score</span>
+              <span style={{ color: '#64748b', fontWeight: 600, fontSize: 12 }}>TEWS Score & Acuity</span>
               <div style={{ background: '#fef2f2', padding: 12, borderRadius: 6, marginTop: 6, fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
-                {Number.isFinite(tewsTotal) ? `${tewsTotal} points` : (manualReport?.sats_points ?? triageBundle?.urgencyScore ?? 'N/A')}
-                {manualReport?.sats_color ? ` • ${manualReport.sats_color.toUpperCase()}` : ''}
+                {Number.isFinite(tewsTotal) ? `${tewsTotal} points` : (manualReport?.sats_points ?? 'N/A')}
+                {satsAcuityLevel ? ` • Acuity: ${satsAcuityLevel.toUpperCase()}` : ''}
               </div>
             </div>
           )}

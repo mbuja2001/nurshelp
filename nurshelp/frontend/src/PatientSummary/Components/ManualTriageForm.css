@@ -136,6 +136,7 @@
 .tews-components { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
 .tews-components span { padding:5px 8px; border-radius:6px; background:#e0f2fe; color:#0c4a6e; font-size:11px; }
 .tews-note { margin-top:10px; color:#64748b; font-size:11px; line-height:1.45; }
+.tews-summary-panel .toggle-button { width:auto; min-height:0; margin-top:10px; padding:6px 9px; font-size:11px; line-height:1.2; }
 
 @media (max-width: 900px) {
   .form-row { display: grid; grid-template-columns: 1fr; gap: 16px; }
@@ -150,6 +151,7 @@
   .step-pill { flex: 1 1 100%; justify-content: center; }
   .compact.esi-grid { grid-template-columns: 1fr; }
   .toggle-button, .submit-button { width: 100%; }
+  .tews-summary-panel .toggle-button { width:auto; }
   .step-buttons { grid-template-columns: 1fr; }
   .step-buttons .toggle-button,
   .step-buttons .submit-button { font-size: 0.85rem; min-height: 48px; }

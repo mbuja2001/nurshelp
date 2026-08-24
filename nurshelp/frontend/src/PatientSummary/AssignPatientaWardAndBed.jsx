@@ -107,6 +107,12 @@ const AssignPatientaWardAndBed = () => {
   }, [selectedWard]);
 
   const handleAssign = async () => {
+    // Validate diagnosis exists
+    if (!encounter?.diagnosis?.trim()) {
+      setError('Patient must be diagnosed before hospitalization. Please complete the diagnosis first.');
+      return;
+    }
+
     if (!encounterIdentifier || !selectedWard || !selectedBed) {
       setError('Select a ward and bed before admitting the patient.');
       return;
@@ -207,18 +213,34 @@ const AssignPatientaWardAndBed = () => {
             </label>
           </div>
 
-          <button onClick={handleAssign} disabled={saving || !selectedWard || !selectedBed} style={{ marginTop: 24, padding: '14px 20px', borderRadius: 16, border: 'none', background: saving ? '#94a3b8' : '#2563eb', color: 'white', fontWeight: 700, cursor: saving ? 'wait' : 'pointer' }}>
+          <button onClick={handleAssign} disabled={saving || !selectedWard || !selectedBed || !encounter?.diagnosis?.trim()} style={{ marginTop: 24, padding: '14px 20px', borderRadius: 16, border: 'none', background: (saving || !selectedWard || !selectedBed || !encounter?.diagnosis?.trim()) ? '#94a3b8' : '#2563eb', color: 'white', fontWeight: 700, cursor: (saving || !selectedWard || !selectedBed || !encounter?.diagnosis?.trim()) ? 'not-allowed' : 'pointer' }}>
             {saving ? 'Admitting…' : 'Finalize admission'}
           </button>
+          {!encounter?.diagnosis?.trim() && (
+            <p style={{ marginTop: 12, fontSize: 13, color: '#dc2626', fontWeight: 600 }}>
+              ⚠️ Diagnosis required before admission
+            </p>
+          )}
         </div>
 
         <div style={{ background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.96))', color: 'white', borderRadius: 24, padding: 24, boxShadow: '0 18px 45px rgba(15,23,42,0.14)' }}>
+          {!encounter?.diagnosis?.trim() && (
+            <div style={{ background: 'rgba(220, 38, 38, 0.15)', border: '1px solid rgba(220, 38, 38, 0.4)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: 8 }}>
+                ⚠️ Diagnosis Required
+              </p>
+              <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#fecaca', lineHeight: 1.6 }}>
+                The patient must have a documented diagnosis before being admitted to an inpatient ward. Complete the clinical diagnosis step first.
+              </p>
+            </div>
+          )}
           <p style={{ margin: 0, textTransform: 'uppercase', letterSpacing: '0.16em', fontSize: 12, color: '#93c5fd' }}>Admission workflow</p>
           <h3 style={{ margin: '12px 0 0 0', fontSize: 22 }}>Why this step matters</h3>
           <ul style={{ margin: '16px 0 0 0', lineHeight: 1.8, color: '#cbd5e1' }}>
+            <li>Patient must have a documented diagnosis.</li>
             <li>Confirms the bed is actually available.</li>
             <li>Links the patient to the inpatient ward and bed in the system.</li>
-            <li>Lets the physician continue into the diagnosis workflow without losing the admission context.</li>
+            <li>Lets the physician continue into the treatment workflow without losing the admission context.</li>
           </ul>
         </div>
       </div>

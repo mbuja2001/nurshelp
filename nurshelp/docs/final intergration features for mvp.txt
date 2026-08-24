@@ -1,0 +1,8 @@
+lets make sure the shortcut toolbar is adjustable as you can replace functions for your liking and style
+
+the algorithm for showing patients who need attention based on health state
+
+
+perfect all dashboards
+
+make sure analytics are done

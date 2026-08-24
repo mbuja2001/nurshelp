@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StaffScheduleDisplay from './StaffScheduleDisplay';
 import './ManualTriageForm.css';
 import { FiHeart, FiThermometer, FiActivity, FiClock, FiUser } from 'react-icons/fi';
 import { buildAssignmentPayload, enrichSelectedBedWithWard } from './assignmentUtils';
+import { getSatsAcuityFromTews } from '../utils/triageHelpers';
 
 function getInitialTewsProfile(patientData) {
-  const age = Number(patientData?.ageYears ?? patientData?.age);
+  const age = Number(patientData?.ageYears ?? patientData?.age ?? patientData?.ageMonths ? patientData.ageMonths / 12 : NaN);
   const height = Number(patientData?.height_cm);
-  if (age > 12 || (!Number.isFinite(age) && (!Number.isFinite(height) || height > 150))) return 'adult';
+
+  // SATS chart age split: pediatric under 13 years, adult 13+ years.
+  if (Number.isFinite(age) && age >= 13) return 'adult';
+  if (!Number.isFinite(age) && (!Number.isFinite(height) || height > 150)) return 'adult';
   if (Number.isFinite(height) && height <= 95) return 'child-younger';
   return 'child-older';
 }
@@ -92,7 +97,8 @@ function calculateTews(profile, vitals) {
  * 4. Select available nurse, physician, bed (optional)
  * 5. Submit (routes to appropriate endpoint based on hardware)
  */
-function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null, onSubmit = () => {}, onPayloadChange = () => {}, onSubmitPayload = () => {}, onAnalysisChange = () => {}, onTewsChange = () => {}, onAssignmentChange = () => {}, onDepartmentChange = () => {}, onAcuityChange = () => {}, onFormReadyChange = () => {}, submitRequest = 0 }) {
+function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null, selectedMrn = null, onSubmit = () => {}, onPayloadChange = () => {}, onSubmitPayload = () => {}, onAnalysisChange = () => {}, onTewsChange = () => {}, onAssignmentChange = () => {}, onDepartmentChange = () => {}, onAcuityChange = () => {}, onFormReadyChange = () => {}, submitRequest = 0 }) {
+  const navigate = useNavigate();
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
   // Manual triage always submits to the dedicated manual triage endpoint
@@ -167,6 +173,18 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
   const tewsResult = calculateTews(tewsProfile, tewsVitals);
   const tewsComponentsKey = JSON.stringify(tewsResult.components);
+  const tewsAcuityLevel = getSatsAcuityFromTews(tewsResult.total);
+  const tewsAcuityLabel = {
+    red: '7+',
+    orange: '5-6',
+    yellow: '3-4',
+    green: '0-2'
+  }[tewsAcuityLevel] || '0-2';
+
+  useEffect(() => {
+    const autoProfile = getInitialTewsProfile(patientData);
+    setTewsProfile((current) => (current === autoProfile ? current : autoProfile));
+  }, [patientData?.ageYears, patientData?.age, patientData?.ageMonths, patientData?.height_cm]);
 
   const hasCompleteClinicalAnalysis = () => {
     const parsedClinicalDiscriminators = clinicalDiscriminators
@@ -199,29 +217,34 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
   useEffect(() => {
     if (!tewsResult.complete) return;
-    setUrgencyScore(String(tewsResult.total));
+    setUrgencyScore(String(Math.max(0, Number(tewsResult.total) || 0)));
   }, [tewsResult.complete, tewsResult.total]);
 
   useEffect(() => {
     onTewsChange({ profile: tewsProfile, height: tewsHeight, total: tewsResult.total, priority: satsLevel, components: tewsResult.components, complete: tewsResult.complete });
   }, [onTewsChange, satsLevel, tewsComponentsKey, tewsHeight, tewsProfile, tewsResult.total, tewsResult.complete]);
 
-  const formValid = useMemo(() => {
+  const requiredFieldState = useMemo(() => {
     const analysisValid = hasCompleteClinicalAnalysis();
     const heightValid = tewsProfile === 'adult'
       ? true
       : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
 
-    return (
-      satsLevel &&
-      ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
-      analysisValid &&
-      tewsResult.complete &&
-      heightValid &&
-      selectedNurse &&
-      selectedPhysician
-    );
-  }, [satsLevel, pathophysiology, clinicalSummary, clinicalDiscriminators, differentialDiagnoses, immediateActions, diagnosticWorkup, dispositionRationale, tewsProfile, tewsHeight, tewsResult.complete, selectedNurse, selectedPhysician]);
+    const triageLevelSelected = !!satsLevel && ['red', 'orange', 'yellow', 'green'].includes(satsLevel);
+    const tewsReady = tewsResult.complete && Number.isFinite(Number(tewsResult.total));
+    const staffAssigned = !!selectedNurse && !!selectedPhysician;
+
+    return {
+      triageLevelSelected,
+      analysisValid,
+      tewsReady,
+      heightValid,
+      staffAssigned,
+      formValid: triageLevelSelected && analysisValid && tewsReady && heightValid && staffAssigned
+    };
+  }, [satsLevel, pathophysiology, clinicalSummary, clinicalDiscriminators, differentialDiagnoses, immediateActions, diagnosticWorkup, dispositionRationale, tewsProfile, tewsHeight, tewsResult.complete, tewsResult.total, selectedNurse, selectedPhysician]);
+
+  const formValid = requiredFieldState.formValid;
 
   useEffect(() => {
     onFormReadyChange(formValid);
@@ -232,7 +255,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   }, [onAssignmentChange, selectedBed, selectedNurse, selectedPhysician, selectedSpecialist]);
 
   const currentTriagePayload = useMemo(() => {
-    return {
+    const payload = {
       patientId: patientData.id || patientData._id,
       encounterId: patientData.encounterId || null,
       symptoms: typeof patientData.symptoms === 'string' ? patientData.symptoms : (Array.isArray(patientData.symptoms) ? patientData.symptoms.join(', ') : ''),
@@ -272,6 +295,14 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         bed: selectedBed
       }
     };
+    console.log('[ManualTriageForm] ⚠️ PAYLOAD BUILD - Checking tews/urgency mapping:', {
+      satsLevel: payload.satsLevel,
+      urgencyScore: payload.urgencyScore,
+      tewsTotal: payload.tews.total,
+      tewsPriority: payload.tews.priority,
+      warning: 'urgencyScore contains TEWS numeric total. This is the ROOT CAUSE of acuity confusion.'
+    });
+    return payload;
   }, [
     patientData,
     vitalsData,
@@ -329,23 +360,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
   // Form validation
   // Bed is OPTIONAL - not every patient gets hospitalized
-  const isFormValid = () => {
-    const analysisValid = hasCompleteClinicalAnalysis();
-    const heightValid = tewsProfile === 'adult'
-      ? true
-      : (tewsProfile === 'child-younger' ? Number(tewsHeight) >= 50 && Number(tewsHeight) <= 95 : Number(tewsHeight) >= 96 && Number(tewsHeight) <= 150);
-
-    return (
-      satsLevel &&
-      ['red', 'orange', 'yellow', 'green'].includes(satsLevel) &&
-      analysisValid &&
-      tewsResult.complete &&
-      heightValid &&
-      selectedNurse &&
-      selectedPhysician
-      // NOTE: selectedBed is OPTIONAL
-    );
-  };
+  const isFormValid = () => requiredFieldState.formValid;
 
   const handleStaffSelect = {
     onNurseSelect: (nurse) => {
@@ -679,14 +694,27 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
             </div>
           </div>
 
-          <div className="vitals-card ehr-context-card">
-            <h4>Hospital EHR context</h4>
+          <div
+            className="vitals-card ehr-context-card"
+            role={ehrSummary?.lastEncounter && selectedMrn ? 'button' : undefined}
+            tabIndex={ehrSummary?.lastEncounter && selectedMrn ? 0 : undefined}
+            style={{ cursor: ehrSummary?.lastEncounter && selectedMrn ? 'pointer' : 'default' }}
+            onClick={() => {
+              if (ehrSummary?.lastEncounter && selectedMrn) {
+                navigate(`/ehr?patient=${encodeURIComponent(selectedMrn)}`);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (ehrSummary?.lastEncounter && selectedMrn && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                navigate(`/ehr?patient=${encodeURIComponent(selectedMrn)}`);
+              }
+            }}
+            aria-label={ehrSummary?.lastEncounter && selectedMrn ? 'Open patient EHR history' : undefined}
+          >
+            <h4>View Patient History</h4>
             {ehrSummary?.lastEncounter ? (
-              <div className="ehr-context-details">
-                <div><strong>Status:</strong> {ehrSummary.lastEncounter.status || 'Unknown'}</div>
-                <div><strong>Admission:</strong> {ehrSummary.lastEncounter.admissionDate || 'Unknown'}</div>
-                <div><strong>Bed:</strong> {ehrSummary.lastEncounter.bed || 'Not assigned'}</div>
-              </div>
+              <div className="ehr-context-details">Open the patient history in the EHR library.</div>
             ) : (
               <div className="ehr-context-empty">No prior hospital encounter loaded from EHR.</div>
             )}
@@ -745,8 +773,43 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
                     </div>
                     <div className="form-group narrow-field">
                       <label className="field-label"><strong>Acuity</strong></label>
-                      <input type="range" min="0" max="100" step="5" value={urgencyScore} onChange={(e)=>setUrgencyScore(e.target.value)} className="range-slider" />
-                      <div className="acuity-display">{urgencyScore}</div>
+                      <div
+                        className="acuity-display"
+                        style={{
+                          padding: '10px 12px',
+                          background: '#f8fafc',
+                          borderRadius: 8,
+                          border: '1px solid #e2e8f0',
+                          fontWeight: 700,
+                          textAlign: 'center',
+                          color: tewsAcuityLevel === 'red'
+                            ? '#dc2626'
+                            : tewsAcuityLevel === 'orange'
+                              ? '#ea580c'
+                              : tewsAcuityLevel === 'yellow'
+                                ? '#a16207'
+                                : '#15803d'
+                        }}
+                      >
+                        {tewsAcuityLevel.toUpperCase()} · {tewsAcuityLabel}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: 11,
+                          color: tewsAcuityLevel === 'red'
+                            ? '#dc2626'
+                            : tewsAcuityLevel === 'orange'
+                              ? '#ea580c'
+                              : tewsAcuityLevel === 'yellow'
+                                ? '#a16207'
+                                : '#15803d',
+                          textAlign: 'center',
+                          fontWeight: 700
+                        }}
+                      >
+                        {tewsProfile === 'adult' ? 'Adult SATS scale' : 'Pediatric SATS scale'}
+                      </div>
                     </div>
                   </div>
                 </div>

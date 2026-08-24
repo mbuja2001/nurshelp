@@ -18,9 +18,24 @@ test('builds a discharge report payload from encounter data', () => {
     assigned_physician: { name: 'Dr Patel' }
   };
 
+  const clinician = {
+    id: 'clinician-42',
+    name: 'Dr Patel',
+    role: 'PHYSICIAN',
+    specialty: 'Internal Medicine',
+    credentials: {
+      title: 'MBChB',
+      licenseNumber: 'MP-2024-77',
+      npiNumber: '1234567890'
+    }
+  };
+
   const report = buildDischargeReportData({
     encounter,
-    overrides: { followUpInstructions: 'Follow up with PCP in 7 days' }
+    clinician,
+    overrides: {
+      followUpInstructions: 'Follow up with PCP in 7 days'
+    }
   });
 
   assert.ok(report.reportId.startsWith('DR-'));
@@ -30,5 +45,13 @@ test('builds a discharge report payload from encounter data', () => {
   assert.equal(report.medications[0].name, 'Amoxicillin');
   assert.equal(report.followUpInstructions, 'Follow up with PCP in 7 days');
   assert.equal(report.authorId, 'Dr Patel');
+  assert.equal(report.signedOffBy, 'Dr Patel');
+  assert.ok(report.clinicianSignature);
+  assert.equal(report.clinicianSignature.clinicianRole, 'PHYSICIAN');
+  assert.equal(report.clinicianSignature.qualification, 'MBChB');
+  assert.equal(report.clinicianSignature.licenseNumber, 'MP-2024-77');
+  assert.equal(report.clinicianSignature.npiNumber, '1234567890');
+  assert.ok(report.clinicianSignature.hash);
+  assert.equal(report.clinicianSignature.documentType, 'DISCHARGE_REPORT');
   assert.equal(report.status, 'draft');
 });

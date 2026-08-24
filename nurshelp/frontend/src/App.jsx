@@ -19,11 +19,13 @@ import NurseConfirmedReportView from "./PatientSummary/NurseConfirmedReportView.
 import ManualTriageReport from "./PatientSummary/manualtriagereport.jsx";
 import OrderMedicationPage from "./PatientSummary/OrderMedicationPage.jsx";
 import RequestLabPage from "./PatientSummary/RequestLabPage.jsx";
+import LabRequestReport from "./PatientSummary/LabRequestReport.jsx";
 import AssignPatientaWardAndBed from "./PatientSummary/AssignPatientaWardAndBed.jsx";
 import ReferenceCase from "./PatientSummary/ReferenceCase.jsx";
 import ReferenceCases from "./Dashboard/Pages/ReferenceCases.jsx";
 import Profile from "./Dashboard/Pages/Profile.jsx";
 import EHRRecords from "./Dashboard/Pages/EHRRecords.jsx";
+import EHRLibrary from "./Dashboard/Pages/EHRLibrary.jsx";
 import TriagedPatients from "./Dashboard/Pages/TriagedPatients.jsx";
 import BedsAllocation from "./Dashboard/Pages/BedsAllocation.jsx";
 import StaffScheduleManager from "./Dashboard/Pages/StaffScheduleManager.jsx";
@@ -122,6 +124,7 @@ function App() {
           <Route path="/order-medication/:encounterId" element={<OrderMedicationPage />} />
           <Route path="/request-lab/:encounterId" element={<RequestLabPage />} />
           <Route path="/request-lab/:encounterId/:specialty" element={<RequestLabPage />} />
+          <Route path="/report/lab/:encounterId" element={<LabRequestReport />} />
 
           {/* NURSE CONFIRMED REPORT (read-only final) ✅ */}
           <Route path="/confirmed/:id" element={<NurseConfirmedReportView />} />
@@ -134,7 +137,7 @@ function App() {
 
           {/* New sidebar pages */}
           <Route path="/profile" element={<Profile />} />
-          <Route path="/ehr" element={<EHRRecords />} />
+          <Route path="/ehr" element={<EHRLibrary />} />
           <Route path="/pharmacy" element={
             (() => {
               const token = localStorage.getItem('token');

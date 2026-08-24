@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   FiArrowLeft,
   FiCalendar,
@@ -12,6 +12,7 @@ import {
 } from "react-icons/fi";
 import SidebarLayout from "../SidebarLayout";
 import { useUserFromToken } from "../../hooks/useUserFromToken";
+import { getUserFromToken } from "../../utils/jwt";
 import {
   buildInpatientTimeline,
   groupTimelineByDay,
@@ -57,8 +58,11 @@ const getStatusTone = (status = "") => {
 
 const EHRLibrary = () => {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { userName } = useUserFromToken();
   const token = localStorage.getItem("token");
+  const userProfile = getUserFromToken(token);
+  const userId = userProfile?.id || JSON.parse(localStorage.getItem("user") || "{}")?._id || "anonymous";
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [record, setRecord] = useState(null);
@@ -68,6 +72,114 @@ const EHRLibrary = () => {
   const [month, setMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [searchHistory, setSearchHistory] = useState([]);
+  const [showSearchHistoryModal, setShowSearchHistoryModal] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionRequestRef = React.useRef(null);
+  const requestedPatient = new URLSearchParams(search).get("patient");
+
+  const loadSearchHistory = async () => {
+    if (!userId || !token) {
+      setSearchHistory([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/patients/search-history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to load search history");
+      setSearchHistory(Array.isArray(data.history) ? data.history : []);
+    } catch (err) {
+      console.error("[EHR SEARCH HISTORY] Load failed", err);
+      setSearchHistory([]);
+    }
+  };
+
+  const clearSearchHistory = async () => {
+    if (!userId || !token) {
+      setSearchHistory([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/patients/search-history`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to clear search history");
+      setSearchHistory(Array.isArray(data.history) ? data.history : []);
+      setShowSearchHistoryModal(false);
+    } catch (err) {
+      console.error("[EHR SEARCH HISTORY] Clear failed", err);
+    }
+  };
+
+  useEffect(() => {
+    loadSearchHistory();
+  }, [userId, token]);
+
+  useEffect(() => {
+    const searchTerm = query.trim();
+    if (searchTerm.length < 2 || record) {
+      suggestionRequestRef.current?.abort();
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    suggestionRequestRef.current?.abort();
+    suggestionRequestRef.current = controller;
+    const timer = setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const response = await fetch(
+          `${BACKEND_URL}/api/patients/suggestions?search=${encodeURIComponent(searchTerm)}`,
+          { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal },
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Patient suggestions failed");
+        if (!controller.signal.aborted) setSuggestions(data.suggestions || []);
+      } catch (err) {
+        if (err.name !== "AbortError") console.error("[EHR SEARCH] Suggestions failed", err);
+      } finally {
+        if (!controller.signal.aborted) setSuggestionsLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, record, token]);
+
+  const rememberSearch = async (searchTerm) => {
+    const normalized = searchTerm.trim();
+    if (!normalized || !token || !userId) return;
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/patients/search-history`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ term: normalized }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to save search history");
+      if (Array.isArray(data.history)) setSearchHistory(data.history);
+    } catch (err) {
+      console.error("[EHR SEARCH HISTORY] Save failed", err);
+    }
+  };
 
   const searchPatients = async (event) => {
     event.preventDefault();
@@ -76,6 +188,7 @@ const EHRLibrary = () => {
     setError("");
     setRecord(null);
     const searchTerm = query.trim();
+    await rememberSearch(searchTerm);
     const searchUrl = `${BACKEND_URL}/api/patients/search?search=${encodeURIComponent(searchTerm)}`;
     console.log("[EHR SEARCH] Starting patient search", { searchTerm, searchUrl });
     try {
@@ -150,6 +263,10 @@ const EHRLibrary = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (requestedPatient) openRecord(requestedPatient);
+  }, [requestedPatient]);
 
   useEffect(() => {
     const active = days.find((day) => day.key === selectedDay);
@@ -262,14 +379,191 @@ const EHRLibrary = () => {
                 <FiSearch size={20} color="#66819e" />
                 <input
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setError("");
+                  }}
                   placeholder="Search by patient name or MRN"
                   aria-label="Search patients"
                 />
+                <button
+                  type="button"
+                  className="ehr-history-button"
+                  onClick={() => setShowSearchHistoryModal(true)}
+                >
+                  History
+                </button>
                 <button className="ehr-button" type="submit" disabled={loading}>
                   {loading ? "Searching..." : "Search records"}
                 </button>
               </form>
+              {query.trim().length >= 2 && !record && (
+                <div className="ehr-panel" style={{ marginTop: 8, padding: "8px 0" }}>
+                  <div className="ehr-label" style={{ padding: "0 18px", marginBottom: 6 }}>
+                    Search suggestions
+                  </div>
+                  {suggestionsLoading ? (
+                    <div className="ehr-meta" style={{ padding: "4px 18px" }}>Finding matching records...</div>
+                  ) : suggestions.length === 0 ? (
+                    <div className="ehr-meta" style={{ padding: "4px 18px" }}>No matching patients yet.</div>
+                  ) : null}
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={`${suggestion.value}-${suggestion.label}`}
+                      type="button"
+                      onClick={() => {
+                        setQuery(suggestion.value);
+                        setSuggestions([]);
+                      }}
+                      style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 12, padding: "10px 18px", border: 0, borderTop: "1px solid #e7edf4", background: "#fff", color: "#10233f", textAlign: "left", cursor: "pointer" }}
+                    >
+                      <span><strong>{suggestion.label}</strong><br /><small className="ehr-meta">{suggestion.mrn || "Encounter record"}</small></span>
+                      <span className="ehr-meta">{suggestion.status}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchHistory.length > 0 && (
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                    <div className="ehr-label" style={{ marginBottom: 0 }}>Recent searches</div>
+                    <button
+                      type="button"
+                      onClick={clearSearchHistory}
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        background: "#fff",
+                        color: "#b91c1c",
+                        borderRadius: "8px",
+                        padding: "6px 8px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontSize: "11px"
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {searchHistory.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className="ehr-link"
+                        onClick={() => {
+                          setQuery(item);
+                          setTimeout(() => document.querySelector(".ehr-search")?.requestSubmit(), 0);
+                        }}
+                      >
+                        <FiClock size={12} /> {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {showSearchHistoryModal && (
+                <div style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(15, 23, 42, 0.72)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 1200,
+                  padding: "20px"
+                }}>
+                  <div style={{
+                    width: "100%",
+                    maxWidth: "640px",
+                    background: "#ffffff",
+                    borderRadius: "16px",
+                    boxShadow: "0 20px 50px rgba(15, 23, 42, 0.24)",
+                    padding: "20px",
+                    color: "#0f172a"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", gap: "12px" }}>
+                      <div>
+                        <div style={{ fontSize: "17px", fontWeight: 800 }}>Search History</div>
+                        <div style={{ fontSize: "13px", color: "#64748b", marginTop: "4px" }}>Review your recent patient searches.</div>
+                      </div>
+                      {searchHistory.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={clearSearchHistory}
+                          style={{
+                            border: "1px solid #e2e8f0",
+                            background: "#fff",
+                            color: "#b91c1c",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            fontSize: "12px"
+                          }}
+                        >
+                          Clear history
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowSearchHistoryModal(false)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "#64748b",
+                          cursor: "pointer",
+                          fontSize: "16px"
+                        }}
+                        aria-label="Close search history"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div style={{ marginTop: "14px", display: "grid", gap: "10px", maxHeight: "320px", overflowY: "auto" }}>
+                      {searchHistory.length === 0 ? (
+                        <div style={{ padding: "16px", borderRadius: "10px", background: "#f8fafc", color: "#64748b", fontSize: "13px" }}>
+                          No recent search history yet.
+                        </div>
+                      ) : (
+                        searchHistory.map((item) => (
+                          <button
+                            key={item}
+                            type="button"
+                            onClick={() => {
+                              setQuery(item);
+                              setShowSearchHistoryModal(false);
+                              setTimeout(() => document.querySelector(".ehr-search")?.requestSubmit(), 0);
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              width: "100%",
+                              padding: "14px 16px",
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "10px",
+                              background: "#f9fafb",
+                              cursor: "pointer",
+                              textAlign: "left",
+                              color: "#0f172a",
+                              fontWeight: 600,
+                              fontSize: "14px"
+                            }}
+                          >
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                              <FiClock size={14} color="#64748b" />
+                              {item}
+                            </span>
+                            <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>Open</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               {error && <div className="ehr-alert">{error}</div>}
               {results.length > 0 && (
                 <div className="ehr-panel ehr-results">

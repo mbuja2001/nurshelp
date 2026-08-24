@@ -107,11 +107,6 @@ const RequestLabPage = () => {
     };
   }, [encounter]);
 
-  const openPatientHistory = () => {
-    const identifier = encounter?.patient?.id_number || encounter?._id || encounterId;
-    if (identifier) navigate(`/ehr?patient=${encodeURIComponent(identifier)}`);
-  };
-
   const handleSpecialtySelect = (specialty) => {
     const normalized = String(specialty).toUpperCase();
     setSelectedSpecialty(normalized);
@@ -460,9 +455,11 @@ const RequestLabPage = () => {
           <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#475569', fontWeight: 700 }}>EHR context</div>
           <h3 style={{ margin: '10px 0 14px', fontSize: 22, color: '#0f172a' }}>Patient history rail</h3>
           <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.55, margin: '0 0 16px' }}>This request becomes a timestamped event in the longitudinal EHR after submission.</p>
-          <button type="button" onClick={openPatientHistory} style={{ width: '100%', marginBottom: 18, border: '1px solid #0f766e', borderRadius: 10, background: '#ecfdf5', color: '#115e59', padding: '10px 12px', cursor: 'pointer', fontWeight: 700 }}>
-            View Patient History
-          </button>
+          <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
+            <HistoryCard title="Past medications" items={hospitalContext.history.pastMeds} accent="#10b981" compact />
+            <HistoryCard title="Lab requests" items={hospitalContext.history.pastLabs} accent="#3b82f6" compact />
+            <HistoryCard title="Past surgeries" items={hospitalContext.history.pastSurgeries} accent="#8b5cf6" compact />
+          </div>
         </aside>
       </div>
     </div>

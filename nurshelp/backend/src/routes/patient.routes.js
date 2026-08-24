@@ -2,6 +2,10 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import {
   searchHospitalPatients,
+  suggestHospitalPatients,
+  getUserSearchHistory,
+  recordUserSearchHistory,
+  clearUserSearchHistory,
   getPatientEHR,
   getFHIRPatient,
   getPatientTriageReports,
@@ -14,6 +18,10 @@ const router = express.Router();
 
 // Search for patients in hospital (by MRN, name, etc)
 router.get('/search', authenticateToken, searchHospitalPatients);
+router.get('/suggestions', authenticateToken, suggestHospitalPatients);
+router.get('/search-history', authenticateToken, getUserSearchHistory);
+router.post('/search-history', authenticateToken, recordUserSearchHistory);
+router.delete('/search-history', authenticateToken, clearUserSearchHistory);
 
 // FHIR R4 Patient representation backed by the hospital's Encounter records
 router.get('/fhir/Patient/:id', authenticateToken, getFHIRPatient);

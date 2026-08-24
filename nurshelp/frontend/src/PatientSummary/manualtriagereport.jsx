@@ -227,6 +227,7 @@ export default function ManualTriageReport() {
                 patientData={reportData.patient}
                 vitalsData={reportData.vitals}
                 ehrSummary={reportData.ehrSummary}
+                selectedMrn={reportData.selectedMrn}
                 onSubmit={handleManualSubmit}
                 onPayloadChange={setFormPayload}
                 onSubmitPayload={(payload) => {

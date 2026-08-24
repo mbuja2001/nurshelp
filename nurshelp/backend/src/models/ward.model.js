@@ -19,7 +19,24 @@ const wardSchema = new mongoose.Schema({
   // Department assignment
   department: {
     type: String,
-    enum: ["ED", "ICU", "OR", "MATERNITY", "NICU", "PEDIATRICS", "PSYCH", "GENERAL", "CARDIO", "NEURO", "ONCOLOGY"],
+    enum: [
+      "ED",
+      "ICU",
+      "OR",
+      "MATERNITY",
+      "NICU",
+      "PEDIATRICS",
+      "PSYCH",
+      "GENERAL",
+      "CARDIO",
+      "CICU",
+      "NEURO",
+      "ONCOLOGY",
+      "SICU",
+      "PICU",
+      "HDU",
+      "PCU"
+    ],
     required: true,
     index: true
   },
