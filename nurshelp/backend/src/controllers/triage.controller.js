@@ -6,6 +6,18 @@ import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { Shift } from "../models/shift.model.js";
 import { Hospital } from "../models/hospital.model.js";
 
+const normalizeMobility = (value) => {
+  const key = String(value ?? '').trim().toLowerCase();
+  if (['with help', 'help', 'assisted'].includes(key)) return 'With help';
+  if (['immobile', 'not walking', 'stretcher', 'stretcher / immobile'].includes(key)) return 'Immobile';
+  return 'Walks';
+};
+
+const normalizeBoolean = (value) => {
+  if (typeof value === 'string') return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+  return Boolean(value);
+};
+
 /**
  * ============================================================
  * OPTION B: REAL-TIME STAFFING SERVICE DISCOVERY
@@ -233,9 +245,15 @@ export const runTriage = async (req, res) => {
     const transcriptArray = parseTranscript(payload.transcript);
 
     // Build payload for Python engine with computeMode
+    const normalizedVitals = {
+      ...payload.vitals,
+      mobility: normalizeMobility(payload.vitals.mobility),
+      traumaPresent: normalizeBoolean(payload.vitals.traumaPresent)
+    };
+
     const enginePayload = {
       patient: payload.patient,
-      vitals: payload.vitals,
+      vitals: normalizedVitals,
       transcript: transcriptArray,
       computeMode, // Tells ESI_Engine how to process
       staffScheduling: payload.staffScheduling || {},
@@ -283,7 +301,7 @@ export const runTriage = async (req, res) => {
       nurse_id: nurseId,
       patient: payload.patient,
       transcript: transcriptArray,
-      vitals: payload.vitals,
+      vitals: normalizedVitals,
       triage: { 
         ...triage, 
         severity: triage.ESI,
@@ -1442,6 +1460,8 @@ export const submitManualTriage = async (req, res) => {
       tewsProfile,
       tewsHeight,
       SATS_reasoning,
+      mobility,
+      traumaPresent,
       
       // Staff assignment
       assignedNurseId,
@@ -1572,6 +1592,17 @@ export const submitManualTriage = async (req, res) => {
       dispositionRationale
     };
 
+    const normalizedMobility = normalizeMobility(mobility ?? vitals?.mobility ?? SATS_reasoning?.mobility);
+    const normalizedTraumaPresent = normalizeBoolean(traumaPresent ?? vitals?.traumaPresent ?? SATS_reasoning?.traumaPresent);
+    const normalizedSatsReasoning = SATS_reasoning
+      ? {
+          ...SATS_reasoning,
+          mobility: normalizedMobility,
+          traumaPresent: normalizedTraumaPresent,
+          trauma_modifier: normalizedTraumaPresent ? 1 : 0
+        }
+      : null;
+
     // Create Encounter in database
     const manualTriageReport = {
       satsLevel: manualSatsLevel.toLowerCase(),
@@ -1589,7 +1620,11 @@ export const submitManualTriage = async (req, res) => {
       assignedBedNumber: assignedBedNumber || bedAssigned || 'Not Assigned',
       tewsProfile: tewsProfile || null,
       tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
-      SATS_reasoning: SATS_reasoning || null,
+      SATS_reasoning: normalizedSatsReasoning,
+      tews_total: normalizedSatsReasoning?.total ?? normalizedSatsReasoning?.tews_total ?? (parseInt(urgencyScore) || null),
+      mobility: normalizedMobility,
+      traumaPresent: normalizedTraumaPresent,
+      trauma_modifier: normalizedTraumaPresent ? 1 : 0,
       clinicalAnalysis,
       pathophysiology: clinicalAnalysis.pathophysiology || '',
       clinicalSummary: clinicalAnalysis.clinicalSummary || clinicalAnalysis.clinical_summary || '',
@@ -1621,15 +1656,18 @@ export const submitManualTriage = async (req, res) => {
       recommendations: Array.isArray(immediateInterventions) ? immediateInterventions : [immediateInterventions].filter(Boolean),
       discriminators: Array.isArray(clinicalAnalysis.clinicalDiscriminators) ? clinicalAnalysis.clinicalDiscriminators : Array.isArray(clinicalAnalysis.clinical_discriminators) ? clinicalAnalysis.clinical_discriminators : [clinicalAnalysis.clinicalDiscriminators || clinicalAnalysis.clinical_discriminators].filter(Boolean),
       notes: triageReasoningNotes || '',
-      // CRITICAL FIX: sats_points should be the SATS priority level (1-5), NOT the urgencyScore (TEWS numeric total)
+      // Keep SATS priority and TEWS points separate: the chart total is authoritative for TEWS.
       sats_points: manualSatsLevel === 'red' ? 5 : (manualSatsLevel === 'orange' ? 4 : (manualSatsLevel === 'yellow' ? 3 : 1)),
       sats_color: manualSatsLevel?.toLowerCase() || 'yellow',
       satsLevel: manualSatsLevel?.toLowerCase() || 'yellow',
       urgencyScore: parseInt(urgencyScore) || 50,
-      tewsTotal: parseInt(urgencyScore) || 50,
+      tewsTotal: normalizedSatsReasoning?.total ?? normalizedSatsReasoning?.tews_total ?? (parseInt(urgencyScore) || null),
       tewsProfile: tewsProfile || null,
       tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
-      SATS_reasoning: SATS_reasoning || null,
+      SATS_reasoning: normalizedSatsReasoning,
+      mobility: normalizedMobility,
+      traumaPresent: normalizedTraumaPresent,
+      trauma_modifier: normalizedTraumaPresent ? 1 : 0,
       clinicalAnalysis
     };
     
@@ -1666,13 +1704,17 @@ export const submitManualTriage = async (req, res) => {
         name: "",
         symptoms: symptomString
       },
-      vitals: vitals || {
-        temp: vitalSigns?.temperature,
-        hr: vitalSigns?.heartRate,
-        o2: vitalSigns?.oxygenSaturation,
-        resp: vitalSigns?.respiratoryRate,
-        bp_systolic: vitalSigns?.systolicBP,
-        bp_diastolic: vitalSigns?.diastolicBP
+      vitals: {
+        ...(vitals || {}),
+        temp: vitalSigns?.temperature ?? vitals?.temp ?? null,
+        hr: vitalSigns?.heartRate ?? vitals?.hr ?? null,
+        o2: vitalSigns?.oxygenSaturation ?? vitals?.o2 ?? null,
+        resp: vitalSigns?.respiratoryRate ?? vitals?.resp ?? null,
+        bp_systolic: vitalSigns?.systolicBP ?? vitals?.bp_systolic ?? null,
+        bp_diastolic: vitalSigns?.diastolicBP ?? vitals?.bp_diastolic ?? null,
+        avpu: vitalSigns?.avpu ?? vitals?.avpu ?? null,
+        mobility: normalizedMobility,
+        traumaPresent: normalizedTraumaPresent
       },
       triage: {
         manualTriageReport,

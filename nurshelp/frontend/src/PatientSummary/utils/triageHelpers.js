@@ -82,7 +82,7 @@ export const normalizeClinicalAnalysis = (manualReport = {}) => {
   const lifeThreatsExcluded = ca.lifeThreatsExcluded || ca.life_threats_excluded || manualReport.lifeThreatsExcluded || manualReport.life_threats_excluded || [];
   const recommendedSpecialists = ca.recommendedSpecialists || ca.recommended_specialists || manualReport.recommendedSpecialists || manualReport.recommended_specialists || [];
 
-  const tews_total = ca.tews_total ?? ca.total ?? manualReport.tews_total ?? manualReport.sats_points ?? manualReport.urgencyScore ?? null;
+  const tews_total = ca.tews_total ?? ca.total ?? manualReport.tews_total ?? manualReport.SATS_reasoning?.tews_total ?? manualReport.SATS_reasoning?.total ?? manualReport.sats_points ?? manualReport.urgencyScore ?? null;
   const priority_raw = ca.priority_code ?? ca.selected_priority ?? ca.sats_level ?? ca.satsLevel ?? manualReport.selected_priority ?? manualReport.satsLevel ?? manualReport.sats_color ?? manualReport.priority ?? manualReport.priority_code ?? null;
   const priority_code = priority_raw ?? null;
   const sats_level = normalizeSatsLevel(priority_raw);

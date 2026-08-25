@@ -2,13 +2,38 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StaffScheduleDisplay from './StaffScheduleDisplay';
 import './ManualTriageForm.css';
-import { FiHeart, FiThermometer, FiActivity, FiClock, FiUser } from 'react-icons/fi';
+import { FiHeart, FiThermometer, FiActivity, FiClock, FiUser, FiMove, FiAlertTriangle } from 'react-icons/fi';
 import { buildAssignmentPayload, enrichSelectedBedWithWard } from './assignmentUtils';
 import { getSatsAcuityFromTews } from '../utils/triageHelpers';
 
+const normalizePatientRecord = (input = {}) => {
+  const patient = input && typeof input === 'object' ? input : {};
+  const idNumber = patient.id_number ?? patient.id ?? patient._id ?? null;
+  const ageYears = patient.ageYears ?? (Number.isFinite(Number(patient.age)) ? Number(patient.age) : null);
+
+  return {
+    ...patient,
+    id_number: idNumber,
+    id: idNumber,
+    _id: patient._id ?? idNumber,
+    name: patient.name ?? null,
+    surname: patient.surname ?? null,
+    gender: patient.gender ?? null,
+    age: patient.age ?? ageYears ?? null,
+    ageYears,
+    ageMonths: patient.ageMonths ?? null,
+    height_cm: patient.height_cm ?? null,
+    symptoms: patient.symptoms ?? null,
+    duration: patient.duration ?? null,
+    painLevel: patient.painLevel ?? null,
+    history: patient.history ?? null,
+  };
+};
+
 function getInitialTewsProfile(patientData) {
-  const age = Number(patientData?.ageYears ?? patientData?.age ?? patientData?.ageMonths ? patientData.ageMonths / 12 : NaN);
-  const height = Number(patientData?.height_cm);
+  const normalized = normalizePatientRecord(patientData);
+  const age = Number(normalized.ageYears ?? normalized.age ?? (normalized.ageMonths != null ? normalized.ageMonths / 12 : NaN));
+  const height = Number(normalized.height_cm);
 
   // SATS chart age split: pediatric under 13 years, adult 13+ years.
   if (Number.isFinite(age) && age >= 13) return 'adult';
@@ -27,30 +52,76 @@ function calculateTews(profile, vitals) {
   const heartRate = Number(vitals.heartRate);
   const respiratoryRate = Number(vitals.respiratoryRate);
   const systolicBP = Number(vitals.systolicBP);
+
+  const avpuScore = (() => {
+    const key = String(vitals.avpu ?? '').trim().toLowerCase();
+    const map = {
+      alert: 0,
+      a: 0,
+      voice: 1,
+      v: 1,
+      pain: 2,
+      p: 2,
+      unresponsive: 3,
+      u: 3
+    };
+    return map[key] ?? 0;
+  })();
+
+  const mobilityScore = (() => {
+    const key = String(vitals.mobility ?? '').trim().toLowerCase();
+    const map = {
+      walks: 0,
+      walking: 0,
+      'with help': 1,
+      help: 1,
+      immobile: 2,
+      'not walking': 2,
+      'stretcher / immobile': 2
+    };
+    return map[key] ?? 0;
+  })();
+
   const components = {
-    temperature: scoreBand(temperature, [
-      { test: (v) => v < 35, points: 2 }, { test: (v) => v > 39, points: 3 },
-      { test: (v) => v >= 38.6, points: 2 }, { test: (v) => v >= 38.1, points: 1 }
-    ]),
+    temperature: 0,
     heartRate: 0,
     respiratoryRate: 0,
     systolicBP: 0,
-    avpu: { Alert: 0, Voice: 1, Pain: 2, Unresponsive: 3 }[vitals.avpu] ?? 0,
-    mobility: vitals.mobility === 'Walks' ? 0 : 3
+    avpu: avpuScore,
+    mobility: mobilityScore,
+    trauma: vitals.traumaPresent ? 1 : 0
   };
 
   if (profile === 'adult') {
+    components.temperature = scoreBand(temperature, [
+      { test: (v) => v < 35, points: 3 },
+      { test: (v) => v >= 38.5, points: 2 },
+      { test: (v) => v >= 35 && v <= 38.4, points: 0 }
+    ]);
+
     components.heartRate = scoreBand(heartRate, [
-      { test: (v) => v < 40 || v >= 130, points: 3 }, { test: (v) => v >= 111, points: 2 },
-      { test: (v) => v < 60 || v > 100, points: 1 }
+      { test: (v) => v < 41, points: 3 },
+      { test: (v) => v >= 41 && v <= 50, points: 2 },
+      { test: (v) => v >= 51 && v <= 100, points: 1 },
+      { test: (v) => v >= 101 && v <= 110, points: 0 },
+      { test: (v) => v >= 111 && v <= 129, points: 1 },
+      { test: (v) => v >= 130, points: 3 }
     ]);
+
     components.respiratoryRate = scoreBand(respiratoryRate, [
-      { test: (v) => v < 12 || v >= 40, points: 3 }, { test: (v) => v >= 30, points: 2 },
-      { test: (v) => v > 20, points: 1 }
+      { test: (v) => v < 9, points: 3 },
+      { test: (v) => v >= 9 && v <= 14, points: 0 },
+      { test: (v) => v >= 15 && v <= 20, points: 0 },
+      { test: (v) => v >= 21 && v <= 29, points: 1 },
+      { test: (v) => v >= 30, points: 3 }
     ]);
+
     components.systolicBP = scoreBand(systolicBP, [
-      { test: (v) => v < 80, points: 3 }, { test: (v) => v >= 200, points: 2 },
-      { test: (v) => v < 100, points: 2 }
+      { test: (v) => v < 71, points: 3 },
+      { test: (v) => v >= 71 && v <= 80, points: 1 },
+      { test: (v) => v >= 81 && v <= 100, points: 0 },
+      { test: (v) => v >= 101 && v <= 199, points: 0 },
+      { test: (v) => v >= 200, points: 2 }
     ]);
   } else if (profile === 'child-younger') {
     components.heartRate = scoreBand(heartRate, [
@@ -76,10 +147,13 @@ function calculateTews(profile, vitals) {
     ]);
   }
 
-  const total = Object.values(components).reduce((sum, value) => sum + value, 0);
+  // TEWS total follows the six chart scoring fields. Trauma is retained as a
+  // separate clinical modifier and is displayed/persisted independently.
+  const { trauma: traumaModifier, ...tewsComponents } = components;
+  const total = Object.values(tewsComponents).reduce((sum, value) => sum + value, 0);
   const complete = [temperature, heartRate, respiratoryRate, systolicBP].every(Number.isFinite);
-  const priority = total >= 6 ? 'red' : total >= 4 ? 'orange' : total >= 2 ? 'yellow' : 'green';
-  return { total, priority, components, complete };
+  const priority = total >= 7 ? 'red' : total >= 5 ? 'orange' : total >= 3 ? 'yellow' : 'green';
+  return { total, priority, components, traumaModifier, complete };
 }
 
 /**
@@ -100,12 +174,14 @@ function calculateTews(profile, vitals) {
 function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null, selectedMrn = null, onSubmit = () => {}, onPayloadChange = () => {}, onSubmitPayload = () => {}, onAnalysisChange = () => {}, onTewsChange = () => {}, onAssignmentChange = () => {}, onDepartmentChange = () => {}, onAcuityChange = () => {}, onFormReadyChange = () => {}, submitRequest = 0 }) {
   const navigate = useNavigate();
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+  const safePatientData = useMemo(() => normalizePatientRecord(patientData), [patientData]);
 
   // Manual triage always submits to the dedicated manual triage endpoint
   const [triageEndpoint] = useState('/api/triage');
   
   // Manual triage form state (SATS: Red/Orange/Yellow/Green)
-  const [satsLevel, setSatsLevel] = useState('yellow');
+  const [manualSatsOverride, setManualSatsOverride] = useState(false);
+  const [satsLevel, setSatsLevel] = useState('green');
   const [urgencyScore, setUrgencyScore] = useState('50');
   const [tewsProfile, setTewsProfile] = useState(() => getInitialTewsProfile(patientData));
   const [tewsHeight, setTewsHeight] = useState(patientData.height_cm || '');
@@ -115,8 +191,22 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
     respiratoryRate: vitalsData.resp || '',
     systolicBP: vitalsData.bp_systolic || '',
     avpu: vitalsData.avpu || 'Alert',
-    mobility: 'Walks'
+    mobility: vitalsData.mobility || 'Walks',
+    traumaPresent: Boolean(vitalsData.traumaPresent)
   }));
+
+  useEffect(() => {
+    setTewsVitals((current) => ({
+      ...current,
+      temperature: vitalsData.temp ?? current.temperature,
+      heartRate: vitalsData.hr ?? current.heartRate,
+      respiratoryRate: vitalsData.resp ?? current.respiratoryRate,
+      systolicBP: vitalsData.bp_systolic ?? current.systolicBP,
+      avpu: vitalsData.avpu ?? current.avpu,
+      mobility: vitalsData.mobility ?? current.mobility,
+      traumaPresent: vitalsData.traumaPresent ?? current.traumaPresent
+    }));
+  }, [vitalsData]);
     const [reasoning, setReasoning] = useState('');
     const reasoningRef = useRef(null);
   const [department, setDepartment] = useState('ED');
@@ -174,6 +264,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   const tewsResult = calculateTews(tewsProfile, tewsVitals);
   const tewsComponentsKey = JSON.stringify(tewsResult.components);
   const tewsAcuityLevel = getSatsAcuityFromTews(tewsResult.total);
+  const effectiveSatsLevel = manualSatsOverride ? satsLevel : tewsAcuityLevel;
   const tewsAcuityLabel = {
     red: '7+',
     orange: '5-6',
@@ -181,10 +272,27 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
     green: '0-2'
   }[tewsAcuityLevel] || '0-2';
 
+  const hasPatientHistoryLoaded = Boolean(ehrSummary?.lastEncounter);
+  const hasPatientContext = Boolean(
+    patientData?.id ||
+    patientData?._id ||
+    patientData?.id_number ||
+    patientData?.mrn ||
+    selectedMrn ||
+    patientData?.name
+  );
+  const shouldShowNoHistoryMessage = !hasPatientHistoryLoaded && hasPatientContext;
+
   useEffect(() => {
     const autoProfile = getInitialTewsProfile(patientData);
     setTewsProfile((current) => (current === autoProfile ? current : autoProfile));
   }, [patientData?.ageYears, patientData?.age, patientData?.ageMonths, patientData?.height_cm]);
+
+  useEffect(() => {
+    if (!manualSatsOverride) {
+      setSatsLevel(tewsAcuityLevel);
+    }
+  }, [manualSatsOverride, tewsAcuityLevel]);
 
   const hasCompleteClinicalAnalysis = () => {
     const parsedClinicalDiscriminators = clinicalDiscriminators
@@ -221,8 +329,21 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   }, [tewsResult.complete, tewsResult.total]);
 
   useEffect(() => {
-    onTewsChange({ profile: tewsProfile, height: tewsHeight, total: tewsResult.total, priority: satsLevel, components: tewsResult.components, complete: tewsResult.complete });
-  }, [onTewsChange, satsLevel, tewsComponentsKey, tewsHeight, tewsProfile, tewsResult.total, tewsResult.complete]);
+    const derivedPriority = effectiveSatsLevel || 'green';
+    onTewsChange({
+      profile: tewsProfile,
+      height: tewsHeight,
+      total: tewsResult.total,
+      priority: derivedPriority,
+      manualPriority: satsLevel,
+      tewsPriority: tewsAcuityLevel,
+      components: tewsResult.components,
+      mobility: tewsVitals.mobility,
+      traumaPresent: Boolean(tewsVitals.traumaPresent),
+      traumaModifier: tewsResult.components.trauma,
+      complete: tewsResult.complete
+    });
+  }, [onTewsChange, effectiveSatsLevel, satsLevel, tewsAcuityLevel, tewsComponentsKey, tewsHeight, tewsProfile, tewsResult.total, tewsResult.complete]);
 
   const requiredFieldState = useMemo(() => {
     const analysisValid = hasCompleteClinicalAnalysis();
@@ -256,16 +377,19 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
   const currentTriagePayload = useMemo(() => {
     const payload = {
-      patientId: patientData.id || patientData._id,
-      encounterId: patientData.encounterId || null,
-      symptoms: typeof patientData.symptoms === 'string' ? patientData.symptoms : (Array.isArray(patientData.symptoms) ? patientData.symptoms.join(', ') : ''),
+      patientId: safePatientData.id_number || safePatientData.id || safePatientData._id,
+      encounterId: safePatientData.encounterId || null,
+      symptoms: typeof safePatientData.symptoms === 'string' ? safePatientData.symptoms : (Array.isArray(safePatientData.symptoms) ? safePatientData.symptoms.join(', ') : ''),
       vitalSigns: {
         temperature: parseFloat(vitalsData.temp) || null,
         heartRate: parseInt(vitalsData.hr) || null,
         respiratoryRate: parseInt(vitalsData.resp) || null,
         systolicBP: vitalsData.bp_systolic || null,
         diastolicBP: vitalsData.bp_diastolic || null,
-        oxygenSaturation: parseFloat(vitalsData.o2) || null
+        oxygenSaturation: parseFloat(vitalsData.o2) || null,
+        avpu: tewsVitals.avpu || vitalsData.avpu || null,
+        mobility: tewsVitals.mobility || vitalsData.mobility || 'Walks',
+        traumaPresent: Boolean(tewsVitals.traumaPresent || vitalsData.traumaPresent)
       },
       analysis: {
         pathophysiology,
@@ -276,14 +400,17 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         diagnosticWorkup,
         dispositionRationale
       },
-      satsLevel,
+      satsLevel: effectiveSatsLevel,
       urgencyScore,
       tews: {
         profile: tewsProfile,
         height: tewsHeight === '' ? null : Number(tewsHeight),
         components: tewsResult.components,
         total: tewsResult.total,
-        priority: tewsResult.priority,
+        priority: effectiveSatsLevel,
+        mobility: tewsVitals.mobility,
+        traumaPresent: Boolean(tewsVitals.traumaPresent),
+        traumaModifier: tewsResult.components.trauma,
         complete: tewsResult.complete
       },
       recommendedDepartment: department,
@@ -300,6 +427,9 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
       urgencyScore: payload.urgencyScore,
       tewsTotal: payload.tews.total,
       tewsPriority: payload.tews.priority,
+      mobility: payload.tews.mobility,
+      traumaPresent: payload.tews.traumaPresent,
+      traumaModifier: payload.tews.traumaModifier,
       warning: 'urgencyScore contains TEWS numeric total. This is the ROOT CAUSE of acuity confusion.'
     });
     return payload;
@@ -482,7 +612,11 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
           respiratoryRate: parseInt(vitalsData.resp) || null,
           systolicBP: vitalsData.bp_systolic || null,
           diastolicBP: vitalsData.bp_diastolic || null,
-          oxygenSaturation: parseFloat(vitalsData.o2) || null
+          oxygenSaturation: parseFloat(vitalsData.o2) || null,
+          avpu: tewsVitals.avpu || vitalsData.avpu || null,
+          mobility: tewsVitals.mobility || vitalsData.mobility || 'Walks',
+          traumaPresent: Boolean(tewsVitals.traumaPresent || vitalsData.traumaPresent),
+          traumaModifier: tewsResult.components.trauma
         },
         medicalHistory: patientData.history ? [patientData.history] : [],
         medications: patientData.medications || [],
@@ -491,17 +625,23 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         triageNotes: composedReasoning,
 
         // Manual SATS from nurse
-        manualSatsLevel: satsLevel,  // 'red', 'yellow', or 'green'
+        manualSatsLevel: effectiveSatsLevel,
         urgencyScore: parseInt(urgencyScore),
         tewsProfile,
         tewsHeight: tewsHeight === '' ? null : Number(tewsHeight),
+        mobility: tewsVitals.mobility,
+        traumaPresent: Boolean(tewsVitals.traumaPresent),
         SATS_reasoning: {
           chart_version: 'EMSSA SATS 2015',
           profile: tewsProfile,
           height_cm: tewsHeight === '' ? null : Number(tewsHeight),
           components: tewsResult.components,
           total: tewsResult.total,
-          priority: tewsResult.priority
+          priority: effectiveSatsLevel,
+          mobility: tewsVitals.mobility,
+          traumaPresent: Boolean(tewsVitals.traumaPresent),
+          traumaModifier: tewsResult.components.trauma,
+          trauma_modifier: tewsResult.components.trauma
         },
         triageReasoningNotes: composedReasoning,
         recommendedDepartment: department,
@@ -576,23 +716,23 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         } : null,
         
         // Patient data (REQUIRED for display in dashboard)
-        patientId: patientData.id || patientData._id,
-        encounterId: patientData.encounterId || null,
+        patientId: safePatientData.id_number || safePatientData.id || safePatientData._id,
+        encounterId: safePatientData.encounterId || null,
         patient: {
-          id_number: patientData.id || patientData._id || '',
-          name: patientData.name || '',
-          surname: patientData.surname || '',
+          id_number: safePatientData.id_number || safePatientData.id || safePatientData._id || '',
+          name: safePatientData.name || '',
+          surname: safePatientData.surname || '',
           // Support both new (ageYears/ageMonths) and legacy (age) formats
-          age: patientData.ageYears ?? patientData.age ?? null,
-          ageMonths: patientData.ageMonths ?? null,
-          height_cm: patientData.height_cm ?? null,
-          gender: patientData.gender || '',
-          symptoms: typeof patientData.symptoms === 'string' 
-            ? patientData.symptoms 
-            : (Array.isArray(patientData.symptoms) ? patientData.symptoms.join(", ") : ""),
-          history: patientData.history || '',
-          duration: patientData.duration || '',
-          painLevel: patientData.painLevel || ''
+          age: safePatientData.ageYears ?? safePatientData.age ?? null,
+          ageMonths: safePatientData.ageMonths ?? null,
+          height_cm: safePatientData.height_cm ?? null,
+          gender: safePatientData.gender || '',
+          symptoms: typeof safePatientData.symptoms === 'string'
+            ? safePatientData.symptoms
+            : (Array.isArray(safePatientData.symptoms) ? safePatientData.symptoms.join(", ") : ""),
+          history: safePatientData.history || '',
+          duration: safePatientData.duration || '',
+          painLevel: safePatientData.painLevel || ''
         },
         vitals: {
           temp: parseFloat(vitalsData.temp) || null,
@@ -600,7 +740,10 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
           resp: parseInt(vitalsData.resp) || null,
           bp_systolic: vitalsData.bp_systolic || null,
           bp_diastolic: vitalsData.bp_diastolic || null,
-          o2: parseFloat(vitalsData.o2) || null
+          o2: parseFloat(vitalsData.o2) || null,
+          avpu: vitalsData.avpu || null,
+          mobility: tewsVitals.mobility || vitalsData.mobility || 'Walks',
+          traumaPresent: Boolean(tewsVitals.traumaPresent || vitalsData.traumaPresent)
         }
       };
 
@@ -647,7 +790,8 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
       }
       // Show success for 2 seconds, then clear form
       setTimeout(() => {
-        setSatsLevel('yellow');
+        setManualSatsOverride(false);
+        setSatsLevel(tewsAcuityLevel);
         setUrgencyScore('50');
         setReasoning('');
         setInterventions('');
@@ -672,15 +816,15 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
           <div className="patient-card">
             <div className="patient-card-header">
               <div>
-                <div className="patient-name">{patientData.name} {patientData.surname}</div>
-                <div className="patient-sub">ID: {patientData.id || patientData._id || '—'}</div>
+                <div className="patient-name">{[safePatientData.name, safePatientData.surname].filter(Boolean).join(' ') || '—'}</div>
+                <div className="patient-sub">ID: {safePatientData.id_number || safePatientData.id || safePatientData._id || '—'}</div>
               </div>
               <div className="patient-meta">
-                <div className="patient-age">{patientData.age || 'N/A'} yrs</div>
-                <div className="patient-gender">{patientData.gender || ''}</div>
+                <div className="patient-age">{safePatientData.ageYears ?? safePatientData.age ?? 'N/A'} yrs</div>
+                <div className="patient-gender">{safePatientData.gender || '—'}</div>
               </div>
             </div>
-            <div className="patient-complaint">{patientData.symptoms || 'No chief complaint provided'}</div>
+            <div className="patient-complaint">{safePatientData.symptoms || 'No chief complaint provided'}</div>
           </div>
 
           <div className="vitals-card">
@@ -691,6 +835,9 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
               <div className="vital-item"><FiActivity className="vital-icon"/> <div className="vital-label">Resp</div><div className="vital-value">{vitalsData.resp || '--'}</div></div>
               <div className="vital-item"><FiClock className="vital-icon"/> <div className="vital-label">O₂ Sat</div><div className="vital-value">{vitalsData.o2 || '--'} %</div></div>
               <div className="vital-item"><FiUser className="vital-icon"/> <div className="vital-label">AVPU</div><div className="vital-value">{vitalsData.avpu || 'Alert'}</div></div>
+              <div className="vital-item"><FiMove className="vital-icon" style={{ width: 18, height: 18, color: '#0ea5e9', flexShrink: 0 }} aria-hidden="true"/><div className="vital-label">Mobility</div><div className="vital-value">{tewsVitals.mobility || 'Walks'} <small>(+{tewsResult.components.mobility})</small></div></div>
+              <div className="vital-item"><FiAlertTriangle className="vital-icon" style={{ width: 18, height: 18, color: '#0ea5e9', flexShrink: 0 }} aria-hidden="true"/><div className="vital-label">Trauma</div><div className="vital-value">{tewsVitals.traumaPresent ? 'Yes' : 'No'} <small>(+{tewsResult.components.trauma})</small></div></div>
+
             </div>
           </div>
 
@@ -713,11 +860,11 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
             aria-label={ehrSummary?.lastEncounter && selectedMrn ? 'Open patient EHR history' : undefined}
           >
             <h4>View Patient History</h4>
-            {ehrSummary?.lastEncounter ? (
+            {hasPatientHistoryLoaded ? (
               <div className="ehr-context-details">Open the patient history in the EHR library.</div>
-            ) : (
+            ) : shouldShowNoHistoryMessage ? (
               <div className="ehr-context-empty">No prior hospital encounter loaded from EHR.</div>
-            )}
+            ) : null}
           </div>
         </aside>
 
@@ -756,7 +903,17 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
                       <label className="field-label"><strong>SATS Level</strong></label>
                       <div className="esi-grid compact">
                         {['red','orange','yellow','green'].map(l=> (
-                          <button key={l} className={`sats-button esi-button ${satsLevel===l? 'selected':''}`} style={{backgroundColor:getSATSColor(l)}} onClick={()=>setSatsLevel(l)}>{l.toUpperCase()}</button>
+                          <button
+                            key={l}
+                            className={`sats-button esi-button ${effectiveSatsLevel===l ? 'selected' : ''}`}
+                            style={{backgroundColor:getSATSColor(l)}}
+                            onClick={() => {
+                              setManualSatsOverride(true);
+                              setSatsLevel(l);
+                            }}
+                          >
+                            {l.toUpperCase()}
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -849,7 +1006,8 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
                         <label>Respiratory rate<input className="field-input" type="number" value={tewsVitals.respiratoryRate} onChange={(e)=>setTewsVitals({...tewsVitals, respiratoryRate:e.target.value})} /></label>
                         <label>SBP<input className="field-input" type="number" value={tewsVitals.systolicBP} onChange={(e)=>setTewsVitals({...tewsVitals, systolicBP:e.target.value})} /></label>
                         <label>AVPU<select className="field-input" value={tewsVitals.avpu} onChange={(e)=>setTewsVitals({...tewsVitals, avpu:e.target.value})}><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option></select></label>
-                        <label>Mobility<select className="field-input" value={tewsVitals.mobility} onChange={(e)=>setTewsVitals({...tewsVitals, mobility:e.target.value})}><option>Walks</option><option>Not walking</option></select></label>
+                        <label>Mobility<select className="field-input" value={tewsVitals.mobility} onChange={(e)=>setTewsVitals({...tewsVitals, mobility:e.target.value})}><option value="Walks">Walks independently (+0)</option><option value="With help">Walks with help (+1)</option><option value="Immobile">Stretcher / immobile (+2)</option></select></label>
+                        <label className="tews-trauma-toggle">Trauma present<input className="field-input" type="checkbox" checked={Boolean(tewsVitals.traumaPresent)} onChange={(e)=>setTewsVitals({...tewsVitals, traumaPresent:e.target.checked})} /><span>{tewsVitals.traumaPresent ? 'Yes (+1)' : 'No (+0)'}</span></label>
                       </div>
                       <div className="tews-components">{Object.entries(tewsResult.components).map(([key, value]) => <span key={key}>{key}: <strong>{value}</strong></span>)}</div>
                       <div className="tews-note">TEWS supports, but does not replace, clinical discriminators and nurse judgment. Verify the selected profile, units, and values before submission.</div>

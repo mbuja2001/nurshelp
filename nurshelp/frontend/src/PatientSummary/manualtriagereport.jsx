@@ -1,6 +1,32 @@
 import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ManualTriageForm from "./Components/ManualTriageForm";
+import { getSatsAcuityFromTews } from "./utils/triageHelpers";
+
+const getEmptyPatientState = () => ({
+  id_number: null,
+  name: null,
+  surname: null,
+  gender: null,
+  age: null,
+  ageYears: null,
+  ageMonths: null,
+  height_cm: null,
+  symptoms: null,
+  duration: null,
+  painLevel: null,
+  history: null
+});
+
+const parseSafeJson = (value) => {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    console.warn("Failed to parse persisted state", err);
+    return null;
+  }
+};
 
 export default function ManualTriageReport() {
   const navigate = useNavigate();
@@ -10,10 +36,12 @@ export default function ManualTriageReport() {
 
   const reportData = useMemo(() => {
     const state = location.state || {};
-    const storedState = JSON.parse(localStorage.getItem("manual_triage_report_state") || "null") || {};
+    const storedState = parseSafeJson(localStorage.getItem("manual_triage_report_state")) || {};
+    const fallbackPatient = parseSafeJson(localStorage.getItem("ps_patient")) || getEmptyPatientState();
+    const fallbackVitals = parseSafeJson(localStorage.getItem("ps_vitals")) || {};
 
-    const patient = state.patientData || storedState.patientData || JSON.parse(localStorage.getItem("ps_patient") || "null") || {};
-    const vitals = state.vitalsData || storedState.vitalsData || JSON.parse(localStorage.getItem("ps_vitals") || "null") || {};
+    const patient = state.patientData || storedState.patientData || fallbackPatient || getEmptyPatientState();
+    const vitals = state.vitalsData || storedState.vitalsData || fallbackVitals || {};
     const ehrSummary = state.ehrSummary || storedState.ehrSummary || null;
     const selectedMrn = state.selectedMrn || storedState.selectedMrn || null;
 
@@ -40,6 +68,7 @@ export default function ManualTriageReport() {
     priority: "green",
     components: {}
   });
+  const displayPriority = tewsData.priority || getSatsAcuityFromTews(tewsData.total) || "green";
   const [assignmentData, setAssignmentData] = React.useState({ nurse: null, physician: null, specialist: null, bed: null });
   const [formPayload, setFormPayload] = React.useState(null);
   const [recommendedDepartment, setRecommendedDepartment] = React.useState("ED");
@@ -250,7 +279,7 @@ export default function ManualTriageReport() {
                   <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.14em", color: "#64748b", fontWeight: 700 }}>Patient snapshot</div>
                   <div style={{ background: triageColor[tewsData.priority] || "#f8fafc", border: `1px solid ${triageBorder[tewsData.priority] || "#cbd5e1"}`, borderRadius: 10, padding: "8px 10px", textAlign: "right", minWidth: 92 }}>
                     <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>SATS / TEWS</div>
-                    <div style={{ marginTop: 3, color: triageText[tewsData.priority] || "#0f172a", fontSize: 14, fontWeight: 800 }}>{String(tewsData.priority).toUpperCase()} · {tewsData.total}</div>
+                    <div style={{ marginTop: 3, color: triageText[displayPriority] || "#0f172a", fontSize: 14, fontWeight: 800 }}>{String(displayPriority).toUpperCase()} · {tewsData.total}</div>
                   </div>
                 </div>
                 <div style={{ display: "grid", gap: 14 }}>
@@ -263,11 +292,11 @@ export default function ManualTriageReport() {
                 </div>
                 <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
                   <div style={triageHeadingStyle}>SATS triage category</div>
-                  <div style={{ background: triageColor[tewsData.priority] || "#f8fafc", border: `1px solid ${triageBorder[tewsData.priority] || "#cbd5e1"}`, borderRadius: 12, padding: 14 }}>
+                  <div style={{ background: triageColor[displayPriority] || "#f8fafc", border: `1px solid ${triageBorder[displayPriority] || "#cbd5e1"}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                       <div>
                         <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700 }}>Priority</div>
-                        <div style={{ marginTop: 4, fontSize: 20, fontWeight: 800, color: triageText[tewsData.priority] || "#0f172a" }}>{String(tewsData.priority).toUpperCase()}</div>
+                        <div style={{ marginTop: 4, fontSize: 20, fontWeight: 800, color: triageText[displayPriority] || "#0f172a" }}>{String(displayPriority).toUpperCase()}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700 }}>TEWS</div>

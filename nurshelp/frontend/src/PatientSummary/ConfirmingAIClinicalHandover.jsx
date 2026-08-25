@@ -470,10 +470,12 @@ const ConfirmingAIClinicalHandover = () => {
                   {(() => {
                     const tewsComp = encounter.triage?.SATS_reasoning?.tews_components ?? encounter.triage?.tews_components ?? {};
                     if (!Object.keys(tewsComp).length) return <div style={{ color: '#64748b' }}>Not Available</div>;
-                    return Object.entries(tewsComp).slice(0, 5).map(([k, v]) => (
+                    return Object.entries(tewsComp).map(([k, v]) => (
                       <div key={k}>{k.replace(/_points/g, '').replace(/_/g, ' ')}: <strong>{v}</strong></div>
                     ));
                   })()}
+                  <div>mobility: <strong>{encounter.vitals?.mobility ?? 'Walks'}</strong></div>
+                  <div>trauma modifier: <strong>{encounter.vitals?.traumaPresent ? '+1' : '+0'}</strong></div>
                 </div>
               </div>
             </div>

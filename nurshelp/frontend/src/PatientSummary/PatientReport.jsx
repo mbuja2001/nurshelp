@@ -1177,6 +1177,8 @@ export default function PatientReport() {
   const discriminators = triage?.SATS_reasoning?.discriminators_readable ?? triage?.SATS_reasoning?.discriminators_found ?? triage?.SATS_reasoning?.discriminators ?? triage?.discriminators ?? [];
   const tews = triage?.SATS_reasoning?.tews_components ?? triage?.tews_components ?? {};
   const tewsTotal = triage?.SATS_reasoning?.tews_total ?? triage?.tews_total ?? null;
+  const mobility = triage?.SATS_reasoning?.mobility ?? triage?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
+  const traumaPresent = Boolean(triage?.SATS_reasoning?.traumaPresent ?? triage?.traumaPresent ?? encounter?.vitals?.traumaPresent);
   
   // Use editable SATS points for display if edited, otherwise use original
   const displayTewsTotal = satsPointsEdited ? editableSATSPoints : tewsTotal;
@@ -1514,7 +1516,9 @@ export default function PatientReport() {
                       alignItems: "center"
                     }}>
                       <span>{['N/A', '1 — RED', '2 — ORANGE', '3 — YELLOW', '4 — GREEN'][displayPriorityCode] || 'N/A'}{satsColorEdited && <span style={{color: "#dc2626", fontSize: 10, marginLeft: 6, fontWeight: 600}}>[EDITED]</span>}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 12, whiteSpace: "nowrap" }}>SATS: {displayTewsTotal || "—"}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 12, whiteSpace: "nowrap" }}>
+                        TEWS: {displayTewsTotal ?? "—"} · Mobility: {mobility} · Trauma: {traumaPresent ? "+1" : "+0"}
+                      </span>
                     </div>
                   </div>
                 )}

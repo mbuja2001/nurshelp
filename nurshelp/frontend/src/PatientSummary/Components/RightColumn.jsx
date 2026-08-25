@@ -167,6 +167,8 @@ export default function RightColumn({ vitalsData = {}, triage = null, activeTab 
           <div className="vital-item"><span>O₂:</span> <strong>{vitalsData?.o2 ?? '--'}%</strong></div>
           <div className="vital-item"><span>Resp:</span> <strong>{vitalsData?.resp ?? '--'}</strong></div>
           <div className="vital-item"><span>AVPU:</span> <strong>{vitalsData?.avpu ?? '--'}</strong></div>
+          <div className="vital-item"><span>Mobility:</span> <strong>{vitalsData?.mobility ?? '--'}</strong></div>
+          <div className="vital-item"><span>Trauma:</span> <strong>{vitalsData?.traumaPresent ? 'Yes' : 'No'}</strong></div>
         </div>
       </div>
 

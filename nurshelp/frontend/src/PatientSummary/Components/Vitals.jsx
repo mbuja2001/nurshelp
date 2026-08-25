@@ -30,7 +30,9 @@ export default function Vitals({ onComplete, onCancel, setVitalsData, vitalsData
     hr: vitalsData?.hr === '--' ? '' : (vitalsData?.hr ?? ""),
     o2: vitalsData?.o2 === '--' ? '' : (vitalsData?.o2 ?? ""),
     resp: vitalsData?.resp === '--' ? '' : (vitalsData?.resp ?? ""),
-    avpu: vitalsData?.avpu ?? ""
+    avpu: vitalsData?.avpu ?? "",
+    mobility: vitalsData?.mobility ?? "Walks",
+    traumaPresent: Boolean(vitalsData?.traumaPresent)
   });
 
   useEffect(() => {
@@ -46,7 +48,9 @@ export default function Vitals({ onComplete, onCancel, setVitalsData, vitalsData
       hr: vitalsData?.hr === '--' ? '' : (vitalsData?.hr ?? ""),
       o2: vitalsData?.o2 === '--' ? '' : (vitalsData?.o2 ?? ""),
       resp: vitalsData?.resp === '--' ? '' : (vitalsData?.resp ?? ""),
-      avpu: vitalsData?.avpu ?? ""
+      avpu: vitalsData?.avpu ?? "",
+      mobility: vitalsData?.mobility ?? "Walks",
+      traumaPresent: Boolean(vitalsData?.traumaPresent)
     });
   }, [vitalsData]);
 
@@ -120,7 +124,9 @@ export default function Vitals({ onComplete, onCancel, setVitalsData, vitalsData
       hr: formData.hr ? Number(formData.hr) : null,
       o2: formData.o2 ? Number(formData.o2) : null,
       resp: formData.resp ? Number(formData.resp) : null,
-      avpu: formData.avpu ? String(formData.avpu).trim().toUpperCase() : null
+      avpu: formData.avpu ? String(formData.avpu).trim().toUpperCase() : null,
+      mobility: formData.mobility || null,
+      traumaPresent: Boolean(formData.traumaPresent)
     };
 
     // pass normalized to parent (PS.jsx) which will merge/save
@@ -540,6 +546,25 @@ export default function Vitals({ onComplete, onCancel, setVitalsData, vitalsData
                   placeholder="A (Alert)"
                 />
                 <small>Alert, Verbal, Pain, Unresponsive</small>
+              </div>
+
+              <div className="form-group">
+                <label>Mobility</label>
+                <select name="mobility" value={formData.mobility} onChange={handleChange} className="vitals-input">
+                  <option value="Walks">Walks independently (+0)</option>
+                  <option value="With help">Walks with help (+1)</option>
+                  <option value="Immobile">Stretcher / immobile (+2)</option>
+                </select>
+                <small>TEWS mobility component</small>
+              </div>
+
+              <div className="form-group">
+                <label>Trauma present</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input name="traumaPresent" type="checkbox" checked={formData.traumaPresent} onChange={(e) => setFormData((prev) => ({ ...prev, traumaPresent: e.target.checked }))} />
+                  Add trauma modifier (+1)
+                </label>
+                <small>Apply only when the current presentation includes trauma.</small>
               </div>
             </div>
           </div>

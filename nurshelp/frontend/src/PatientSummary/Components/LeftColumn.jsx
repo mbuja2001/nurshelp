@@ -281,26 +281,23 @@ export default function LeftColumn({
           </div>
         ) : (
           <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", fontSize: "0.95rem" }}>
-            <div><strong>ID:</strong> {data?.id_number || "---"}</div>
-            <div><strong>Name:</strong> {data?.name || "---"}</div>
-            <div><strong>Surname:</strong> {data?.surname || "---"}</div>
-            <div><strong>Gender:</strong> {data?.gender || "---"}</div>
+            <div><strong>ID:</strong> {data?.id_number ?? "---"}</div>
+            <div><strong>Name:</strong> {data?.name ?? "---"}</div>
+            <div><strong>Surname:</strong> {data?.surname ?? "---"}</div>
+            <div><strong>Gender:</strong> {data?.gender ?? "---"}</div>
             <div>
               <strong>Age:</strong>{" "}
-              {data?.ageYears !== null && data?.ageYears !== undefined ? (
-                // Has years - show years and months if present
+              {data?.ageYears != null ? (
                 <span>{data.ageYears}y{data?.ageMonths ? ` ${data.ageMonths}m` : ""}</span>
-              ) : data?.ageMonths !== null && data?.ageMonths !== undefined ? (
-                // No years, but has months - infant under 1 year
+              ) : data?.ageMonths != null ? (
                 <span>{data.ageMonths} month{data.ageMonths !== 1 ? "s" : ""}</span>
-              ) : data?.age ? (
-                // Fallback to legacy age field
+              ) : data?.age != null ? (
                 <span>{data.age}y</span>
               ) : (
                 "---"
               )}
             </div>
-            <div style={{ gridColumn: "1 / -1" }}><strong>Height:</strong> {data?.height_cm ? `${data.height_cm} cm` : "---"}</div>
+            <div style={{ gridColumn: "1 / -1" }}><strong>Height:</strong> {data?.height_cm != null ? `${data.height_cm} cm` : "---"}</div>
           </div>
         )}
       </div>

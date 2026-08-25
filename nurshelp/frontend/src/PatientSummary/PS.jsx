@@ -15,6 +15,21 @@ import "./PS_index.css";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
 
+const getCleanPatientData = () => ({
+  id_number: null,
+  name: null,
+  surname: null,
+  gender: null,
+  age: null,
+  ageYears: null,
+  ageMonths: null,
+  height_cm: null,
+  symptoms: null,
+  duration: null,
+  painLevel: null,
+  history: null,
+});
+
 /** Normalize temperature into a safe numeric value (or null).
  *  - Accepts numeric-like input, returns number with 1 decimal place.
  *  - Returns null for invalid or clinically impossible values.
@@ -64,9 +79,12 @@ export default function PS() {
   // ---------- State ----------
   const [patientData, setPatientData] = useState(() => {
     const saved = localStorage.getItem("ps_patient");
-    return saved
-      ? JSON.parse(saved)
-      : { id_number: "", name: "Patient A", surname: "", age: null, height_cm: null, symptoms: "", duration: "", painLevel: "", history: "" };
+    try {
+      return saved ? JSON.parse(saved) : getCleanPatientData();
+    } catch (err) {
+      console.warn("Failed to parse saved patient data from localStorage", err);
+      return getCleanPatientData();
+    }
   });
 
   const [transcript, setTranscript] = useState([]);
@@ -83,7 +101,9 @@ export default function PS() {
     bp_left_diastolic: null,
     bp_right_systolic: null,
     bp_right_diastolic: null,
-    avpu: null
+       avpu: null,
+       mobility: "Walks",
+       traumaPresent: false
   });
 
   const [triageResult, setTriageResult] = useState(null);
@@ -295,20 +315,7 @@ export default function PS() {
   const startNewIntake = () => {
     clearPatientSelection();
     setSearchQuery('');
-    setPatientData({
-      id_number: '',
-      name: '',
-      surname: '',
-      gender: '',
-      age: null,
-      ageYears: null,
-      ageMonths: null,
-      height_cm: null,
-      symptoms: '',
-      duration: '',
-      painLevel: '',
-      history: ''
-    });
+    setPatientData(getCleanPatientData());
     setTranscript([]);
     setVitalsData({
       temp: '--',
@@ -350,7 +357,7 @@ export default function PS() {
       localStorage.removeItem("ps_patient");
       localStorage.removeItem("ps_transcript");
       localStorage.removeItem("ps_vitals");
-      setPatientData({});
+      setPatientData(getCleanPatientData());
       setTranscript([]);
       setVitalsData({ temp: "--", bp: "", hr: "", o2: "", resp: "", avpu: "A", bp_systolic: null, bp_diastolic: null, bp_left_systolic: null, bp_left_diastolic: null, bp_right_systolic: null, bp_right_diastolic: null });
       setTriageResult(null);
@@ -400,7 +407,9 @@ export default function PS() {
           bp_left_diastolic: encounter.vitals?.bp_left_diastolic ?? null,
           bp_right_systolic: encounter.vitals?.bp_right_systolic ?? null,
           bp_right_diastolic: encounter.vitals?.bp_right_diastolic ?? null,
-          avpu: encounter.vitals?.avpu ?? encounter.triage?.vitals_parsed?.avpu ?? null
+          avpu: encounter.vitals?.avpu ?? encounter.triage?.vitals_parsed?.avpu ?? null,
+          mobility: encounter.vitals?.mobility ?? "Walks",
+          traumaPresent: Boolean(encounter.vitals?.traumaPresent)
         });
 
         setTriageResult(encounter.triage || null);

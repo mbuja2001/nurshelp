@@ -265,6 +265,8 @@ const OfficialTriageReport = () => {
   const tewsTotal = reportType === 'AI'
     ? (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? aiReport?.tews_total ?? null)
     : (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? manualReport?.tews_total ?? null);
+  const mobility = triageData?.SATS_reasoning?.mobility ?? triageData?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
+  const traumaPresent = Boolean(triageData?.SATS_reasoning?.traumaPresent ?? triageData?.traumaPresent ?? encounter?.vitals?.traumaPresent);
   const acuityScore = reportType === 'AI'
     ? (aiReport?.urgencyScore ?? triageData?.urgencyScore ?? null)
     : (manualReport?.urgencyScore ?? manualReport?.urgency_score ?? triageData?.urgencyScore ?? triageData?.urgency_score ?? null);
@@ -508,6 +510,10 @@ const OfficialTriageReport = () => {
                   <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
                     {acuityScore !== null ? `${acuityScore}` : 'N/A'}
                   </div>
+                </div>
+                <div>
+                  <span style={{ color: '#1e293b', fontWeight: 600 }}>MOBILITY / TRAUMA:</span>
+                  <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>{mobility} / {traumaPresent ? '+1' : '+0'}</div>
                 </div>
               </div>
             </div>

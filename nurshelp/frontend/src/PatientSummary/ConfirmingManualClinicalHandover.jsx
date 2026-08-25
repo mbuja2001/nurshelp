@@ -282,6 +282,8 @@ const ConfirmingManualClinicalHandover = () => {
     )
   );
   // CRITICAL FIX: acuityScore should be the SATS priority level (red/orange/yellow/green or 1-5),
+  const mobility = manualReport?.SATS_reasoning?.mobility ?? triageData?.SATS_reasoning?.mobility ?? encounter.vitals?.mobility ?? 'Walks';
+  const traumaPresent = Boolean(manualReport?.SATS_reasoning?.traumaPresent ?? triageData?.SATS_reasoning?.traumaPresent ?? encounter.vitals?.traumaPresent);
   // NOT the numeric tews_total or urgencyScore which are numeric values!
   const satsAcuityLevel = normalizeSatsLevel(
     (clinicalAnalysis?.priority_code ?? clinicalAnalysis?.sats_level) ??
@@ -677,6 +679,7 @@ const ConfirmingManualClinicalHandover = () => {
               <div style={{ background: '#fef2f2', padding: 12, borderRadius: 6, marginTop: 6, fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
                 {Number.isFinite(tewsTotal) ? `${tewsTotal} points` : (manualReport?.sats_points ?? 'N/A')}
                 {satsAcuityLevel ? ` • Acuity: ${satsAcuityLevel.toUpperCase()}` : ''}
+                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 500 }}>Mobility: {mobility} • Trauma modifier: {traumaPresent ? '+1' : '+0'}</div>
               </div>
             </div>
           )}

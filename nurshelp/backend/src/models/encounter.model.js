@@ -93,7 +93,9 @@ const encounterSchema = new mongoose.Schema({
     resp: Number,
     bp_systolic: Number,
     bp_diastolic: Number,
-    avpu: { type: String }
+    avpu: { type: String },
+    mobility: { type: String, enum: ['Walks', 'With help', 'Immobile', 'Not walking', null] },
+    traumaPresent: { type: Boolean, default: false }
   },
   // ===== TRIAGE REPORTS (Two-way system: AI-generated + Manual overrides) =====
   ai_triage_report: { type: Object, default: {} }, // Original AI-generated report (unchanged audit trail)
