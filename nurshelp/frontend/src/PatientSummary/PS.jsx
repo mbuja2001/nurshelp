@@ -687,7 +687,8 @@ export default function PS() {
             <div className="ps-page-header">
             <div className="ps-page-headline">
               <span className="eyebrow-label">Triage Intake</span>
-              <h1>Triage with Health Record Library Search </h1>
+              <h1>Triage with Patient History </h1>
+              <p className = "sho">Load vitals, symptoms and patient history</p>
             </div>
           
           </div>

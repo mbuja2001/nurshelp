@@ -320,6 +320,41 @@ export default function LeftColumn({
         )}
       </div>
 
+      <div className="block critical-history-block">
+        <div className="block-header">
+          <h4 className="block-label">Critical History <span aria-hidden="true">*</span></h4>
+        </div>
+        <p className="content-area" style={{ margin: 0 }}>
+          Every encounter must record these safety facts, or explicitly state that none have been established.
+        </p>
+        <div style={{ padding: "12px", display: "grid", gap: "12px" }}>
+          <label className="form-group">
+            <span style={{ fontWeight: 600 }}>Critical-history status</span>
+            <select
+              className="edit-input"
+              value={data?.criticalHistoryStatus || ""}
+              onChange={(event) => updateField("criticalHistoryStatus", event.target.value)}
+              required
+            >
+              <option value="">Select one...</option>
+              <option value="reported">Known critical history present</option>
+              <option value="none_established">None established</option>
+            </select>
+          </label>
+          {data?.criticalHistoryStatus === "reported" && criticalHistoryFields.map(([field, label]) => (
+            <label className="form-group" key={field}>
+              <span style={{ fontWeight: 600 }}>{label}</span>
+              <textarea
+                className="edit-textarea"
+                value={asList(data?.criticalHistory?.[field]).join(', ')}
+                onChange={(event) => updateCriticalHistory(field, event.target.value)}
+                placeholder="Enter items separated by commas"
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+
       {[
         { key: "symptoms", label: "Symptoms" },
         { key: "duration", label: "Duration" },
@@ -394,40 +429,6 @@ export default function LeftColumn({
         )}
       </div>}
 
-      <div className="block critical-history-block">
-        <div className="block-header">
-          <h4 className="block-label">Critical History <span aria-hidden="true">*</span></h4>
-        </div>
-        <p className="content-area" style={{ margin: 0 }}>
-          Every encounter must record these safety facts, or explicitly state that none have been established.
-        </p>
-        <div style={{ padding: "12px", display: "grid", gap: "12px" }}>
-          <label className="form-group">
-            <span style={{ fontWeight: 600 }}>Critical-history status</span>
-            <select
-              className="edit-input"
-              value={data?.criticalHistoryStatus || ""}
-              onChange={(event) => updateField("criticalHistoryStatus", event.target.value)}
-              required
-            >
-              <option value="">Select one...</option>
-              <option value="reported">Known critical history present</option>
-              <option value="none_established">None established</option>
-            </select>
-          </label>
-          {data?.criticalHistoryStatus === "reported" && criticalHistoryFields.map(([field, label]) => (
-            <label className="form-group" key={field}>
-              <span style={{ fontWeight: 600 }}>{label}</span>
-              <textarea
-                className="edit-textarea"
-                value={asList(data?.criticalHistory?.[field]).join(', ')}
-                onChange={(event) => updateCriticalHistory(field, event.target.value)}
-                placeholder="Enter items separated by commas"
-              />
-            </label>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
