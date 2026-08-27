@@ -1,4 +1,4 @@
-# Human-Governed Longitudinal Clinical Inference on Resource-Constrained Systems
+# Human-in-the-Loop Longitudinal Clinical Inference on Resource-Constrained Systems
 
 ## A Structured, Token-Budgeted Alternative to Embedding-Based Patient-History Retrieval
 
@@ -161,18 +161,6 @@ Candidate facts can come from structured data, coded diagnoses, medication recor
   "code": "penicillin",
   "description": "Anaphylaxis to penicillin",
   "severity": "life-threatening",
-  "status": "active",
-  "verified": true,
-  "source_encounter_ids": ["enc-123"],
-  "first_observed_at": "2024-02-01T10:00:00.000Z",
-  "last_confirmed_at": "2026-08-25T10:00:00.000Z",
-  "never_expire": true
-}
-```
-
-The critical-history filter should normalize terminology, deduplicate by code or normalized condition, preserve source links, and never remove life-threatening facts automatically.
-
-The language model may propose a candidate critical fact, but clinician verification is required before it becomes durable critical history.
 
 ## 7. Temporal Context Windows
 
@@ -192,6 +180,177 @@ The recent window includes full or near-full encounters from the last configurab
 - recent escalation or discharge
 - newly documented safety facts
 
+
+### 6.3 Deriving Persistent Critical History Across Encounters
+
+Critical history is derived by aggregating evidence about the same normalized fact across encounters. It is not created merely because one old encounter is outside a time window.
+
+For each encounter $e$, the extractor produces a candidate set:
+
+$$
+F(e) = F_{allergy}(e) \cup F_{reaction}(e) \cup F_{diagnosis}(e) \cup F_{medication}(e) \cup F_{procedure}(e) \cup F_{trauma}(e)
+$$
+
+Across the patient's record:
+
+$$
+F_p = \bigcup_{e \in H_p} F(e)
+$$
+
+Each candidate is normalized into a stable key:
+
+```text
+allergy:penicillin
+adverse-reaction:amoxicillin
+condition:epilepsy
+medication:warfarin
+procedure:cardiac-pacemaker
+trauma:right-femur-fracture
+```
+
+Candidates with the same normalized key are grouped into one evidence record:
+
+$$
+G_k = \{f \in F_p : key(f) = k\}
+$$
+
+The evidence record retains:
+
+- observation count $O_k = |G_k|$
+- source encounter IDs
+- first observed timestamp
+- most recent observed timestamp
+- most recent confirmation timestamp
+- severity observations
+- active or resolved observations
+- contradiction observations
+- clinician verification state
+
+### 6.4 Criticality Classification
+
+Criticality is evaluated using policy rules before any model inference. A practical classification is:
+
+```text
+life-threatening
+high-risk
+important
+routine
+```
+
+The classifier considers severity, persistence, recurrence, current activity, and verification:
+
+$$
+K_k = w_s S_k + w_p P_k + w_o O_k + w_a A_k + w_v V_k - w_x X_k
+$$
+
+where:
+
+- $S_k$ is normalized clinical severity
+- $P_k$ is persistence across encounters
+- $O_k$ is repeated observation evidence
+- $A_k$ indicates active status
+- $V_k$ indicates clinician verification
+- $X_k$ represents contradiction or documented resolution
+- $w_*$ are policy weights
+
+The score supports prioritization and review. It does not replace clinical policy or clinician judgment.
+
+Examples of deterministic rules:
+
+```text
+anaphylaxis or life-threatening allergy -> life-threatening
+severe adverse drug reaction            -> life-threatening
+major bleeding disorder                  -> high-risk
+active anticoagulant therapy             -> high-risk
+organ transplant                         -> high-risk
+prior ICU admission                      -> important
+single temporary mobility restriction    -> encounter-level only
+single mild symptom                      -> routine
+```
+
+### 6.5 Persistence and Expiry Policy
+
+The fact's persistence policy is independent from the age of its source encounter:
+
+```json
+{
+  "normalized_key": "allergy:penicillin",
+  "criticality": "life-threatening",
+  "status": "active",
+  "verification_state": "confirmed",
+  "never_expire": true,
+  "source_encounter_ids": ["enc-101", "enc-388"]
+}
+```
+
+Facts that should normally bypass time windows include life-threatening allergies, severe adverse reactions, critical implants, and major permanent conditions. Temporary states, such as an acute infection or short-term immobility, should remain encounter-level unless repeated evidence establishes persistence.
+
+### 6.6 Conflict Resolution
+
+Conflicting observations must be retained rather than deleted:
+
+```json
+{
+  "normalized_key": "allergy:penicillin",
+  "status": "active",
+  "verification_state": "needs_review",
+  "observations": [
+    { "date": "2023-01-10T10:00:00Z", "value": "reported anaphylaxis" },
+    { "date": "2025-04-10T10:00:00Z", "value": "allergy denied" },
+    { "date": "2026-08-27T09:00:00Z", "value": "anaphylaxis confirmed" }
+  ],
+  "conflict_present": true
+}
+```
+
+Until reviewed, the inference context should describe the fact as uncertain but safety-relevant:
+
+```text
+Reported penicillin anaphylaxis; verification conflict present.
+```
+
+### 6.7 Verification State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> confirmed: clinician confirms
+    pending --> rejected: clinician rejects
+    pending --> needs_review: conflicting evidence
+    needs_review --> confirmed: conflict resolved
+    confirmed --> inactive: clinician retires fact
+    inactive --> confirmed: fact reconfirmed
+    confirmed --> superseded: newer clinical fact replaces it
+    rejected --> pending: new source evidence
+```
+
+Only `confirmed` facts should enter authoritative critical history by default. `pending` and `needs_review` candidates may be shown to the clinician and may be included as explicitly qualified safety signals according to institutional policy. `rejected`, `inactive`, and `superseded` facts remain auditable but are excluded from active critical context.
+
+### 6.8 Cross-Encounter Critical-History Algorithm
+
+```text
+INPUT: patient encounters H_p, existing critical facts C_p
+
+1. Extract candidate facts from structured fields and controlled clinical terms.
+2. Normalize each candidate to a stable key.
+3. Group candidates by normalized key.
+4. Aggregate source IDs, timestamps, observations, severity, and contradictions.
+5. Classify criticality using deterministic policy rules.
+6. Merge candidates with existing patient-level facts.
+7. Preserve the strongest source evidence and all source references.
+8. Mark unresolved conflicts as needs_review.
+9. Require clinician verification before durable promotion.
+10. Set never_expire only for policy-approved critical categories.
+11. Persist the updated patient-level critical-history set.
+12. Include active critical facts in every authorized inference context.
+```
+
+This produces a durable layer that answers a different question from temporal windows:
+
+```text
+Temporal windows: What happened during this period?
+Critical history: What must remain known about this patient?
+```
 The current encounter is excluded from the recent-history array when it is already represented separately, preventing duplicate payload content.
 
 ### 7.3 Trend Window
