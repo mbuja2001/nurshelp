@@ -46,6 +46,43 @@ We are designing so lets see what you come up with. but be heavily inspired and 
 lets improve the search capabilities and add search suggestions based on the data in the database
 Then we add search history 
 
+duplicate patient handling and historical context window for inference triage
+
+Now lets figure a way out on how breakdown patient history payloqads of a long period of time with a scales historical data
+
+lets talk about how we can solve this problem
+Ideas and techniques
+
+we've got a limited amount of tokens per payload for inference
+
+response:
+A good solution is to treat the patient history as a time-aware retrieval and summarization problem, not one large inference payload.
+
+Recommended approach
+
+Store structured events
+
+Encounter date
+Diagnosis and severity
+Vitals
+TEWS/SATS score and components
+Mobility and trauma modifier
+Treatments, medications, allergies
+Clinical notes
+Outcome/disposition
+Create multiple history layers
+
+Recent window: full detail for the latest encounter or last 24–72 hours
+Trend window: summarized vitals and scores over the last 30–90 days
+Long-term summary: stable diagnoses, recurring problems, allergies, medications, prior admissions
+Historical events: retrieved only when relevant to the current complaint
+Use deterministic scoring before AI
+Calculate outside the model:
+
+Latest TEWS
+Highest TEWS
+Average and trend
+
 
 
 

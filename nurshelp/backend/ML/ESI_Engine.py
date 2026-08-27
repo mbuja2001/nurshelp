@@ -5924,42 +5924,39 @@ def tews_from_vitals(vitals):
     }
 
     try:
-        # MOBILITY (assume normal if not specified)
-        # Walking = -3, With Help = -1, Stretcher/Immobile = +3
+        # MOBILITY (assume walking if not specified)
+        # Walking = 0, With Help = +1, Stretcher/Immobile = +2
         mobility = (vitals.get("mobility") or "").strip().lower()
-        if mobility == "stretcher" or mobility == "immobile":
-            comp["mobility_points"] = 3
+        if mobility in ("stretcher", "immobile", "not walking", "stretcher / immobile"):
+            comp["mobility_points"] = 2
         elif mobility == "with help" or mobility == "assisted":
-            comp["mobility_points"] = -1
+            comp["mobility_points"] = 1
         else:
-            # Default to walking/normal
-            comp["mobility_points"] = -3
+            comp["mobility_points"] = 0
 
         # RESPIRATORY RATE (per minute)
-        # SATS Adult: <9=-3, 9-14=-1, 15-20=0, 21-29=+1, >29=+3
+        # SATS Adult: <9=+3, 9-20=0, 21-29=+1, >=30=+3
         rr = vitals.get("resp")
         if rr is not None:
             rr = float(rr)
             if rr < 9:
-                comp["resp_rate_points"] = -3
-            elif rr < 15:
-                comp["resp_rate_points"] = -1
+                comp["resp_rate_points"] = 3
             elif rr <= 20:
                 comp["resp_rate_points"] = 0
             elif rr <= 29:
                 comp["resp_rate_points"] = 1
-            else:  # > 29
+            else:  # >= 30
                 comp["resp_rate_points"] = 3
 
         # HEART RATE (beats per minute)
-        # SATS Adult: <41=-3, 41-50=-2, 51-100=0, 101-110=+1, 111-129=+2, >129=+3
+        # SATS Adult: low rates score urgency, 51-100=0, 101-110=+1, 111-129=+2, >=130=+3
         hr = vitals.get("hr")
         if hr is not None:
             hr = float(hr)
             if hr < 41:
-                comp["hr_points"] = -3
+                comp["hr_points"] = 3
             elif hr < 51:
-                comp["hr_points"] = -2
+                comp["hr_points"] = 2
             elif hr <= 100:
                 comp["hr_points"] = 0
             elif hr <= 110:
@@ -5970,54 +5967,55 @@ def tews_from_vitals(vitals):
                 comp["hr_points"] = 3
 
         # SYSTOLIC BLOOD PRESSURE (mmHg)
-        # SATS Adult: <71=-3, 71-80=-2, 81-100=-1, 101-199=0, >199=+3
+        # SATS Adult: <71=+3, 71-80=+1, 81-100=0, 101-199=0, >=200=+2
         sbp = vitals.get("bp_systolic")
         if sbp is not None:
             sbp = float(sbp)
             if sbp < 71:
-                comp["bp_systolic_points"] = -3
+                comp["bp_systolic_points"] = 3
             elif sbp < 81:
-                comp["bp_systolic_points"] = -2
+                comp["bp_systolic_points"] = 1
             elif sbp < 101:
-                comp["bp_systolic_points"] = -1
+                comp["bp_systolic_points"] = 0
             elif sbp <= 199:
                 comp["bp_systolic_points"] = 0
             else:  # > 199
                 comp["bp_systolic_points"] = 3
 
         # TEMPERATURE (°C)
-        # SATS Adult: Cold/Under 35=-3, 35-38.4=0, Hot/Over 38.4=+2
+        # SATS Adult: under 35=+3, 35-38.4=0, over 38.4=+2
         temp = vitals.get("temp")
         if temp is not None:
             temp = float(temp)
             if temp < 35:
-                comp["temp_points"] = -3
+                comp["temp_points"] = 3
             elif temp <= 38.4:
                 comp["temp_points"] = 0
             else:  # > 38.4
                 comp["temp_points"] = 2
 
         # AVPU (Alert, Voice, Pain, Unresponsive)
-        # SATS Adult: Confused=-3, Alert=0, Reacts to Voice=+2, Reacts to Pain=+3, Unresponsive=+4
+        # SATS Adult: Confused=+3, Alert=0, Reacts to Voice=+1, Reacts to Pain=+2, Unresponsive=+3
         avpu = (vitals.get("avpu") or "").strip().upper()
         if avpu:
             if avpu == "C" or "CONFUSED" in avpu:
-                comp["avpu_points"] = -3
+                comp["avpu_points"] = 3
             elif avpu == "A" or avpu == "ALERT":
                 comp["avpu_points"] = 0
             elif avpu == "V" or "VOICE" in avpu:
-                comp["avpu_points"] = 2
+                comp["avpu_points"] = 1
             elif avpu == "P" or "PAIN" in avpu:
-                comp["avpu_points"] = 3
+                comp["avpu_points"] = 2
             elif avpu == "U" or "UNRESPONSIVE" in avpu:
-                comp["avpu_points"] = 4
+                comp["avpu_points"] = 3
         else:
             # Default to alert if not specified
             comp["avpu_points"] = 0
 
         # TRAUMA (any injury within past 48 hours)
         # SATS Adult: No=0, Yes=+1
-        trauma = (vitals.get("trauma") or "").strip().lower()
+        trauma = vitals.get("trauma", vitals.get("traumaPresent", False))
+        trauma = str(trauma).strip().lower()
         if trauma in ["yes", "true", "1"]:
             comp["trauma_points"] = 1
         else:
@@ -7998,6 +7996,11 @@ def llm_triage():
         # Extract other clinical context
         triage_notes = data.get('triageNotes') or patient.get('clinicalNotes', '') or ''
         medical_history = data.get('medicalHistory') or patient.get('history', '') or patient.get('medicalHistory', '')
+        longitudinal_history = data.get('history') or data.get('longitudinalHistory') or ''
+        if isinstance(longitudinal_history, (dict, list)):
+            longitudinal_history = json.dumps(longitudinal_history, separators=(',', ':'))
+        if longitudinal_history and longitudinal_history not in str(medical_history):
+            medical_history = f'{medical_history}\nLongitudinal history context:\n{longitudinal_history}'.strip()
         
         # CRITICAL FIX: Clean up string representations of empty lists/arrays
         # Frontend might send "[]" or "[ ]" as string representation
@@ -8022,6 +8025,7 @@ def llm_triage():
         print(f'[llm-triage] 🔍 Extracted from request:')
         print(f'[llm-triage]    Chief Complaint: {chief_complaint[:100] if chief_complaint else "(EMPTY)"}')
         print(f'[llm-triage]    Medical History: {medical_history[:100] if medical_history else "(EMPTY)"}')
+        print(f'[llm-triage]    Longitudinal history context: {len(str(longitudinal_history))} chars')
         print(f'[llm-triage]    Triage Notes: {triage_notes[:100] if triage_notes else "(EMPTY)"}')
         
         # DEBUG: Log patient object fields

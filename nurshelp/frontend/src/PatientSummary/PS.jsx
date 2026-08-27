@@ -28,6 +28,14 @@ const getCleanPatientData = () => ({
   duration: null,
   painLevel: null,
   history: null,
+  criticalHistoryStatus: '',
+  criticalHistory: {
+    allergies: [],
+    adverseReactions: [],
+    medications: [],
+    conditions: [],
+    implantsOrProcedures: []
+  },
 });
 
 /** Normalize temperature into a safe numeric value (or null).
@@ -186,6 +194,7 @@ export default function PS() {
 
       if (encounters.length > 0) {
         const patient = encounters[0].patient || {};
+        const criticalHistory = patient.criticalHistory || patient.critical_history || {};
         setPatientData((prev) => ({
           ...prev,
           id_number: patient.id_number || prev.id_number || '',
@@ -199,7 +208,15 @@ export default function PS() {
           symptoms: '',
           history: '',
           duration: '',
-          painLevel: ''
+          painLevel: '',
+          criticalHistoryStatus: patient.criticalHistoryStatus || patient.critical_history_status || (Object.values(criticalHistory).some((items) => Array.isArray(items) && items.length) ? 'reported' : ''),
+          criticalHistory: {
+            allergies: criticalHistory.allergies || patient.allergies || [],
+            adverseReactions: criticalHistory.adverseReactions || criticalHistory.adverse_reactions || [],
+            medications: criticalHistory.medications || patient.medications || [],
+            conditions: criticalHistory.conditions || [],
+            implantsOrProcedures: criticalHistory.implantsOrProcedures || criticalHistory.implants_or_procedures || []
+          }
         }));
       }
     } catch (err) {
@@ -510,7 +527,9 @@ export default function PS() {
         symptoms: patientData?.symptoms ?? "",
         history: patientData?.history ?? "",
         duration: patientData?.duration ?? "",
-        painLevel: patientData?.painLevel ?? ""
+        painLevel: patientData?.painLevel ?? "",
+        criticalHistoryStatus: patientData?.criticalHistoryStatus || "",
+        criticalHistory: patientData?.criticalHistory || {}
       },
       vitals: {
         temp: normalizeTemp(vitalsData?.temp),
@@ -541,6 +560,9 @@ export default function PS() {
   const handleSavePatient = async () => {
     const vCheck = validateVitals(vitalsData);
     if (!vCheck.ok) return alert(vCheck.message);
+    if (!['reported', 'none_established'].includes(patientData?.criticalHistoryStatus)) {
+      return alert('Complete Critical History: record the known facts or select "None established".');
+    }
 
     // CRITICAL: Prevent double-submit during async operation
     if (saving) {

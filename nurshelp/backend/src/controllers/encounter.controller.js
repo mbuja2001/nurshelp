@@ -7,6 +7,7 @@ import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { canAccessEncounter } from "./encounterAccess.js";
 import { normalizeMedicationRequest, isMedicationRequestValid } from "../utils/medicationRequestUtils.js";
 import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
+import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHistory.js";
 
 /** Safe transcript parser used across functions */
 const parseTranscript = (transcript) => {
@@ -78,6 +79,16 @@ export const runTriage = async (req, res) => {
     
     const transcriptArray = parseTranscript(payload.transcript);
 
+    const patientIdentifier = payload.patient?.id_number || payload.patient?._id || payload.patientId;
+    const historicalEncounters = patientIdentifier && hospitalId
+      ? await Encounter.find({ hospitalId, 'patient.id_number': patientIdentifier }).sort({ submittedAt: -1, createdAt: -1 }).lean()
+      : [];
+    const longitudinalHistory = buildLongitudinalHistoryContext({
+      encounters: historicalEncounters,
+      currentEncounter: { ...payload.patient, vitals: payload.vitals, date: new Date().toISOString() },
+      maxCharacters: 12000
+    });
+
     // ===== BUILD COMPREHENSIVE PATIENT CLINICAL TEXT =====
     // Collect all available clinical information
     const clinicalParts = [];
@@ -134,7 +145,7 @@ export const runTriage = async (req, res) => {
         age: payload.patient?.age ?? null,
         height_cm: payload.patient?.height_cm ?? null,
         symptoms: comprehensiveClinicialText, // Use comprehensive text for symptoms field
-        history: payload.patient?.history || "",
+        history: [payload.patient?.history, longitudinalHistory.serialized].filter(Boolean).join("\n\n"),
         duration: payload.patient?.duration || "",
         painLevel: payload.patient?.painLevel || ""
       },
@@ -150,8 +161,12 @@ export const runTriage = async (req, res) => {
         hr: payload.vitals?.hr ?? payload.vitals?.heart_rate ?? null,
         o2: payload.vitals?.o2 ?? payload.vitals?.oxygen_saturation ?? null,
         resp: payload.vitals?.resp ?? null,
-        avpu: payload.vitals?.avpu ?? null
+        avpu: payload.vitals?.avpu ?? null,
+        mobility: payload.vitals?.mobility ?? 'Walks',
+        traumaPresent: Boolean(payload.vitals?.traumaPresent)
       },
+      history: longitudinalHistory.serialized,
+      longitudinalHistory: longitudinalHistory.payload,
       transcript: transcriptArray.map(t => t.text).join(" "),
       transcript_array: transcriptArray,
       arrival_time: payload.arrival_time || new Date().toISOString(),

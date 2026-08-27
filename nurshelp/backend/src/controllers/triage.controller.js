@@ -5,6 +5,7 @@ import { NurseClockRecord } from "../models/staffClockRecord.model.js";
 import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { Shift } from "../models/shift.model.js";
 import { Hospital } from "../models/hospital.model.js";
+import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHistory.js";
 
 const normalizeMobility = (value) => {
   const key = String(value ?? '').trim().toLowerCase();
@@ -456,6 +457,13 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
       });
     }
 
+    if (!['reported', 'none_established'].includes(patient.criticalHistoryStatus)) {
+      return res.status(422).json({
+        success: false,
+        message: 'criticalHistoryStatus is required: use reported or none_established'
+      });
+    }
+
     console.log(`[HOSPITAL-TRIAGE] New request for hospital: ${hospitalId}`);
     console.log(`[HOSPITAL-TRIAGE] Patient: ${patient.name || 'Unknown'}`);
 
@@ -550,6 +558,16 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
     
     const patientId = req.body.patientId || 'UNKNOWN';          // Patient identifier
     const triageNurseId = req.body.triageNurseId || 'UNKNOWN';  // From frontend - which nurse is triaging
+
+    const historicalEncounters = await Encounter.find({
+      hospitalId: resolvedHospitalId,
+      'patient.id_number': patientId
+    }).sort({ submittedAt: -1, createdAt: -1 }).lean();
+    const longitudinalHistory = buildLongitudinalHistoryContext({
+      encounters: historicalEncounters,
+      currentEncounter: { patient, vitals, date: new Date().toISOString() },
+      maxCharacters: 12000
+    });
     
     const esiPayload = {
       hospitalId: resolvedHospitalId,
@@ -557,6 +575,8 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
       triageNurseId,                 // ← Clinical handover: who is triaging (audit trail)
       patient,
       vitals: vitals || {},
+      history: longitudinalHistory.serialized,
+      longitudinalHistory: longitudinalHistory.payload,
       transcript: transcript || '',
       availableStaff: {
         physicians: availablePhysicians,
@@ -665,11 +685,17 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
     console.log(`  - Length: ${chiefComplaintStr.length} chars`);
     console.log(`  - Preview: ${chiefComplaintStr.substring(0, 100)}...`);
     
+    const historyContext = longitudinalHistory.serialized;
     const llmTriagePayload = {
-      patient: patient,
+      patient: {
+        ...patient,
+        history: [patient.history, historyContext].filter(Boolean).join('\n\n')
+      },
       patientId: patientId,
       vitals: vitalsNormalized,
       vitalSigns: vitalsNormalized,  // Backward compat
+      history: historyContext,
+      longitudinalHistory: longitudinalHistory.payload,
       chiefComplaint: chiefComplaintStr, // Comprehensive clinical picture
       symptoms: chiefComplaintStr, // Same as chief complaint - comprehensive
       triageNotes: chiefComplaintStr,
@@ -951,6 +977,8 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
         history: patientData?.history || '',
         duration: patientData?.duration || '',
         painLevel: patientData?.painLevel || '',
+        criticalHistoryStatus: patientData?.criticalHistoryStatus,
+        criticalHistory: patientData?.criticalHistory || {},
         contact: patientData?.contact
       },
       transcript: Array.isArray(transcript) ? transcript : [{ role: 'patient', content: transcript || '' }],

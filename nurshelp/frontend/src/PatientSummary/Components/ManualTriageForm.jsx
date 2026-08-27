@@ -354,6 +354,7 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
     const triageLevelSelected = !!satsLevel && ['red', 'orange', 'yellow', 'green'].includes(satsLevel);
     const tewsReady = tewsResult.complete && Number.isFinite(Number(tewsResult.total));
     const staffAssigned = !!selectedNurse && !!selectedPhysician;
+    const criticalHistoryComplete = ['reported', 'none_established'].includes(safePatientData.criticalHistoryStatus);
 
     return {
       triageLevelSelected,
@@ -361,9 +362,10 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
       tewsReady,
       heightValid,
       staffAssigned,
-      formValid: triageLevelSelected && analysisValid && tewsReady && heightValid && staffAssigned
+      criticalHistoryComplete,
+      formValid: triageLevelSelected && analysisValid && tewsReady && heightValid && staffAssigned && criticalHistoryComplete
     };
-  }, [satsLevel, pathophysiology, clinicalSummary, clinicalDiscriminators, differentialDiagnoses, immediateActions, diagnosticWorkup, dispositionRationale, tewsProfile, tewsHeight, tewsResult.complete, tewsResult.total, selectedNurse, selectedPhysician]);
+  }, [safePatientData.criticalHistoryStatus, satsLevel, pathophysiology, clinicalSummary, clinicalDiscriminators, differentialDiagnoses, immediateActions, diagnosticWorkup, dispositionRationale, tewsProfile, tewsHeight, tewsResult.complete, tewsResult.total, selectedNurse, selectedPhysician]);
 
   const formValid = requiredFieldState.formValid;
 
@@ -378,6 +380,8 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
   const currentTriagePayload = useMemo(() => {
     const payload = {
       patientId: safePatientData.id_number || safePatientData.id || safePatientData._id,
+      criticalHistoryStatus: safePatientData.criticalHistoryStatus,
+      criticalHistory: safePatientData.criticalHistory || {},
       encounterId: safePatientData.encounterId || null,
       symptoms: typeof safePatientData.symptoms === 'string' ? safePatientData.symptoms : (Array.isArray(safePatientData.symptoms) ? safePatientData.symptoms.join(', ') : ''),
       vitalSigns: {
