@@ -261,6 +261,208 @@ except Exception as e:
 BACKEND_PORT = int(os.environ.get("BACKEND_PORT", 5000))
 DEVICE = os.environ.get("DEVICE", "cpu")
 
+
+def normalize_encounter_id_list(values):
+    """Normalize encounter IDs from a mixed payload (string, dict, list, nested list)."""
+    if values is None:
+        return []
+
+    flat_values = []
+    if isinstance(values, dict):
+        values = [values]
+    elif isinstance(values, str):
+        stripped = values.strip()
+        if not stripped or stripped in ("[]", "[ ]", "null", "None"):
+            return []
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                values = parsed
+            else:
+                values = [parsed]
+        except Exception:
+            values = [stripped]
+
+    if isinstance(values, (list, tuple, set)):
+        for item in values:
+            if isinstance(item, (list, tuple, set)):
+                flat_values.extend(normalize_encounter_id_list(item))
+                continue
+            if isinstance(item, dict):
+                for key in ("encounterId", "encounter_id", "id", "_id"):
+                    candidate = item.get(key)
+                    if candidate not in (None, "", "[]"):
+                        flat_values.append(str(candidate).strip())
+                        break
+                continue
+            if item is None:
+                continue
+            text = str(item).strip()
+            if not text:
+                continue
+            if text.startswith("[") and text.endswith("]"):
+                flat_values.extend(normalize_encounter_id_list(text))
+                continue
+            for delimiter in (",", ";", "\n"):
+                if delimiter in text:
+                    flat_values.extend(normalize_encounter_id_list(text.split(delimiter)))
+                    break
+            else:
+                flat_values.append(text.strip("[]\"'"))
+
+    cleaned = []
+    seen = set()
+    for value in flat_values:
+        candidate = str(value).strip().strip("[]\"'")
+        if not candidate or candidate.lower() in ("null", "none", "unknown"):
+            continue
+        if candidate not in seen:
+            seen.add(candidate)
+            cleaned.append(candidate)
+    return cleaned
+
+
+def extract_longitudinal_history_context(patient, data=None):
+    """Collect critical history and the exact referenced/ignored encounter IDs for triage context."""
+    patient = patient or {}
+    data = data or {}
+    longitudinal_payload = (
+        data.get("longitudinalHistory") or data.get("longitudinal_history") or
+        patient.get("longitudinalHistory") or patient.get("longitudinal_history") or {}
+    )
+
+    critical_history = patient.get("criticalHistory") or patient.get("critical_history") or data.get("criticalHistory") or data.get("critical_history") or []
+    if isinstance(critical_history, str):
+        critical_history = [piece.strip() for piece in re.split(r"[,;\n]+", critical_history) if piece.strip()]
+    elif isinstance(critical_history, dict):
+        critical_history = [
+            f"{key}: {item}"
+            for key, values in critical_history.items()
+            for item in (values if isinstance(values, list) else [values])
+            if item not in (None, "", [], {})
+        ]
+    elif critical_history is None:
+        critical_history = []
+
+    critical_status = (
+        patient.get("criticalHistoryStatus")
+        or patient.get("critical_history_status")
+        or data.get("criticalHistoryStatus")
+        or data.get("critical_history_status")
+        or "unknown"
+    )
+
+    referenced = (
+        patient.get("referencedHistoricalEncounters")
+        or patient.get("referenced_historical_encounters")
+        or data.get("referencedHistoricalEncounters")
+        or data.get("referenced_historical_encounters")
+        or []
+    )
+    ignored = (
+        patient.get("ignoredHistoricalEncounters")
+        or patient.get("ignored_historical_encounters")
+        or data.get("ignoredHistoricalEncounters")
+        or data.get("ignored_historical_encounters")
+        or []
+    )
+
+    encounter_records = []
+    seen_encounter_ids = set()
+    for section_name in ("critical_history", "relevant_history", "recent_history"):
+        section = longitudinal_payload.get(section_name, []) if isinstance(longitudinal_payload, dict) else []
+        if not isinstance(section, list):
+            continue
+        for encounter in section:
+            if not isinstance(encounter, dict):
+                continue
+            encounter_id = normalize_encounter_id_list([encounter])
+            if encounter_id and encounter_id[0] not in seen_encounter_ids:
+                seen_encounter_ids.add(encounter_id[0])
+                encounter_records.append(encounter)
+
+    if not critical_history and encounter_records:
+        critical_history = [
+            str(fact.get("description", fact.get("criticalFacts", ""))).strip()
+            for fact in longitudinal_payload.get("critical_history", [])
+            if isinstance(fact, dict) and str(fact.get("description", fact.get("criticalFacts", ""))).strip()
+        ]
+
+    if not str(critical_status).strip() or str(critical_status).strip().lower() == "unknown":
+        has_critical_records = any(
+            encounter.get("criticalFlag") or encounter.get("critical_flag") or
+            encounter.get("criticalFacts") or encounter.get("critical_facts")
+            for encounter in encounter_records
+        )
+        critical_status = (
+            "NO_HISTORY_AVAILABLE" if not encounter_records else
+            "CRITICAL_HISTORY_PRESENT" if has_critical_records else
+            "HISTORY_PRESENT_NO_CRITICAL_FLAGS"
+        )
+
+    return {
+        "critical_history_status": str(critical_status).strip() or "unknown",
+        "critical_history": [str(item).strip() for item in critical_history if str(item).strip()],
+        "referenced_historical_encounters": normalize_encounter_id_list(referenced),
+        "ignored_historical_encounters": normalize_encounter_id_list(ignored),
+        "encounter_records": encounter_records,
+    }
+
+
+def build_encounter_table(encounters, max_rows=8):
+    """Create a compact, data-only encounter table and return its allowed IDs."""
+    if not encounters:
+        return "No prior encounters on file for this patient.", []
+
+    def text_value(value, default="-"):
+        if isinstance(value, list):
+            value = ", ".join(str(item) for item in value)
+        if isinstance(value, dict):
+            value = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        return str(value).replace("|", "/").replace("\n", " ").strip()[:80] or default
+
+    critical = [encounter for encounter in encounters if encounter.get("criticalFlag") or encounter.get("critical_flag") or encounter.get("criticalFacts") or encounter.get("critical_facts")]
+    non_critical = [encounter for encounter in encounters if encounter not in critical]
+    non_critical.sort(key=lambda encounter: str(encounter.get("date") or encounter.get("timestamp") or ""), reverse=True)
+    selected = (critical + non_critical)[:max_rows]
+    rows = [
+        "| encounter_id | date | diagnosis/symptoms | critical | medications/notes |",
+        "|---|---|---|---|---|"
+    ]
+    allowed_ids = []
+    for encounter in selected:
+        encounter_ids = normalize_encounter_id_list([encounter])
+        if not encounter_ids:
+            continue
+        encounter_id = encounter_ids[0]
+        allowed_ids.append(encounter_id)
+        diagnosis = encounter.get("diagnoses") or encounter.get("diagnosis") or encounter.get("symptoms")
+        notes = encounter.get("interventions") or encounter.get("outcome") or encounter.get("disposition")
+        critical = bool(encounter.get("criticalFlag") or encounter.get("critical_flag") or encounter.get("criticalFacts") or encounter.get("critical_facts"))
+        rows.append(
+            f"| {text_value(encounter_id)} | {text_value(encounter.get('date'))} | "
+            f"{text_value(diagnosis)} | {'YES' if critical else 'no'} | {text_value(notes)} |"
+        )
+    return "\n".join(rows), allowed_ids
+def validate_cited_encounters(output, allowed_ids):
+    """Keep only model citations that identify rows actually supplied in the table."""
+    allowed = set(allowed_ids or [])
+    validated = {}
+    for field in ("referenced_historical_encounters", "ignored_historical_encounters"):
+        cited = normalize_encounter_id_list((output or {}).get(field, []))
+        invalid = [encounter_id for encounter_id in cited if encounter_id not in allowed]
+        if invalid:
+            print(f'[llm-triage] ⚠️  Removed unknown encounter IDs from {field}: {invalid}')
+        validated[field] = [encounter_id for encounter_id in cited if encounter_id in allowed]
+
+    referenced = set(validated["referenced_historical_encounters"])
+    validated["ignored_historical_encounters"] = [
+        encounter_id for encounter_id in validated["ignored_historical_encounters"]
+        if encounter_id not in referenced
+    ]
+    return validated
+
+
 THRESHOLDS = {"red_flag_sim": 0.55, "critical_sim": 0.75, "physician_embed_topn": 5, "composite_topn": 5}
 
 # Deterministic phrases -> discriminator keys (we will expose keys + readable phrases)
@@ -589,6 +791,11 @@ def gguf_generate(prompt: str, max_tokens: int = 150, temperature: float = 0.0, 
             model_context_window = model_context_window()
         model_context_window = int(model_context_window) if model_context_window else 256
         
+        # MedGemma is instruction-tuned and needs an explicit user/model turn.
+        # Keep already formatted prompts unchanged for callers that supply one.
+        if '<start_of_turn>' not in prompt:
+            prompt = f'<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>model\n'
+
         # Log context info - no truncation, send full prompt
         estimated_prompt_tokens = len(prompt) // 4
         print(f"[GGUF] Context window: {model_context_window} tokens | Prompt tokens (est): {estimated_prompt_tokens} | Max output: {max_tokens}")
@@ -604,7 +811,7 @@ def gguf_generate(prompt: str, max_tokens: int = 150, temperature: float = 0.0, 
             print(f"[GGUF]   Max tokens: {max_tokens}")
             print(f"[GGUF]   Temperature: {temperature}")
             
-            # Generate with stop tokens optimized for JSON output
+            # Stop only at the model turn boundary; newline stops can cut JSON.
             response = _llm(
                 prompt=prompt,
                 max_tokens=max_tokens if max_tokens > 0 else 100,
@@ -612,7 +819,7 @@ def gguf_generate(prompt: str, max_tokens: int = 150, temperature: float = 0.0, 
                 top_p=0.95,
                 top_k=50,
                 repeat_penalty=1.05,
-                stop=["<end_of_turn>", "END", "\n\n"]  # Stop at natural boundaries
+                stop=["<end_of_turn>"]
             )
             
             elapsed = time.perf_counter() - start_time
@@ -5924,39 +6131,42 @@ def tews_from_vitals(vitals):
     }
 
     try:
-        # MOBILITY (assume walking if not specified)
-        # Walking = 0, With Help = +1, Stretcher/Immobile = +2
+        # MOBILITY (assume normal if not specified)
+        # Walking = -3, With Help = -1, Stretcher/Immobile = +3
         mobility = (vitals.get("mobility") or "").strip().lower()
-        if mobility in ("stretcher", "immobile", "not walking", "stretcher / immobile"):
-            comp["mobility_points"] = 2
+        if mobility == "stretcher" or mobility == "immobile":
+            comp["mobility_points"] = 3
         elif mobility == "with help" or mobility == "assisted":
-            comp["mobility_points"] = 1
+            comp["mobility_points"] = -1
         else:
-            comp["mobility_points"] = 0
+            # Default to walking/normal
+            comp["mobility_points"] = -3
 
         # RESPIRATORY RATE (per minute)
-        # SATS Adult: <9=+3, 9-20=0, 21-29=+1, >=30=+3
+        # SATS Adult: <9=-3, 9-14=-1, 15-20=0, 21-29=+1, >29=+3
         rr = vitals.get("resp")
         if rr is not None:
             rr = float(rr)
             if rr < 9:
-                comp["resp_rate_points"] = 3
+                comp["resp_rate_points"] = -3
+            elif rr < 15:
+                comp["resp_rate_points"] = -1
             elif rr <= 20:
                 comp["resp_rate_points"] = 0
             elif rr <= 29:
                 comp["resp_rate_points"] = 1
-            else:  # >= 30
+            else:  # > 29
                 comp["resp_rate_points"] = 3
 
         # HEART RATE (beats per minute)
-        # SATS Adult: low rates score urgency, 51-100=0, 101-110=+1, 111-129=+2, >=130=+3
+        # SATS Adult: <41=-3, 41-50=-2, 51-100=0, 101-110=+1, 111-129=+2, >129=+3
         hr = vitals.get("hr")
         if hr is not None:
             hr = float(hr)
             if hr < 41:
-                comp["hr_points"] = 3
+                comp["hr_points"] = -3
             elif hr < 51:
-                comp["hr_points"] = 2
+                comp["hr_points"] = -2
             elif hr <= 100:
                 comp["hr_points"] = 0
             elif hr <= 110:
@@ -5967,55 +6177,54 @@ def tews_from_vitals(vitals):
                 comp["hr_points"] = 3
 
         # SYSTOLIC BLOOD PRESSURE (mmHg)
-        # SATS Adult: <71=+3, 71-80=+1, 81-100=0, 101-199=0, >=200=+2
+        # SATS Adult: <71=-3, 71-80=-2, 81-100=-1, 101-199=0, >199=+3
         sbp = vitals.get("bp_systolic")
         if sbp is not None:
             sbp = float(sbp)
             if sbp < 71:
-                comp["bp_systolic_points"] = 3
+                comp["bp_systolic_points"] = -3
             elif sbp < 81:
-                comp["bp_systolic_points"] = 1
+                comp["bp_systolic_points"] = -2
             elif sbp < 101:
-                comp["bp_systolic_points"] = 0
+                comp["bp_systolic_points"] = -1
             elif sbp <= 199:
                 comp["bp_systolic_points"] = 0
             else:  # > 199
                 comp["bp_systolic_points"] = 3
 
         # TEMPERATURE (°C)
-        # SATS Adult: under 35=+3, 35-38.4=0, over 38.4=+2
+        # SATS Adult: Cold/Under 35=-3, 35-38.4=0, Hot/Over 38.4=+2
         temp = vitals.get("temp")
         if temp is not None:
             temp = float(temp)
             if temp < 35:
-                comp["temp_points"] = 3
+                comp["temp_points"] = -3
             elif temp <= 38.4:
                 comp["temp_points"] = 0
             else:  # > 38.4
                 comp["temp_points"] = 2
 
         # AVPU (Alert, Voice, Pain, Unresponsive)
-        # SATS Adult: Confused=+3, Alert=0, Reacts to Voice=+1, Reacts to Pain=+2, Unresponsive=+3
+        # SATS Adult: Confused=-3, Alert=0, Reacts to Voice=+2, Reacts to Pain=+3, Unresponsive=+4
         avpu = (vitals.get("avpu") or "").strip().upper()
         if avpu:
             if avpu == "C" or "CONFUSED" in avpu:
-                comp["avpu_points"] = 3
+                comp["avpu_points"] = -3
             elif avpu == "A" or avpu == "ALERT":
                 comp["avpu_points"] = 0
             elif avpu == "V" or "VOICE" in avpu:
-                comp["avpu_points"] = 1
-            elif avpu == "P" or "PAIN" in avpu:
                 comp["avpu_points"] = 2
-            elif avpu == "U" or "UNRESPONSIVE" in avpu:
+            elif avpu == "P" or "PAIN" in avpu:
                 comp["avpu_points"] = 3
+            elif avpu == "U" or "UNRESPONSIVE" in avpu:
+                comp["avpu_points"] = 4
         else:
             # Default to alert if not specified
             comp["avpu_points"] = 0
 
         # TRAUMA (any injury within past 48 hours)
         # SATS Adult: No=0, Yes=+1
-        trauma = vitals.get("trauma", vitals.get("traumaPresent", False))
-        trauma = str(trauma).strip().lower()
+        trauma = (vitals.get("trauma") or "").strip().lower()
         if trauma in ["yes", "true", "1"]:
             comp["trauma_points"] = 1
         else:
@@ -6047,6 +6256,41 @@ def tews_to_priority_code(tews_total):
     if t >= 3:
         return 3
     return 4
+
+def normalize_llm_esi_level(value, fallback=3):
+    """Normalize numeric ESI values and SATS priority labels returned by the model."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, (int, float)):
+        numeric = int(value)
+        return numeric if 1 <= numeric <= 5 else fallback
+
+    normalized = str(value or '').strip().upper()
+    priority_levels = {
+        'RED': 1,
+        'ORANGE': 2,
+        'YELLOW': 3,
+        'GREEN': 4,
+    }
+    if normalized in priority_levels:
+        return priority_levels[normalized]
+    try:
+        numeric = int(float(normalized))
+        return numeric if 1 <= numeric <= 5 else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def reconcile_triage_priority(tews_priority, llm_esi_level=None, llm_priority_code=None, hard_priority=None):
+    """Keep the most urgent priority; model output cannot soften a safety result."""
+    candidates = [tews_priority]
+    if llm_esi_level is not None:
+        candidates.append(normalize_llm_esi_level(llm_esi_level, fallback=tews_priority))
+    if llm_priority_code is not None:
+        candidates.append(normalize_llm_esi_level(llm_priority_code, fallback=tews_priority))
+    if hard_priority is not None:
+        candidates.append(normalize_llm_esi_level(hard_priority, fallback=tews_priority))
+    return min(candidate for candidate in candidates if 1 <= candidate <= 5)
 
 # ----- semantic helpers DISABLED - using local DeepSeek only -----
 def detect_concepts(patient_text):
@@ -6284,7 +6528,12 @@ def extract_diagnoses_from_llm_output(biogpt_specialty_output):
         if 'diagnoses' in biogpt_specialty_output:
             diag_list = biogpt_specialty_output['diagnoses']
             if isinstance(diag_list, list):
-                diagnoses = [str(d).strip().lower() for d in diag_list if d]
+                diagnoses = [
+                    str(d.get('diagnosis') or d.get('dx')).strip().lower()
+                    if isinstance(d, dict) else str(d).strip().lower()
+                    for d in diag_list
+                    if d and (not isinstance(d, dict) or d.get('diagnosis') or d.get('dx'))
+                ]
             elif isinstance(diag_list, str):
                 diagnoses = [diag_list.strip().lower()]
     
@@ -7712,8 +7961,14 @@ def _generate_default_interventions(esi_from_llm, patient_text, vitals, medical_
     return interventions[:8]  # Return top 8 most relevant interventions
 
 
-def _build_structured_fallback_output(patient_text, medical_history, chief_complaint, vitals, vitals_str, patient_age, patient_sex, predicted_specialty, tews_priority):
+def _build_structured_fallback_output(patient_text, medical_history, chief_complaint, vitals, vitals_str, patient_age, patient_sex, predicted_specialty, tews_priority, longitudinal_history=None):
     """Create a clinically structured fallback payload when the model returns no JSON."""
+    longitudinal_history = longitudinal_history or {
+        'critical_history_status': 'unknown',
+        'critical_history': [],
+        'referenced_historical_encounters': [],
+        'ignored_historical_encounters': []
+    }
     pt_text_lower = (patient_text or '').lower()
     history_lower = (medical_history or '').lower()
     pain_text_lower = (str(vitals.get('pain_level') or '')).lower()
@@ -7788,10 +8043,7 @@ def _build_structured_fallback_output(patient_text, medical_history, chief_compl
         pathophysiology = 'Neurological symptoms suggest an evolving central nervous system emergency.'
         clinical_discriminators = ['Neuro focality or altered mental status', 'Acute symptom onset', f'Vitals: {vitals_str}']
         severity_assessment = 'Unstable: new neurologic deficit or altered mental status'
-        differential_diagnoses = [
-            {'dx': 'Stroke syndrome', 'confidence': 0.8},
-            {'dx': 'Seizure/postictal state', 'confidence': 0.6}
-        ]
+        differential_diagnoses = []
         life_threats_excluded = ['No obvious airway compromise documented']
         recommended_specialists = ['Neurology', 'Emergency Medicine']
         recommendations = ['Neurologic exam and vitals', 'CT head if indicated', 'Urgent physician review']
@@ -7840,6 +8092,10 @@ def _build_structured_fallback_output(patient_text, medical_history, chief_compl
         'diagnostic_workup': diagnostic_workup,
         'llmAnalysis': clinical_summary,
         'disposition_reasoning': disposition_rationale,
+        'critical_history_status': longitudinal_history['critical_history_status'],
+        'critical_history': longitudinal_history['critical_history'],
+        'referenced_historical_encounters': longitudinal_history['referenced_historical_encounters'],
+        'ignored_historical_encounters': longitudinal_history['ignored_historical_encounters'],
         'risk_factors': [
             'Diabetes' if 'diabetes' in history_lower else None,
             'Hypertension' if 'hypertension' in history_lower else None,
@@ -7996,11 +8252,19 @@ def llm_triage():
         # Extract other clinical context
         triage_notes = data.get('triageNotes') or patient.get('clinicalNotes', '') or ''
         medical_history = data.get('medicalHistory') or patient.get('history', '') or patient.get('medicalHistory', '')
-        longitudinal_history = data.get('history') or data.get('longitudinalHistory') or ''
-        if isinstance(longitudinal_history, (dict, list)):
-            longitudinal_history = json.dumps(longitudinal_history, separators=(',', ':'))
-        if longitudinal_history and longitudinal_history not in str(medical_history):
-            medical_history = f'{medical_history}\nLongitudinal history context:\n{longitudinal_history}'.strip()
+
+        # Keep longitudinal context separate so this integration cannot alter the baseline ESI input.
+        longitudinal_history = extract_longitudinal_history_context(patient, data) or {}
+        critical_history_list = longitudinal_history.get('critical_history') or []
+        critical_history_status = longitudinal_history.get('critical_history_status') or (
+            'CRITICAL_HISTORY_PRESENT' if critical_history_list else 'NO_CRITICAL_HISTORY'
+        )
+        critical_history_block = '; '.join(critical_history_list) if critical_history_list else 'None documented'
+        encounters = longitudinal_history.get('encounter_records') or []
+        encounter_table_block, available_history_ids = build_encounter_table(encounters)
+        print(f'[llm-triage] 🆕 CRITICAL HISTORY STATUS: {critical_history_status}')
+        print(f'[llm-triage] 🆕 CRITICAL HISTORY BLOCK ({len(critical_history_block)} chars): {critical_history_block[:100]}')
+        print(f'[llm-triage] 🆕 ENCOUNTERS AVAILABLE: {len(available_history_ids)}')
         
         # CRITICAL FIX: Clean up string representations of empty lists/arrays
         # Frontend might send "[]" or "[ ]" as string representation
@@ -8020,12 +8284,12 @@ def llm_triage():
         chief_complaint = clean_field(chief_complaint)
         triage_notes = clean_field(triage_notes)
         medical_history = clean_field(medical_history)
+        critical_history_block = clean_field(critical_history_block)
         
         # Debug: Show what we're extracting
         print(f'[llm-triage] 🔍 Extracted from request:')
         print(f'[llm-triage]    Chief Complaint: {chief_complaint[:100] if chief_complaint else "(EMPTY)"}')
         print(f'[llm-triage]    Medical History: {medical_history[:100] if medical_history else "(EMPTY)"}')
-        print(f'[llm-triage]    Longitudinal history context: {len(str(longitudinal_history))} chars')
         print(f'[llm-triage]    Triage Notes: {triage_notes[:100] if triage_notes else "(EMPTY)"}')
         
         # DEBUG: Log patient object fields
@@ -8231,54 +8495,71 @@ def llm_triage():
         vitals_str = " | ".join(vitals_parts) if vitals_parts else "Vitals: Incomplete recording"
         red_flags_str = "; ".join([str(r.get('concept', r)) for r in all_red_flags]) if all_red_flags else "None"
         
-        # Clinical reasoning order: VITALS FIRST → SYMPTOMS IN CONTEXT → ACUITY
-        # Use regular string with .format() to avoid f-string issues with double braces
-        triage_prompt = """[SYSTEM] YOU MUST OUTPUT PURE JSON ONLY. NO PREAMBLE.
+        # Keep the model contract structural and neutral; all clinical content comes from the request.
+        print(f'[llm-triage] 🆕 PROMPT_VERSION=critical_history_v3 | history_rows={len(available_history_ids)} | critical_status={critical_history_status[:50]}')
+
+        triage_prompt = """[SYSTEM] Analyze only the patient data provided below and return a structured triage assessment.
 
 === PATIENT DATA ===
 DEMOGRAPHICS: {patient_age}yo {patient_sex}
 HISTORY/PRIOR EVENTS: {medical_history}
+CRITICAL HISTORY STATUS: {critical_history_status}
+CRITICAL HISTORY: {critical_history_block}
+PATIENT ENCOUNTER HISTORY (cite only these IDs, if any):
+{encounter_table_block}
 CURRENT COMPLAINT: {chief_complaint}
 VITALS/FLAGS: {vitals_str} | {red_flags_str}
 
-=== CLINICAL REASONING PROTOCOL ===
-1. CHRONICITY: Does HISTORY suggest a recurring pattern or a failed prior treatment?
-2. ANATOMY: Which specific compartment is at risk?
-3. STABILITY: Is the patient Compensating or Decompensating?
-4. RULE-OUT: Identify the most dangerous 'Killer' diagnosis for this anatomy.
+=== OUTPUT DATA SOURCE RULE ===
+Use only facts explicitly present in PATIENT DATA. Do not infer undocumented patient facts.
 
-=== REQUIRED JSON OUTPUT (STRICT FORMAT) ===
+=== ESI SCALE ===
+ESI is inverted severity: 1 is most critical and 5 is least urgent.
+Unstable vitals, shock, sepsis signs, or altered mental status require ESI 1 or 2 when explicitly supported by the input.
+Priority code RED must pair with ESI 1 or 2; do not return contradictory ESI and priority values.
+
+=== CRITICAL HISTORY USE ===
+When critical history is explicitly present and relevant to the current complaint, reflect it in the assessment, differential, or recommendations.
+Do not treat critical history as a current symptom unless the input explicitly says it is current.
+
+=== REQUIRED OUTPUT FORMAT (STRICT JSON ONLY) ===
 {{
-  "esi_level": 1,
-  "priority_code": "RED/ORANGE/YELLOW/GREEN",
-  "specialty": "Primary referring department",
-  "urgency_level": "Immediate/Emergent/Urgent/Non-Urgent",
-  "pathophysiology": "Mechanistic explanation of current state (max 20 words)",
-  "clinical_discriminators": ["List key findings driving this ESI"],
-  "severity_assessment": "Stable vs. Unstable rationale",
-  "differential_diagnoses": [
-    {{"dx": "Primary", "confidence": 0.90}},
-    {{"dx": "Must-Exclude", "confidence": 0.70}}
-  ],
-  "life_threats_excluded": ["List specific killers ruled out"],
-  "recommended_specialists": ["Specialist 1", "Specialist 2"],
-  "recommendations": ["IV fluids", "Oxygen", "Specific Labs"],
-  "pathognomonic_markers": ["Specific disease markers if present"],
-  "clinical_summary": "Telegraphic synthesis of history + presentation",
-  "disposition_rationale": "Justification for ESI and ward placement"
+    "esi_level": <INTEGER_1_TO_5>,
+    "priority_code": "<RED_ORANGE_YELLOW_GREEN_BLUE>",
+    "specialty": "<RECOMMENDED_SPECIALTY>",
+    "urgency_level": "<URGENCY_LEVEL>",
+    "pathophysiology": "<MECHANISM_DERIVED_ONLY_FROM_INPUT>",
+    "clinical_discriminators": ["<INPUT_FINDING>"],
+    "severity_assessment": "<STABILITY_ASSESSMENT_DERIVED_ONLY_FROM_INPUT>",
+    "differential_diagnoses": [{{"dx": "<DIAGNOSIS_DERIVED_ONLY_FROM_INPUT>", "confidence": <NUMBER_0_TO_1>}}],
+    "life_threats_excluded": [],
+    "recommended_specialists": [],
+    "recommendations": ["<ACTION_DERIVED_ONLY_FROM_INPUT>"],
+    "pathognomonic_markers": [],
+    "referenced_historical_encounters": [],
+    "ignored_historical_encounters": [],
+    "clinical_summary": "<SUMMARY_DERIVED_ONLY_FROM_INPUT>",
+    "disposition_rationale": "<RATIONALE_DERIVED_ONLY_FROM_INPUT>"
 }}
 
 CRITICAL RULES:
-- Return only valid JSON. No markdown. No explanations.
-- Be concise, evidence-based, and clinically specific.
-- Do not include extra keys.
-- If the patient is unstable or high-risk, elevate ESI accordingly.
-- Use the most dangerous plausible diagnosis for the anatomy and presentation.
-- Avoid generic wording; cite the clinical features that drove your decision.""".format(
+- Return only raw valid JSON beginning with {{ and ending with }}. No markdown or explanations.
+- The esi_level value must be an integer from 1 through 5.
+- The priority_code value must be one of RED, ORANGE, YELLOW, GREEN, or BLUE.
+- Base every clinical evaluation strictly on the supplied PATIENT DATA. Do not infer undocumented facts.
+- Use the ESI scale direction exactly as specified: 1 is highest urgency and 5 is lowest urgency.
+- If critical history is present, use it only when the supplied data supports relevance to the current complaint.
+- referenced_historical_encounters and ignored_historical_encounters may contain only IDs in the PATIENT ENCOUNTER HISTORY table.
+- If no prior encounters are on file, both encounter arrays must be empty.
+- Place each supplied encounter ID in exactly one output array only when its row supports that choice.
+- Do not include keys outside this schema.""".format(
             patient_age=patient_age,
             patient_sex=patient_sex,
-            chief_complaint=chief_complaint[:150] if chief_complaint else 'Not specified',
-            medical_history=medical_history[:150] if medical_history else 'No prior history documented',
+            chief_complaint=chief_complaint[:400] if chief_complaint else 'Not specified',
+            medical_history=medical_history[:400] if medical_history else 'No prior history documented',
+            critical_history_status=critical_history_status,
+            critical_history_block=critical_history_block[:400] if critical_history_block else 'None documented',
+            encounter_table_block=encounter_table_block[:1200],
             vitals_str=vitals_str[:200] if vitals_str else 'Incomplete',
             red_flags_str=red_flags_str[:200] if red_flags_str else 'None',
             triage_notes=triage_notes[:150] if triage_notes else 'None'
@@ -8321,7 +8602,7 @@ CRITICAL RULES:
             pain_text_lower = (str(pain_level) or '').lower()
             
             # Max 1024 tokens for output - allow full clinical response with all reasoning
-            gguf_output = gguf_generate(prompt=triage_prompt, max_tokens=1024, temperature=0.0)
+            gguf_output = gguf_generate(prompt=triage_prompt, max_tokens=1600, temperature=0.0)
             print(f'[llm-triage] ✅ GGUF Response received ({len(gguf_output)} chars)')
             
             # ===== MARKDOWN CODE FENCE REMOVAL =====
@@ -8545,6 +8826,9 @@ CRITICAL RULES:
             
             if gguf_parsed and isinstance(gguf_parsed, dict):
                 print(f'[llm-triage] ✅ PROCEEDING WITH GGUF FIELD EXTRACTION (dict is valid)')
+                validated_history_citations = validate_cited_encounters(gguf_parsed, available_history_ids)
+                gguf_parsed.update(validated_history_citations)
+                print(f'[llm-triage] 📚 HISTORY CITATIONS: referenced={validated_history_citations["referenced_historical_encounters"]} | ignored={validated_history_citations["ignored_historical_encounters"]}')
                 # ========== FIELD COMPLETENESS CHECK & REPAIR ==========
                 # If JSON was truncated mid-generation, fill missing required fields with sensible defaults
                 required_fields = [
@@ -8611,6 +8895,14 @@ CRITICAL RULES:
                         gguf_parsed['recommendations'] = ['Serial reassessment', 'Urgent specialist review', 'Targeted labs/imaging']
                     if 'pathognomonic_markers' not in gguf_parsed or not gguf_parsed.get('pathognomonic_markers'):
                         gguf_parsed['pathognomonic_markers'] = []
+                    if 'referenced_historical_encounters' not in gguf_parsed or not gguf_parsed.get('referenced_historical_encounters'):
+                        gguf_parsed['referenced_historical_encounters'] = validated_history_citations['referenced_historical_encounters']
+                    if 'ignored_historical_encounters' not in gguf_parsed or not gguf_parsed.get('ignored_historical_encounters'):
+                        gguf_parsed['ignored_historical_encounters'] = validated_history_citations['ignored_historical_encounters']
+                    if 'critical_history' not in gguf_parsed or not gguf_parsed.get('critical_history'):
+                        gguf_parsed['critical_history'] = critical_history_list
+                    if 'critical_history_status' not in gguf_parsed or not gguf_parsed.get('critical_history_status'):
+                        gguf_parsed['critical_history_status'] = critical_history_status
                     if 'immediate_interventions' not in gguf_parsed or not gguf_parsed.get('immediate_interventions'):
                         # For fallback: generate clinical interventions based on presentation
                         gguf_parsed['immediate_interventions'] = _generate_default_interventions(
@@ -8632,7 +8924,10 @@ CRITICAL RULES:
                 
                 # ========== COMPREHENSIVE CLINICAL EXTRACTION ==========
                 # Core decisions
-                esi_from_llm = int(gguf_parsed.get('esi_level', tews_priority))
+                raw_esi_level = gguf_parsed.get('esi_level', tews_priority)
+                esi_from_llm = normalize_llm_esi_level(raw_esi_level, fallback=tews_priority)
+                if str(raw_esi_level).strip().upper() in ('RED', 'ORANGE', 'YELLOW', 'GREEN'):
+                    print(f'[llm-triage] ℹ️  Normalized model priority label "{raw_esi_level}" to ESI {esi_from_llm}')
                 final_specialty = gguf_parsed.get('specialty', predicted_specialty)
                 confidence = float(gguf_parsed.get('confidence_score', 0.85))
                 
@@ -8720,7 +9015,7 @@ CRITICAL RULES:
                 if isinstance(differential_raw, list):
                     for item in differential_raw[:10]:  # Up to 10 diagnoses
                         if isinstance(item, dict):
-                            dx = item.get('diagnosis', '')
+                            dx = item.get('diagnosis') or item.get('dx', '')
                             confidence_dx = item.get('confidence', 0.5)
                             evidence = item.get('evidence', '')
                             if dx:
@@ -8799,6 +9094,8 @@ CRITICAL RULES:
                     'recommended_specialists': recommended_specialists,
                     'diagnoses': diagnoses,
                     'differential_diagnosis': differential_raw,
+                    'referenced_historical_encounters': validated_history_citations['referenced_historical_encounters'],
+                    'ignored_historical_encounters': validated_history_citations['ignored_historical_encounters'],
                     'recommendations': clinical_recommendations,
                     'immediate_actions': immediate,
                     'diagnostic_workup': workup,
@@ -8808,7 +9105,11 @@ CRITICAL RULES:
                     'disposition': disposition,
                     'disposition_rationale': disposition_rationale,
                     'urgency_level': urgency_level,
-                    'disposition_reasoning': disposition_rationale or disposition  # Fallback
+                    'disposition_reasoning': disposition_rationale or disposition,  # Fallback
+                    'critical_history_status': critical_history_status,
+                    'critical_history': critical_history_list,
+                    'referenced_historical_encounters': validated_history_citations['referenced_historical_encounters'],
+                    'ignored_historical_encounters': validated_history_citations['ignored_historical_encounters']
                 }
                 
                 # ===== COMPREHENSIVE CHAIN-OF-THOUGHT LOGGING =====
@@ -9107,7 +9408,8 @@ CRITICAL RULES:
                         patient_age=patient_age,
                         patient_sex=patient_sex,
                         predicted_specialty=predicted_specialty,
-                        tews_priority=tews_priority
+                        tews_priority=tews_priority,
+                        longitudinal_history=longitudinal_history
                     )
                     esi_from_llm = supervisor_output.get('esi_level_from_llm', tews_priority)
                     confidence = 0.75
@@ -9124,7 +9426,8 @@ CRITICAL RULES:
                 patient_age=patient_age,
                 patient_sex=patient_sex,
                 predicted_specialty=predicted_specialty,
-                tews_priority=tews_priority
+                tews_priority=tews_priority,
+                longitudinal_history=longitudinal_history
             )
             esi_from_llm = supervisor_output.get('esi_level_from_llm', tews_priority)
             final_specialty = supervisor_output.get('specialty', predicted_specialty)
@@ -9141,6 +9444,23 @@ CRITICAL RULES:
         
         if diagnoses:
             print(f'[llm-triage] 🔍 Extracted {len(diagnoses)} diagnoses')
+
+        # Safety invariant: combine TEWS, hard rules, LLM ESI, and LLM colour.
+        # ESI is inverted, so the smallest valid number is always the safest result.
+        model_priority_code = supervisor_output.get('priority_code') if supervisor_output else None
+        safety_priority = 1 if force_red else None
+        reconciled_priority = reconcile_triage_priority(
+            tews_priority=tews_priority,
+            llm_esi_level=esi_from_llm,
+            llm_priority_code=model_priority_code,
+            hard_priority=safety_priority
+        )
+        if reconciled_priority != esi_from_llm:
+            print(f'[ESI GOVERNOR] Preserved worst priority: model ESI {esi_from_llm} -> final ESI {reconciled_priority} (TEWS={tews_priority}, hard_priority={safety_priority}, model_code={model_priority_code})')
+        esi_from_llm = reconciled_priority
+        if supervisor_output:
+            supervisor_output['esi_level_from_llm'] = esi_from_llm
+            supervisor_output['priority_code'] = {1: 'RED', 2: 'ORANGE', 3: 'YELLOW', 4: 'GREEN', 5: 'BLUE'}[esi_from_llm]
         
         # ===== APPLY VITALS GOVERNOR (SATS Safety Override) =====
         # Rule: If LLM says ESI 1 AND TEWS < 3 AND O2 > 94%, downgrade to ESI 2
@@ -9199,6 +9519,14 @@ CRITICAL RULES:
         # Extract GGUF output insights
         llm_analysis_final = supervisor_output.get('llmAnalysis', '') if supervisor_output else ''
         pathognomonic_markers = supervisor_output.get('pathognomonic_markers', []) if supervisor_output else []
+        referenced_historical_encounters = longitudinal_history['referenced_historical_encounters']
+        ignored_historical_encounters = longitudinal_history['ignored_historical_encounters']
+        if supervisor_output and isinstance(supervisor_output, dict):
+            if isinstance(supervisor_output.get('referenced_historical_encounters'), list):
+                referenced_historical_encounters = supervisor_output.get('referenced_historical_encounters')
+            if isinstance(supervisor_output.get('ignored_historical_encounters'), list):
+                ignored_historical_encounters = supervisor_output.get('ignored_historical_encounters')
+        print(f'[llm-triage] 📚 FINAL HISTORY PROVENANCE: available={available_history_ids} | referenced={referenced_historical_encounters} | ignored={ignored_historical_encounters}')
         
         # Detect additional pathognomonic markers
         path_markers = detect_pathognomonic_markers(patient_text)
@@ -9250,10 +9578,13 @@ CRITICAL RULES:
                     "diagnoses": diagnoses,
                     "differential_diagnosis": supervisor_output.get('differential_diagnosis', diagnoses) if supervisor_output else diagnoses,
                     "risk_factors": supervisor_output.get('risk_factors', []) if supervisor_output else [],
-                    "pathognomonic_markers": pathognomonic_markers if pathognomonic_markers else []
+                    "pathognomonic_markers": pathognomonic_markers if pathognomonic_markers else [],
+                    "referenced_historical_encounters": referenced_historical_encounters,
+                    "ignored_historical_encounters": ignored_historical_encounters
                 },
                 "patient": patient,
                 "vitals": vitals_raw,
+                "longitudinalHistory": longitudinal_history,
                 "vitalsComputed": vitals,
                 "recommendedDepartment": final_specialty,
                 "recommended_specialty": final_specialty,
@@ -9289,6 +9620,10 @@ CRITICAL RULES:
                         "vital_triggers": vital_triggers if vital_triggers else []
                     },
                     "pathognomonic_markers": pathognomonic_markers if pathognomonic_markers else [],
+                    "referenced_historical_encounters": referenced_historical_encounters,
+                    "ignored_historical_encounters": ignored_historical_encounters,
+                    "critical_history": critical_history_list,
+                    "critical_history_status": critical_history_status,
                     "demographics": {
                         "age": patient_age,
                         "sex": patient_sex

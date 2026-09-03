@@ -8,6 +8,11 @@ const transcriptSchema = new mongoose.Schema({
 
 const encounterSchema = new mongoose.Schema({
   hospitalId: { type: mongoose.Schema.Types.ObjectId, ref: "Hospital", default: null }, // Multi-tenant isolation (optional for backward compatibility)
+  date: { type: Date, index: true, default: Date.now },
+  syntheticData: { type: Boolean, default: false, index: true },
+  seedBatch: { type: String, default: null, index: true },
+  seedPatientCount: { type: Number, default: null },
+  sourceMetadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   nurse_id: { type: mongoose.Schema.Types.ObjectId, ref: "Nurse", default: null },
   assignedNurseId: { type: mongoose.Schema.Types.ObjectId, ref: "Nurse", default: null },
   assignedPhysicianId: { type: String, default: null }, // Store as string since physician system may vary
@@ -78,7 +83,27 @@ const encounterSchema = new mongoose.Schema({
     symptoms: String,
     duration: String,
     painLevel: String,
-    history: String
+    history: String,
+    criticalHistoryStatus: {
+      type: String,
+      enum: ['reported', 'none_established', ''],
+      default: ''
+    },
+    criticalHistory: {
+      allergies: { type: [String], default: [] },
+      adverseReactions: { type: [String], default: [] },
+      medications: { type: [String], default: [] },
+      conditions: { type: [String], default: [] },
+      implantsOrProcedures: { type: [String], default: [] }
+    },
+    criticalHistoryReview: {
+      sourceEncounterId: String,
+      sourceTimestamp: Date,
+      confirmed: Boolean,
+      reviewedAt: Date,
+      reviewedBy: String,
+      reviewReason: String
+    }
   },
   transcript: { type: [transcriptSchema], default: [] }, // important: normalized array
   vitals: {

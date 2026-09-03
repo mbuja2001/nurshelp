@@ -625,6 +625,8 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
         medicalHistory: patientData.history ? [patientData.history] : [],
         medications: patientData.medications || [],
         allergies: patientData.allergies || [],
+        criticalHistoryStatus: patientData.criticalHistoryStatus || '',
+        criticalHistory: patientData.criticalHistory || {},
         chiefComplaint: patientData.symptoms || 'Patient presenting with reported symptoms',
         triageNotes: composedReasoning,
 
@@ -736,7 +738,9 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
             : (Array.isArray(safePatientData.symptoms) ? safePatientData.symptoms.join(", ") : ""),
           history: safePatientData.history || '',
           duration: safePatientData.duration || '',
-          painLevel: safePatientData.painLevel || ''
+          painLevel: safePatientData.painLevel || '',
+          criticalHistoryStatus: safePatientData.criticalHistoryStatus || '',
+          criticalHistory: safePatientData.criticalHistory || {}
         },
         vitals: {
           temp: parseFloat(vitalsData.temp) || null,

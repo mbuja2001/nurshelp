@@ -1,7 +1,7 @@
 // src/PatientSummary/Components/RightColumn.jsx
 import React, { useState, useEffect } from "react";
 
-export default function RightColumn({ vitalsData = {}, triage = null, activeTab = "manual", onOpenForm, onManualTriage, onAiTriage, saving }) {
+export default function RightColumn({ vitalsData = {}, triage = null, activeTab = "manual", onOpenForm, onClearVitals, onManualTriage, onAiTriage, saving }) {
   const [bedAssigned, setBedAssigned] = useState(false);
   const [doctorNotified, setDoctorNotified] = useState(false);
   const [timeLeft, setTimeLeft] = useState(null);
@@ -140,7 +140,10 @@ export default function RightColumn({ vitalsData = {}, triage = null, activeTab 
       <div className="block">
         <div className="block-header">
           <h4 className="block-label">Patient Vitals & Queue</h4>
-          <button className="edit-action-btn" onClick={onOpenForm}>✎</button>
+          <div className="action-group">
+            <button className="edit-action-btn" type="button" onClick={onOpenForm} title="Edit patient vitals">✎</button>
+            <button className="delete-btn" type="button" onClick={onClearVitals} title="Clear patient vitals">×</button>
+          </div>
         </div>
 
         <div className="vitals-display-list">

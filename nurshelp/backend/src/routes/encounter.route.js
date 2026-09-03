@@ -19,7 +19,8 @@ import {
   updateSurgeryRecord,
   getSurgeryRecords,
   getSurgeriesForPhysician,
-  getEncountersForPhysician
+  getEncountersForPhysician,
+  getUserHistoryActions
 } from "../controllers/encounter.controller.js";
 import { createHandover } from "../controllers/handover.controller.js";
 import { protect } from "../middleware/authmiddleware.js";
@@ -36,6 +37,9 @@ router.get("/waiting", protect, getWaitingEncounters);
 
 // Get all encounters for a physician (aggregated)
 router.get("/physician/all", protect, getEncountersForPhysician);
+
+// Get the current user's own action history from status changes and handovers
+router.get("/my-history", protect, getUserHistoryActions);
 
 // Get all surgeries for a physician (aggregated)
 router.get("/physician/surgeries", protect, getSurgeriesForPhysician);

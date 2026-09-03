@@ -38,6 +38,32 @@ const getCleanPatientData = () => ({
   },
 });
 
+const readCachedValue = (key, fallback) => {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+};
+
+const getCleanVitalsData = () => ({
+  temp: "--",
+  bp: "--",
+  hr: "--",
+  o2: "--",
+  resp: "--",
+  bp_systolic: null,
+  bp_diastolic: null,
+  bp_left_systolic: null,
+  bp_left_diastolic: null,
+  bp_right_systolic: null,
+  bp_right_diastolic: null,
+  avpu: null,
+  mobility: "Walks",
+  traumaPresent: false
+});
+
 /** Normalize temperature into a safe numeric value (or null).
  *  - Accepts numeric-like input, returns number with 1 decimal place.
  *  - Returns null for invalid or clinically impossible values.
@@ -78,41 +104,88 @@ const formatDate = (isoString) => {
   }
 };
 
+const formatClinicalTimestamp = (value) => {
+  if (!value) return 'No date';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'No date';
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric'
+    }).format(date);
+  } catch (e) {
+    return 'No date';
+  }
+};
+
 const isSearchable = (query) => query && query.trim().length >= 2;
+
+const asList = (value) => Array.isArray(value)
+  ? value.filter((item) => item !== null && item !== undefined && String(item).trim() !== '')
+  : (value ? String(value).split(',').map((item) => item.trim()).filter(Boolean) : []);
+
+const normalizeCriticalHistory = (source = {}) => {
+  const history = source?.criticalHistory || source?.critical_history || {};
+  const fallback = source?.criticalHistory || source?.critical_history || source || {};
+
+  return {
+    allergies: asList(history?.allergies ?? fallback?.allergies ?? []),
+    adverseReactions: asList(history?.adverseReactions ?? history?.adverse_reactions ?? fallback?.adverseReactions ?? fallback?.adverse_reactions ?? []),
+    medications: asList(history?.medications ?? fallback?.medications ?? []),
+    conditions: asList(history?.conditions ?? fallback?.conditions ?? []),
+    implantsOrProcedures: asList(history?.implantsOrProcedures ?? history?.implants_or_procedures ?? fallback?.implantsOrProcedures ?? fallback?.implants_or_procedures ?? [])
+  };
+};
+
+const extractCriticalHistoryFromPatient = (patient = {}) => {
+  const history = normalizeCriticalHistory(patient);
+  const explicitStatus = patient?.criticalHistoryStatus || patient?.critical_history_status || patient?.criticalHistory?.status || '';
+  const normalizedStatus = explicitStatus === 'reported' || explicitStatus === 'none_established' ? explicitStatus : '';
+
+  return {
+    criticalHistoryStatus: normalizedStatus,
+    criticalHistory: history
+  };
+};
+
+const extractCriticalHistoryFromEncounters = (encounters = []) => {
+  const sources = encounters.flatMap((encounter) => [
+    encounter?.patient || {},
+    encounter || {}
+  ]);
+  const criticalHistory = sources.reduce((merged, source) => {
+    const current = extractCriticalHistoryFromPatient(source).criticalHistory;
+    Object.keys(merged).forEach((field) => {
+      merged[field] = [...new Set([...merged[field], ...current[field]])];
+    });
+    return merged;
+  }, {
+    allergies: [],
+    adverseReactions: [],
+    medications: [],
+    conditions: [],
+    implantsOrProcedures: []
+  });
+  const hasExplicitReportedHistory = sources.some((source) => (
+    source?.criticalHistoryStatus === 'reported' || source?.critical_history_status === 'reported'
+  ));
+  const hasCriticalValues = Object.values(criticalHistory).some((items) => items.length > 0);
+
+  return {
+    criticalHistoryStatus: hasExplicitReportedHistory || hasCriticalValues ? 'reported' : '',
+    criticalHistory
+  };
+};
 
 export default function PS() {
   const navigate = useNavigate();
   const { patientId } = useParams();
 
   // ---------- State ----------
-  const [patientData, setPatientData] = useState(() => {
-    const saved = localStorage.getItem("ps_patient");
-    try {
-      return saved ? JSON.parse(saved) : getCleanPatientData();
-    } catch (err) {
-      console.warn("Failed to parse saved patient data from localStorage", err);
-      return getCleanPatientData();
-    }
-  });
+  const [patientData, setPatientData] = useState(() => readCachedValue('ps_patient', getCleanPatientData()));
 
-  const [transcript, setTranscript] = useState([]);
+  const [transcript, setTranscript] = useState(() => readCachedValue('ps_transcript', []));
 
-  const [vitalsData, setVitalsData] = useState({
-    temp: "--",
-    bp: "--",
-    hr: "--",
-    o2: "--",
-    resp: "--",
-    bp_systolic: null,
-    bp_diastolic: null,
-    bp_left_systolic: null,
-    bp_left_diastolic: null,
-    bp_right_systolic: null,
-    bp_right_diastolic: null,
-       avpu: null,
-       mobility: "Walks",
-       traumaPresent: false
-  });
+  const [vitalsData, setVitalsData] = useState(() => ({ ...getCleanVitalsData(), ...readCachedValue('ps_vitals', {}) }));
 
   const [triageResult, setTriageResult] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -123,39 +196,70 @@ export default function PS() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
-  const [ehrSummary, setEhrSummary] = useState(null);
-  const [selectedMrn, setSelectedMrn] = useState(null);
+  const [ehrSummary, setEhrSummary] = useState(() => readCachedValue('ps_ehr_summary', null));
+  const [selectedMrn, setSelectedMrn] = useState(() => readCachedValue('ps_selected_mrn', null));
   const [loadingEHR, setLoadingEHR] = useState(false);
+  const [showAIPreview, setShowAIPreview] = useState(false);
+  const [aiPreviewApproved, setAiPreviewApproved] = useState(false);
+  const [ragEnabled, setRagEnabled] = useState(false);
   const searchRequestRef = useRef(null);
   const ehrRequestRef = useRef(null);
 
-  // ---------- Persistence ----------
-  useEffect(() => { localStorage.setItem("ps_patient", JSON.stringify(patientData)); }, [patientData]);
-  useEffect(() => { localStorage.setItem("ps_transcript", JSON.stringify(transcript)); }, [transcript]);
-  useEffect(() => { localStorage.setItem("ps_vitals", JSON.stringify(vitalsData)); }, [vitalsData]);
+  const resetPatientForm = () => {
+    setPatientData(getCleanPatientData());
+    setTranscript([]);
+    setVitalsData({
+      temp: '--',
+      bp: '--',
+      hr: '--',
+      o2: '--',
+      resp: '--',
+      bp_systolic: null,
+      bp_diastolic: null,
+      bp_left_systolic: null,
+      bp_left_diastolic: null,
+      bp_right_systolic: null,
+      bp_right_diastolic: null,
+      avpu: null,
+      mobility: 'Walks',
+      traumaPresent: false
+    });
+    setEhrSummary(null);
+    setSelectedMrn(null);
+    localStorage.removeItem('ps_patient');
+    localStorage.removeItem('ps_transcript');
+    localStorage.removeItem('ps_vitals');
+    localStorage.removeItem('ps_ehr_summary');
+    localStorage.removeItem('ps_selected_mrn');
+  };
 
-  // ---------- Restore from localStorage for crash recovery (existing encounters only) ----------
+  const clearVitals = () => {
+    if (!window.confirm("Are you sure you want to clear patient vitals?")) return;
+    setVitalsData(getCleanVitalsData());
+  };
+
+  // ---------- Persistence ----------
   useEffect(() => {
-    if (!patientId || patientId === "new") return; // Don't restore for new encounters
-    const savedTranscript = localStorage.getItem("ps_transcript");
-    const savedVitals = localStorage.getItem("ps_vitals");
-    
-    // Only restore if we don't have data yet (first load)
-    if (transcript.length === 0 && savedTranscript) {
-      try {
-        setTranscript(JSON.parse(savedTranscript));
-      } catch (e) {
-        console.warn("Failed to restore transcript from localStorage");
-      }
-    }
-    if ((!vitalsData || !vitalsData.bp || vitalsData.bp === "--") && savedVitals) {
-      try {
-        setVitalsData(JSON.parse(savedVitals));
-      } catch (e) {
-        console.warn("Failed to restore vitals from localStorage");
-      }
-    }
-  }, [patientId]);
+    localStorage.setItem('ps_patient', JSON.stringify(patientData));
+  }, [patientData]);
+
+  useEffect(() => {
+    localStorage.setItem('ps_transcript', JSON.stringify(transcript));
+  }, [transcript]);
+
+  useEffect(() => {
+    localStorage.setItem('ps_vitals', JSON.stringify(vitalsData));
+  }, [vitalsData]);
+
+  useEffect(() => {
+    if (ehrSummary) localStorage.setItem('ps_ehr_summary', JSON.stringify(ehrSummary));
+    else localStorage.removeItem('ps_ehr_summary');
+  }, [ehrSummary]);
+
+  useEffect(() => {
+    if (selectedMrn) localStorage.setItem('ps_selected_mrn', JSON.stringify(selectedMrn));
+    else localStorage.removeItem('ps_selected_mrn');
+  }, [selectedMrn]);
 
   const loadPatientEHR = async (mrn) => {
     if (!mrn) return;
@@ -194,30 +298,20 @@ export default function PS() {
 
       if (encounters.length > 0) {
         const patient = encounters[0].patient || {};
-        const criticalHistory = patient.criticalHistory || patient.critical_history || {};
-        setPatientData((prev) => ({
-          ...prev,
-          id_number: patient.id_number || prev.id_number || '',
-          name: patient.name || prev.name || '',
-          surname: patient.surname || prev.surname || '',
-          gender: patient.gender || prev.gender || '',
-          age: patient.age ?? prev.age ?? null,
-          ageYears: patient.ageYears ?? prev.ageYears ?? null,
-          ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
-          height_cm: patient.height_cm ?? prev.height_cm ?? null,
-          symptoms: '',
-          history: '',
-          duration: '',
-          painLevel: '',
-          criticalHistoryStatus: patient.criticalHistoryStatus || patient.critical_history_status || (Object.values(criticalHistory).some((items) => Array.isArray(items) && items.length) ? 'reported' : ''),
-          criticalHistory: {
-            allergies: criticalHistory.allergies || patient.allergies || [],
-            adverseReactions: criticalHistory.adverseReactions || criticalHistory.adverse_reactions || [],
-            medications: criticalHistory.medications || patient.medications || [],
-            conditions: criticalHistory.conditions || [],
-            implantsOrProcedures: criticalHistory.implantsOrProcedures || criticalHistory.implants_or_procedures || []
-          }
-        }));
+        const folderCriticalHistory = extractCriticalHistoryFromEncounters(encounters);
+        setPatientData({
+          ...getCleanPatientData(),
+          id_number: patient.id_number || '',
+          name: patient.name || '',
+          surname: patient.surname || '',
+          gender: patient.gender || '',
+          age: patient.age ?? null,
+          ageYears: patient.ageYears ?? null,
+          ageMonths: patient.ageMonths ?? null,
+          height_cm: patient.height_cm ?? null,
+          criticalHistoryStatus: folderCriticalHistory.criticalHistoryStatus,
+          criticalHistory: folderCriticalHistory.criticalHistory
+        });
       }
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -287,21 +381,25 @@ export default function PS() {
     setSearchError(null);
     setSelectedMrn(identifier);
     setSearchQuery(patient.id_number || identifier);
-    setPatientData((prev) => ({
-      ...prev,
+
+    const criticalHistoryFields = extractCriticalHistoryFromPatient(patient);
+    setPatientData({
+      ...getCleanPatientData(),
       id_number: patient.id_number || '',
-      name: patient.name || prev.name || '',
-      surname: patient.surname || prev.surname || '',
-      gender: patient.gender || prev.gender || '',
-      age: patient.age ?? prev.age ?? null,
-      ageYears: patient.ageYears ?? prev.ageYears ?? null,
-      ageMonths: patient.ageMonths ?? prev.ageMonths ?? null,
-      height_cm: patient.height_cm ?? prev.height_cm ?? null,
+      name: patient.name || '',
+      surname: patient.surname || '',
+      gender: patient.gender || '',
+      age: patient.age ?? null,
+      ageYears: patient.ageYears ?? null,
+      ageMonths: patient.ageMonths ?? null,
+      height_cm: patient.height_cm ?? null,
       symptoms: '',
       history: '',
       duration: '',
-      painLevel: ''
-    }));
+      painLevel: '',
+      criticalHistoryStatus: criticalHistoryFields.criticalHistoryStatus,
+      criticalHistory: criticalHistoryFields.criticalHistory
+    });
 
     await loadPatientEHR(identifier);
   };
@@ -314,9 +412,9 @@ export default function PS() {
     setLoadingEHR(false);
     setSearchLoading(false);
     setSelectedMrn(null);
-    setEhrSummary(null);
     setSearchResults([]);
     setSearchError(null);
+    resetPatientForm();
   };
 
   const cancelSearch = () => {
@@ -332,22 +430,7 @@ export default function PS() {
   const startNewIntake = () => {
     clearPatientSelection();
     setSearchQuery('');
-    setPatientData(getCleanPatientData());
-    setTranscript([]);
-    setVitalsData({
-      temp: '--',
-      bp: '--',
-      hr: '--',
-      o2: '--',
-      resp: '--',
-      avpu: 'A',
-      bp_systolic: null,
-      bp_diastolic: null,
-      bp_left_systolic: null,
-      bp_left_diastolic: null,
-      bp_right_systolic: null,
-      bp_right_diastolic: null
-    });
+    resetPatientForm();
   };
 
   const getPatientAgeLabel = () => {
@@ -370,13 +453,6 @@ export default function PS() {
   // Auto open vitals when route is /summary/new + CLEAR localStorage for fresh encounter
   useEffect(() => {
     if (patientId === "new") {
-      // CRITICAL: Clear all previous patient data when starting a NEW encounter
-      localStorage.removeItem("ps_patient");
-      localStorage.removeItem("ps_transcript");
-      localStorage.removeItem("ps_vitals");
-      setPatientData(getCleanPatientData());
-      setTranscript([]);
-      setVitalsData({ temp: "--", bp: "", hr: "", o2: "", resp: "", avpu: "A", bp_systolic: null, bp_diastolic: null, bp_left_systolic: null, bp_left_diastolic: null, bp_right_systolic: null, bp_right_diastolic: null });
       setTriageResult(null);
       setShowForm(true);
     }
@@ -389,13 +465,6 @@ export default function PS() {
       if (!patientId || patientId === "new") return;
       setLoadingEncounter(true);
       try {
-        // CRITICAL: Clear localStorage before loading to prevent ghost data from previous encounters
-        if (patientId !== "new") {
-          localStorage.removeItem("ps_patient");
-          localStorage.removeItem("ps_transcript");
-          localStorage.removeItem("ps_vitals");
-        }
-
         const res = await fetch(`${BACKEND_URL}/api/encounters/${patientId}`, {
           headers: {
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -510,9 +579,9 @@ export default function PS() {
 
     return {
       // ===== CLINICAL HANDOVER CONTEXT (from JWT) =====
-      hospitalId,           // ObjectId - retrieved from JWT
-      patientId,            // Patient identifier
-      triageNurseId,        // Staff ID from JWT (who is triaging)
+      hospitalId,
+      patientId,
+      triageNurseId,
       
       // ===== PATIENT & VITALS DATA =====
       patient: {
@@ -520,7 +589,6 @@ export default function PS() {
         name: patientData?.name ?? "",
         surname: patientData?.surname ?? "",
         gender: patientData?.gender ?? "",
-        // Support both new (ageYears/ageMonths) and legacy (age) formats
         age: patientData?.ageYears ?? patientData?.age ?? null,
         ageMonths: patientData?.ageMonths ?? null,
         height_cm: patientData?.height_cm ?? null,
@@ -547,14 +615,62 @@ export default function PS() {
       },
       transcript: safeTranscript,
       arrival_time: new Date().toISOString(),
-      
-      // CRITICAL: Use LLM_ONLY mode to prevent redundant Flask calls
-      // This skips the initial RAG/ESI_Engine call and goes directly to LLM synthesis
-      // Reduces duplicate GGUF inferences from 2 calls to 1 call
-      computeMode: 'LLM_ONLY'
+      computeMode: ragEnabled ? 'HYBRID' : 'LLM_ONLY',
+      ragEnabled
     };
   };
 
+  const buildAIPreviewPayload = () => {
+    const payload = buildPayload();
+    const historicalEncounters = ehrSummary?.encounters || [];
+    const renderedEncounters = historicalEncounters.slice(0, 6).map((enc, idx) => {
+      const patient = enc?.patient || {};
+      const date = enc?.date || enc?.submittedAt || enc?.createdAt || null;
+      const shortDate = formatClinicalTimestamp(date) || `Encounter ${idx + 1}`;
+      const symptomSummary = patient?.symptoms || enc?.symptoms || 'No symptom summary';
+      const priorHistory = patient?.history || enc?.history || 'No prior history';
+      return {
+        encounterIndex: idx + 1,
+        timestamp: shortDate,
+        symptoms: symptomSummary,
+        priorHistory,
+        status: enc?.status || 'Unknown status'
+      };
+    });
+
+    const historyText = renderedEncounters.length
+      ? renderedEncounters.map((item) => (
+          `${item.timestamp} • ${item.status} • ${item.symptoms} • ${item.priorHistory}`
+        )).join("\n\n")
+      : "No prior encounter history loaded for this patient.";
+
+    return {
+      ...payload,
+      aiContextPreview: {
+        source: selectedMrn ? `Loaded EHR record: ${selectedMrn}` : 'Current intake form',
+        historicalEncounterCount: historicalEncounters.length,
+        loadedRecordCount: historicalEncounters.length,
+        criticalHistory: patientData?.criticalHistory || {},
+        historyContextPreview: historyText,
+        renderedEncounters,
+        transcriptPreview: Array.isArray(payload.transcript)
+          ? payload.transcript.slice(0, 5)
+          : [payload.transcript],
+        computeMode: payload.computeMode
+      }
+    };
+  };
+
+  const openAIPreview = () => {
+    setAiPreviewApproved(false);
+    setShowAIPreview(true);
+  };
+
+  const confirmAIPreview = async () => {
+    setAiPreviewApproved(true);
+    setShowAIPreview(false);
+    await handleSavePatient();
+  };
 
   // ---------- Submit AI triage (with clinical handover) ----------
   const handleSavePatient = async () => {
@@ -721,6 +837,7 @@ export default function PS() {
               triage={triageResult}
               activeTab={activeTriageTab}
               onOpenForm={() => setShowForm(true)}
+              onClearVitals={clearVitals}
               onManualTriage={() => {
                 const state = {
                   patientData,
@@ -731,7 +848,7 @@ export default function PS() {
                 localStorage.setItem("manual_triage_report_state", JSON.stringify(state));
                 navigate("/manual-triage-report", { state });
               }}
-              onAiTriage={handleSavePatient}
+              onAiTriage={openAIPreview}
               saving={saving}
             />
           </div>
@@ -822,6 +939,148 @@ export default function PS() {
           />
         )}
       </div>
+
+      {showAIPreview && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          padding: 20
+        }} onClick={() => setShowAIPreview(false)}>
+          <div
+            style={{
+              width: 'min(1000px, 92vw)',
+              maxHeight: '88vh',
+              overflow: 'auto',
+              background: '#fff',
+              borderRadius: 18,
+              boxShadow: '0 24px 80px rgba(15, 23, 42, 0.3)',
+              padding: 24,
+              color: '#111827'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#2563eb', fontWeight: 700 }}>
+                  AI triage review
+                </div>
+                <h3 style={{ margin: '8px 0 0', fontSize: 28 }}>Clinical context before auto-triage</h3>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {selectedMrn && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/ehr?patient=${encodeURIComponent(selectedMrn)}`)}
+                    style={{ border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', borderRadius: 8, padding: '10px 14px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Open EHR record
+                  </button>
+                )}
+                <button type="button" onClick={() => setShowAIPreview(false)} style={{ border: '1px solid #d1d5db', background: '#fff', borderRadius: 8, padding: '10px 14px', cursor: 'pointer', fontWeight: 600 }}>
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#1d4ed8', fontWeight: 700 }}>Patient</div>
+                <div style={{ fontWeight: 700, marginTop: 8 }}>{patientData?.name || 'Unknown'} {patientData?.surname || ''}</div>
+                <div style={{ color: '#374151', marginTop: 4 }}>{patientData?.id_number || 'No MRN'}</div>
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#475569', fontWeight: 700 }}>Historical context</div>
+                <div style={{ fontWeight: 700, marginTop: 8 }}>{ehrSummary?.totalEncounters ?? 0} prior encounter(s)</div>
+                <div style={{ color: '#374151', marginTop: 4 }}>{selectedMrn ? `Loaded from ${selectedMrn}` : 'New intake'}</div>
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#475569', fontWeight: 700 }}>Compute mode</div>
+                <div style={{ fontWeight: 700, marginTop: 8 }}>{buildAIPreviewPayload().computeMode}</div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#374151', marginTop: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={ragEnabled} onChange={(event) => setRagEnabled(event.target.checked)} />
+                  Use PubMed reference cases
+                </label>
+                <div style={{ color: '#64748b', marginTop: 4, fontSize: 12 }}>
+                  Patient EHR history remains available in both modes.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 18, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>Encounter records included in this AI input</div>
+              {buildAIPreviewPayload().aiContextPreview.renderedEncounters.length > 0 ? (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {buildAIPreviewPayload().aiContextPreview.renderedEncounters.map((item) => (
+                    <div key={`${item.timestamp}-${item.encounterIndex}`} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+                        <strong style={{ color: '#111827' }}>Encounter {item.encounterIndex}</strong>
+                        <span style={{ color: '#475569', fontSize: 12 }}>{item.timestamp}</span>
+                      </div>
+                      <div style={{ color: '#374151', fontSize: 12, lineHeight: 1.6 }}>
+                        <div><strong>Status:</strong> {item.status}</div>
+                        <div><strong>Symptoms:</strong> {item.symptoms}</div>
+                        <div><strong>History:</strong> {item.priorHistory}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: '#475569', fontSize: 12 }}>No prior encounter history loaded for this patient.</div>
+              )}
+            </div>
+
+            <div style={{ marginBottom: 18, padding: 16, background: '#0f172a', color: '#e2e8f0', borderRadius: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Clinical summary for AI triage</div>
+              <div style={{ fontSize: 12, lineHeight: 1.7, color: '#dbeafe' }}>
+                <div><strong>Current concern:</strong> {patientData?.symptoms || 'Not recorded'}</div>
+                <div><strong>Vitals:</strong> Temp {normalizeTemp(vitalsData?.temp) ?? '--'}°C • BP {vitalsData?.bp || '--'} • HR {vitalsData?.hr ?? '--'} • O₂ {vitalsData?.o2 ?? '--'}%</div>
+                <div><strong>Critical history:</strong> {patientData?.criticalHistoryStatus === 'reported' ? 'Known risk factors documented' : 'None established'} </div>
+                <div><strong>Relevant details:</strong> {patientData?.criticalHistory ? Object.values(patientData.criticalHistory).flat().slice(0, 5).join(', ') || 'No additional risk factors recorded' : 'No additional risk factors recorded'}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid #e5e7eb', paddingTop: 16, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 600, color: '#374151', cursor: 'pointer', maxWidth: '65%' }}>
+                <input type="checkbox" checked={aiPreviewApproved} onChange={(e) => setAiPreviewApproved(e.target.checked)} />
+                I have reviewed the patient history and approve this context for AI triage.
+              </label>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {selectedMrn && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/ehr?patient=${encodeURIComponent(selectedMrn)}`)}
+                    style={{ background: '#fff', color: '#1f2937', border: '1px solid #cbd5e1', borderRadius: 10, padding: '12px 18px', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    View EHR
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!aiPreviewApproved}
+                  style={{
+                    background: aiPreviewApproved ? '#2563eb' : '#cbd5e1',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '12px 22px',
+                    fontWeight: 700,
+                    cursor: aiPreviewApproved ? 'pointer' : 'not-allowed'
+                  }}
+                  onClick={confirmAIPreview}
+                >
+                  Approve & Submit Auto-Triage
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </SidebarLayout>
   );
 }

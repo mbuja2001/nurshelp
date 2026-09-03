@@ -30,7 +30,22 @@ const patientEHRRecordSchema = new mongoose.Schema(
     },
     age: Number,
     gender: String,
+    height_cm: Number,
     mrn: String, // Medical Record Number
+    date: {
+      type: Date,
+      index: true,
+    },
+    syntheticData: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    seedBatch: {
+      type: String,
+      default: null,
+      index: true,
+    },
 
     // Current Location
     currentBedId: {
@@ -131,10 +146,44 @@ const patientEHRRecordSchema = new mongoose.Schema(
     // Chief Complaint
     chiefComplaint: String,
     symptoms: String,
+    duration: String,
+    history: String,
     painLevel: {
-      type: Number,
-      min: 0,
-      max: 10,
+      type: String,
+    },
+
+    // Critical history must survive projection and reload.
+    criticalHistoryStatus: {
+      type: String,
+      enum: ['reported', 'none_established', ''],
+      default: '',
+    },
+    criticalHistory: {
+      allergies: { type: [String], default: [] },
+      adverseReactions: { type: [String], default: [] },
+      medications: { type: [String], default: [] },
+      conditions: { type: [String], default: [] },
+      implantsOrProcedures: { type: [String], default: [] },
+    },
+    criticalHistoryReview: {
+      sourceEncounterId: String,
+      sourceTimestamp: Date,
+      confirmed: Boolean,
+      reviewedAt: Date,
+      reviewedBy: String,
+      reviewReason: String,
+    },
+    referencedHistoricalEncounters: {
+      type: [String],
+      default: [],
+    },
+    ignoredHistoricalEncounters: {
+      type: [String],
+      default: [],
+    },
+    sourceMetadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
 
     // Nursing Notes (pulled from EHR)

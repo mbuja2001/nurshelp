@@ -1,6 +1,6 @@
 const DEFAULT_RECENT_HOURS = 72;
 const DEFAULT_TREND_DAYS = 90;
-const DEFAULT_SUMMARY_ITEMS = 20;
+const DEFAULT_SUMMARY_ITEMS = 25;
 
 const getBudgetProfile = (maxCharacters) => {
   if (maxCharacters >= 12000) return { recentHours: 72, maxRelevant: 5, maxSummaryItems: 20 };
@@ -57,6 +57,18 @@ const getCriticalFacts = (encounter) => {
     ? encounter.criticalFacts
     : Array.isArray(encounter.critical_facts) ? encounter.critical_facts : [];
   const candidates = [...explicit];
+  const criticalHistory = encounter.criticalHistory || encounter.critical_history || encounter.patient?.criticalHistory || encounter.patient?.critical_history || {};
+  const criticalHistoryLabels = {
+    allergies: 'allergy',
+    adverseReactions: 'adverse_reaction',
+    medications: 'high_risk_medication',
+    conditions: 'major_condition',
+    implantsOrProcedures: 'critical_implant_or_procedure'
+  };
+  Object.entries(criticalHistoryLabels).forEach(([field, type]) => {
+    const values = Array.isArray(criticalHistory[field]) ? criticalHistory[field] : [];
+    values.forEach((description) => candidates.push({ type, description, severity: 'high-risk' }));
+  });
   if (encounter.allergy || encounter.allergies || encounter.allergyEvent) {
     candidates.push({ type: 'allergy', description: encounter.allergy || encounter.allergies || 'Documented allergy', severity: 'high-risk' });
   }
@@ -103,11 +115,12 @@ const buildVitalTrend = (encounters) => {
 const buildTrendSummary = (encounters, maxSummaryItems = DEFAULT_SUMMARY_ITEMS) => {
   const scored = encounters.map((encounter) => ({ encounter, total: getTews(encounter) })).filter(({ total }) => total !== null);
   const chronological = [...encounters].sort((left, right) => new Date(left.date) - new Date(right.date));
+  const latestScored = [...scored].sort((left, right) => new Date(right.encounter.date) - new Date(left.encounter.date))[0];
   const mobilitySequence = chronological.map((encounter) => normalizeMobility(encounter.mobility ?? encounter.vitals?.mobility ?? encounter.SATS_reasoning?.mobility));
 
   return {
     encounter_count: encounters.length,
-    latest_tews: scored[0]?.total ?? null,
+    latest_tews: latestScored?.total ?? null,
     highest_tews: scored.length ? Math.max(...scored.map(({ total }) => total)) : null,
     average_tews: average(scored.map(({ total }) => total)),
     red_cases: scored.filter(({ encounter, total }) => getPriority(encounter, total) === 'red').length,

@@ -73,10 +73,10 @@ export const buildInpatientTimeline = (encounter = {}) => {
     });
   };
 
-  const encounterTimestamp = encounter.createdAt || encounter.updatedAt;
+  const encounterTimestamp = encounter.date || encounter.createdAt || encounter.updatedAt;
 
   if (encounter.vitals && Object.keys(encounter.vitals).some((key) => encounter.vitals[key] != null)) {
-    pushEntry('VITALS', 'Vitals recorded', formatVitals(encounter.vitals), encounter.vitals.recordedAt || encounterTimestamp, {
+    pushEntry('VITALS', 'Vitals recorded', formatVitals(encounter.vitals), encounter.vitals.recordedAt || encounter.date || encounterTimestamp, {
       source: 'encounter.vitals',
       vitals: encounter.vitals
     });

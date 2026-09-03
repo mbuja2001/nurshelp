@@ -4,23 +4,40 @@ finish patient encounter lifecycle so you can have discharge papers and then hav
 
 Full Complete EHR lifecycle Hospital EHR context feature
 
+PERFECT AI TRIAGE HISTORY CONTEXT STUFFING
+
+APPROVE OR EDIT history context for AI (Human-In-The-Loop)
+
+Perfect the ui organization and display of patient records and search results in EHR make sure all reports and events are accurate and are in chronological order
 the priority queuing algorithm: put messages of why the patient moved up the priority queuing'
+the algorithm for showing patients who need attention based on health state in clinicians dashboards
 
-lets make sure the shortcut toolbar very flexible and adjustable as you can replace functions for your liking and style
 
-the algorithm for showing patients who need attention based on health state
+perfect Ordered Meds
+Perfect Pharmacy, radiology and pathology dashboards
+Lets perfect ClinicalNurseDashboard.jsx
+perfect Ordered Meds
+Perfect requested labs
+Perfect Surgery recording/reporting and scheduling
 
-Lets fix and perfect the clinical nurse interface
+lets have the header bar constantly and consistently through our pages
 
-In Triage, there should be clinical discriminator helpers and keywords
+
 
 In triaging choosing beds, i should be able to see their equipment data and configurations
 
-perfect the responsiveness of sidebarlayout.jsx and make sure every button is navigatable and every page is live and perfect in ui design and logic es[ecially the staff contact chat shortcut. Lets also do filtering for it to only render online staff members. there's different statuses for staff
+In Triage, there should be clinical discriminator helpers and keywords
+
+perfect surgery recording interface and data capturing
 
 perfect Ordered Meds
 
-perfect surgery recording interface and data capturing
+
+lets make sure the shortcut toolbar very flexible and adjustable as you can replace functions for your liking and style
+
+
+
+perfect the responsiveness of sidebarlayout.jsx and make sure every button is navigatable and every page is live and perfect in ui design and logic es[ecially the staff contact chat shortcut. Lets also do filtering for it to only render online staff members. there's different statuses for staff
 
 triage tables perfecting
 
@@ -32,6 +49,79 @@ Find all clinical events connected to this patient,
 then all related orders,
 then all results,
 then all follow-up actions.
+
+"8:27:26
+•
+17 Aug"
+
+these should be the same pill ui button functions that navigate to shiftschedulemanager.jsx which is the home for the clinical staff scheduled shifts
+these shifts should then allow the staff members just to clock in by themselves 
+
+The profile in sidebarlayout.jsx, it shouldn't just say time, it should represent shift status and its start and end time only. if you're not on call. it should say "Off-Duty" , if you have clocked in, it shows the start time and finish with a separated dash for start time and finish. this is still the exact same ui color and design
+only thing changing is what structured data do we have to render for hospital maneuverings
+
+fix analytical dashboards squares (Basic)
+
+lets the logic for transferring patients from ward beds to beds
+
+Perfect chat system & Alert System
+
+Perfect analytics dashboard 
+
+System Performance 
+
+Perfect Settings and Profile
+
+perfect admin dashboard
+
+Perfect website landing page
+
+Organize codebase with readme as deployment instructions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 in requesting labs, the preview is not what we want. we want it to be the next navigation. same way a diagnoses.jsx creates the inpatientreport.jsx
 where we can scroll through events with each timestamp
@@ -85,20 +175,6 @@ Average and trend
 
 
 
-
-
-
-"8:27:26
-•
-17 Aug"
-
-these should be the same pill ui button functions that navigate to shiftschedulemanager.jsx which is the home for the clinical staff scheduled shifts
-these shifts should then allow the staff members just to clock in by themselves 
-
-The profile in sidebarlayout.jsx, it shouldn't just say time, it should represent shift status and its start and end time only. if you're not on call. it should say "Off-Duty" , if you have clocked in, it shows the start time and finish with a separated dash for start time and finish. this is still the exact same ui color and design
-only thing changing is what structured data do we have to render for hospital maneuverings
-
-fix analytical dashboards squares (Basic)
 
 This is for the hospital context EHR:
 "Clinical intake
@@ -187,7 +263,7 @@ we need to put in logic for how to administer meds and scheduling surgeries then
 
 
 
-
+LIBRARY:
 
 
 

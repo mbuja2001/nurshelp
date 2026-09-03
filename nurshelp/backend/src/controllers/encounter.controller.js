@@ -147,7 +147,9 @@ export const runTriage = async (req, res) => {
         symptoms: comprehensiveClinicialText, // Use comprehensive text for symptoms field
         history: [payload.patient?.history, longitudinalHistory.serialized].filter(Boolean).join("\n\n"),
         duration: payload.patient?.duration || "",
-        painLevel: payload.patient?.painLevel || ""
+        painLevel: payload.patient?.painLevel || "",
+        criticalHistoryStatus: payload.patient?.criticalHistoryStatus || "",
+        criticalHistory: payload.patient?.criticalHistory || payload.patient?.critical_history || {}
       },
       vitals: {
         temp: payload.vitals?.temp ?? payload.vitals?.temperature ?? null,
@@ -2131,6 +2133,97 @@ export const getSurgeriesForPhysician = async (req, res) => {
   } catch (err) {
     console.error('[ENCOUNTER CONTROLLER] getSurgeriesForPhysician error:', err);
     return res.status(500).json({ message: 'Error fetching surgeries', error: err.message });
+  }
+};
+
+/**
+ * Get the authenticated user's personal activity history
+ * based on their JWT identity and the status_history / handover records they created.
+ */
+export const getUserHistoryActions = async (req, res) => {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    const hospitalId = req.user?.hospitalId || req.hospitalId;
+
+    console.log('[BACKEND] getUserHistoryActions start', {
+      userId: userId?.toString?.(),
+      hospitalId: hospitalId?.toString?.(),
+      authUser: req.user ? { _id: req.user._id?.toString?.(), email: req.user.email, role: req.user.role } : null
+    });
+
+    if (!userId || !hospitalId) {
+      console.log('[BACKEND] getUserHistoryActions unauthorized', { userId, hospitalId });
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    const encounters = await Encounter.find({
+      hospitalId: new mongoose.Types.ObjectId(hospitalId),
+      $or: [
+        { 'status_history.changed_by': new mongoose.Types.ObjectId(userId) },
+        { 'clinical_handovers.clinician_id': new mongoose.Types.ObjectId(userId) }
+      ]
+    })
+      .select('patient status status_history clinical_handovers createdAt updatedAt')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    console.log('[BACKEND] getUserHistoryActions raw encounters count', encounters.length);
+    console.log('[BACKEND] getUserHistoryActions raw encounters sample', JSON.stringify(encounters.slice(0, 2), null, 2));
+
+    const events = [];
+
+    for (const encounter of encounters) {
+      const patientName = encounter.patient?.name || 'Unknown Patient';
+      const patientId = encounter.patient?._id || encounter.patient?.id_number || null;
+
+      for (const event of encounter.status_history || []) {
+        const eventActorId = event.changed_by?.toString?.();
+        if (!eventActorId || eventActorId !== userId.toString()) continue;
+
+        events.push({
+          id: `${encounter._id}-status-${event._id || event.changed_at || Date.now()}`,
+          encounterId: encounter._id,
+          patientName,
+          patientId,
+          status: event.status || encounter.status || 'ACTION',
+          timestamp: event.changed_at || event.updatedAt || encounter.updatedAt,
+          notes: event.notes || '',
+          action: 'status_change',
+          updatedBy: req.user?.name || req.user?.email || 'You'
+        });
+      }
+
+      for (const handover of encounter.clinical_handovers || []) {
+        const handoverActorId = handover.clinician_id?.toString?.();
+        if (!handoverActorId || handoverActorId !== userId.toString()) continue;
+
+        events.push({
+          id: `${encounter._id}-handover-${handover._id || handover.handover_at || Date.now()}`,
+          encounterId: encounter._id,
+          patientName,
+          patientId,
+          status: 'HANDOVER',
+          timestamp: handover.handover_at || handover.created_at || encounter.updatedAt,
+          notes: handover.acknowledged_notes || handover.summary || `Handover ${handover.handover_status || 'updated'}`,
+          action: 'handover',
+          updatedBy: req.user?.name || req.user?.email || 'You',
+          handoverTo: handover.clinician_name || 'Assigned clinician'
+        });
+      }
+    }
+
+    events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    console.log('[BACKEND] getUserHistoryActions final events count', events.length);
+    console.log('[BACKEND] getUserHistoryActions final events', JSON.stringify(events.slice(0, 10), null, 2));
+
+    return res.status(200).json({
+      count: events.length,
+      events
+    });
+  } catch (error) {
+    console.error('[ENCOUNTER CONTROLLER] getUserHistoryActions error:', error);
+    return res.status(500).json({ message: 'Error fetching user history', error: error.message });
   }
 };
 

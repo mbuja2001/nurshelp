@@ -222,6 +222,7 @@ const Dashboard = () => {
 
       if (data.token) {
         localStorage.setItem("token", data.token);
+        window.dispatchEvent(new Event("nursehelpdesk:auth-changed"));
 
         const decoded = decodeJwt(data.token);
         localStorage.setItem("currentNurseId", decoded.id);

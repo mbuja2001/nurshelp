@@ -162,7 +162,10 @@ export const searchHospitalPatients = async (req, res) => {
         'assigned_clinicians': 1,
         'clinical_handovers': 1,
         'createdAt': 1,
-        'updatedAt': 1
+        'updatedAt': 1,
+        'date': 1,
+        'seedBatch': 1,
+        'syntheticData': 1
       })
       .sort({ createdAt: -1 })
       .skip(parseInt(skip))
@@ -172,6 +175,11 @@ export const searchHospitalPatients = async (req, res) => {
     const total = await Encounter.countDocuments(query);
 
     console.log('[SEARCH] Hospital:', hospitalId, '| Found:', encounters.length, 'of', total);
+    console.log('[SEARCH] Batch visibility:', encounters.reduce((batches, encounter) => {
+      const batch = encounter.seedBatch || 'non-synthetic';
+      batches[batch] = (batches[batch] || 0) + 1;
+      return batches;
+    }, {}));
     console.log('[SEARCH] Matches:', encounters.map((encounter) => ({
       name: encounter.patient?.name,
       surname: encounter.patient?.surname,
@@ -294,7 +302,19 @@ export const getPatientEHR = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    console.log('[EHR] Found', patientEncounters.length, 'encounters for patient');
+    console.log('[EHR] Found', patientEncounters.length, 'encounters for patient', {
+      hospitalId,
+      mrn,
+      batches: patientEncounters.reduce((batches, encounter) => {
+        const batch = encounter.seedBatch || 'non-synthetic';
+        batches[batch] = (batches[batch] || 0) + 1;
+        return batches;
+      }, {}),
+      dateRange: {
+        newest: patientEncounters[0]?.date || patientEncounters[0]?.createdAt || null,
+        oldest: patientEncounters.at(-1)?.date || patientEncounters.at(-1)?.createdAt || null
+      }
+    });
 
     res.json({
       success: true,

@@ -19,6 +19,12 @@ const normalizeBoolean = (value) => {
   return Boolean(value);
 };
 
+const normalizeCriticalHistory = (patient = {}, fallbackStatus = '', fallbackHistory = {}) => ({
+  ...patient,
+  criticalHistoryStatus: patient.criticalHistoryStatus || patient.critical_history_status || fallbackStatus || '',
+  criticalHistory: patient.criticalHistory || patient.critical_history || fallbackHistory || {}
+});
+
 /**
  * ============================================================
  * OPTION B: REAL-TIME STAFFING SERVICE DISCOVERY
@@ -253,7 +259,7 @@ export const runTriage = async (req, res) => {
     };
 
     const enginePayload = {
-      patient: payload.patient,
+      patient: normalizeCriticalHistory(payload.patient),
       vitals: normalizedVitals,
       transcript: transcriptArray,
       computeMode, // Tells ESI_Engine how to process
@@ -353,7 +359,7 @@ export const startEncounter = async (req, res) => {
     const encounter = await Encounter.create({
       hospitalId,
       nurse_id: req.user._id,
-      patient: req.body.patient || {},
+      patient: normalizeCriticalHistory(req.body.patient),
       transcript: transcriptArray,
       vitals: {
         temp: req.body.temperature,
@@ -430,6 +436,8 @@ export const confirmEncounter = async (req, res) => {
 export const requestTriageWithHospitalShifts = async (req, res) => {
   try {
     const { hospitalId, patient, vitals, transcript } = req.body;
+    const computeMode = req.body.computeMode || 'LLM_ONLY';
+    const ragEnabled = computeMode !== 'LLM_ONLY' && req.body.ragEnabled === true;
 
     // DEBUG: Log incoming request structure
     console.log(`\n[HOSPITAL-TRIAGE] 🔍 DEBUG: Incoming request body structure:`);
@@ -575,6 +583,8 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
       triageNurseId,                 // ← Clinical handover: who is triaging (audit trail)
       patient,
       vitals: vitals || {},
+      computeMode,
+      ragEnabled,
       history: longitudinalHistory.serialized,
       longitudinalHistory: longitudinalHistory.payload,
       transcript: transcript || '',
@@ -608,13 +618,20 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
     console.log(`[HOSPITAL-TRIAGE]    Uses: GGUF inference, synthesis, differential diagnosis, hardware-aware`);
     
     // Transform payload to /llm-triage schema (SATS/TEWS format for MedGemma)
+    const numberOrNull = (value) => {
+      if (value === undefined || value === null || value === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
     const vitalsNormalized = {
-      temperature: parseFloat(vitals?.temp || vitals?.temperature || 37.0),
-      heartRate: parseInt(vitals?.hr || vitals?.pulse || vitals?.heartRate || 80),
-      respiratoryRate: parseInt(vitals?.resp || vitals?.respiratoryRate || 16),
-      systolicBP: parseInt(vitals?.sysBloodPressure || vitals?.bp_systolic || vitals?.systolicBP || 120),
-      diastolicBP: parseInt(vitals?.diaBloodPressure || vitals?.bp_diastolic || vitals?.diastolicBP || 80),
-      oxygenSaturation: parseFloat(vitals?.o2 || vitals?.oxygenSaturation || 98.0)
+      temp: numberOrNull(vitals?.temp ?? vitals?.temperature),
+      hr: numberOrNull(vitals?.hr ?? vitals?.pulse ?? vitals?.heartRate),
+      resp: numberOrNull(vitals?.resp ?? vitals?.respiratoryRate),
+      bp_systolic: numberOrNull(vitals?.sysBloodPressure ?? vitals?.bp_systolic ?? vitals?.systolicBP),
+      bp_diastolic: numberOrNull(vitals?.diaBloodPressure ?? vitals?.bp_diastolic ?? vitals?.diastolicBP),
+      o2: numberOrNull(vitals?.o2 ?? vitals?.oxygenSaturation),
+      mobility: vitals?.mobility ?? 'Walks',
+      traumaPresent: Boolean(vitals?.traumaPresent)
     };
     
     // Transform to /llm-triage payload schema
@@ -689,13 +706,23 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
     const llmTriagePayload = {
       patient: {
         ...patient,
-        history: [patient.history, historyContext].filter(Boolean).join('\n\n')
+        history: patient.history || '',
+        criticalHistoryStatus: patient?.criticalHistoryStatus || patient?.critical_history_status || '',
+        criticalHistory: patient?.criticalHistory || patient?.critical_history || {},
+        referencedHistoricalEncounters: patient?.referencedHistoricalEncounters || [],
+        ignoredHistoricalEncounters: patient?.ignoredHistoricalEncounters || []
       },
       patientId: patientId,
       vitals: vitalsNormalized,
       vitalSigns: vitalsNormalized,  // Backward compat
       history: historyContext,
+      criticalHistoryStatus: patient?.criticalHistoryStatus || patient?.critical_history_status || '',
+      criticalHistory: patient?.criticalHistory || patient?.critical_history || {},
       longitudinalHistory: longitudinalHistory.payload,
+      referencedHistoricalEncounters: patient?.referencedHistoricalEncounters || [],
+      ignoredHistoricalEncounters: patient?.ignoredHistoricalEncounters || [],
+      computeMode,
+      ragEnabled,
       chiefComplaint: chiefComplaintStr, // Comprehensive clinical picture
       symptoms: chiefComplaintStr, // Same as chief complaint - comprehensive
       triageNotes: chiefComplaintStr,
@@ -824,7 +851,12 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
         pathognomonic_markers: clinicalAnalysis.pathognomonic_markers || [],
         diagnostic_workup: clinicalAnalysis.diagnostic_workup || [],
         disposition_rationale: clinicalAnalysis.disposition_rationale || '',
-        immediate_actions: clinicalAnalysis.immediate_actions || []
+        immediate_actions: clinicalAnalysis.immediate_actions || [],
+        evidence_provenance: clinicalAnalysis.evidence_provenance || {},
+        referenced_historical_encounters: clinicalAnalysis.referenced_historical_encounters || [],
+        ignored_historical_encounters: clinicalAnalysis.ignored_historical_encounters || [],
+        critical_history: clinicalAnalysis.critical_history || [],
+        critical_history_status: clinicalAnalysis.critical_history_status || ''
       };
       // Attach SATS reasoning (TEWS components/total) into triageResult for downstream use
       triageResult.SATS_reasoning = satsReasoning || {};
@@ -1021,7 +1053,12 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
           disposition_rationale: triageResult.disposition_rationale || '',
           clinical_summary: triageResult.clinical_summary || triageResult.llmAnalysis || '',
           immediate_actions: triageResult.immediate_actions || [],
-          SATS_reasoning: triageResult.SATS_reasoning || satsReasoning || {}
+          SATS_reasoning: triageResult.SATS_reasoning || satsReasoning || {},
+          referenced_historical_encounters: triageResult.referenced_historical_encounters || [],
+          ignored_historical_encounters: triageResult.ignored_historical_encounters || [],
+          critical_history: triageResult.critical_history || [],
+          critical_history_status: triageResult.critical_history_status || '',
+          evidence_provenance: triageResult.evidence_provenance || {}
         },
         clinical_structure: {
           diagnoses: triageResult.diagnoses || [],
@@ -1144,7 +1181,8 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
           disposition_rationale: triageResult.disposition_rationale || '',
           clinical_summary: triageResult.clinical_summary || triageResult.llmAnalysis || '',
           immediate_actions: triageResult.immediate_actions || [],
-          SATS_reasoning: triageResult.SATS_reasoning || satsReasoning || {}
+          SATS_reasoning: triageResult.SATS_reasoning || satsReasoning || {},
+          evidence_provenance: triageResult.evidence_provenance || {}
         }
       },
       data: {
@@ -1470,6 +1508,8 @@ export const submitManualTriage = async (req, res) => {
       medications,
       allergies,
       chiefComplaint,
+      criticalHistoryStatus,
+      criticalHistory,
       
       // Manual triage - SATS instead of ESI
       manualSatsLevel,
@@ -1727,11 +1767,13 @@ export const submitManualTriage = async (req, res) => {
       assigned_bed: bedAssigned || assignedBedNumber || null,
       ward_display_info: normalizedWardInfo,
       bed_display_info: normalizedBedInfo,
-      patient: patient || {
+      patient: normalizeCriticalHistory(patient || {
         id_number: patientId || "",
         name: "",
-        symptoms: symptomString
-      },
+        symptoms: symptomString,
+        criticalHistoryStatus: criticalHistoryStatus || '',
+        criticalHistory: criticalHistory || {}
+      }, criticalHistoryStatus, criticalHistory),
       vitals: {
         ...(vitals || {}),
         temp: vitalSigns?.temperature ?? vitals?.temp ?? null,

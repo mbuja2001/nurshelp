@@ -34,59 +34,39 @@ export default function HistoryActionsPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const headers = { 'Content-Type': 'application/json' };
-      if (token) headers.Authorization = `Bearer ${token}`;
+      console.log('[FRONTEND] HistoryActionsPage loadHistory start', { hasToken: !!token, backendUrl: BACKEND_URL });
 
-      // Fetch all encounters to show history
-      // Use physician-specific aggregated endpoint first (returns lightweight encounters)
-      const listRes = await fetch(`${BACKEND_URL}/api/encounters/physician/all?t=${Date.now()}`, { headers });
-      if (!listRes.ok) throw new Error('Failed to fetch physician encounters');
-      const listData = await listRes.json();
-      const encounters = listData.encounters || [];
+      if (!token) {
+        setHistory([]);
+        setError('Please sign in to view your action history');
+        setLoading(false);
+        return;
+      }
 
-      // Fetch full encounter details for the most recent 20 encounters to get status_history and handovers
-      const slice = encounters.slice(0, 20);
-      const detailPromises = slice.map(e => fetch(`${BACKEND_URL}/api/encounters/${e._id}?t=${Date.now()}`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null));
-      const details = await Promise.all(detailPromises);
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      };
 
-      const allEvents = [];
-      details.forEach(detail => {
-        if (!detail || !detail.encounter) return;
-        const enc = detail.encounter;
+      const historyRes = await fetch(`${BACKEND_URL}/api/encounters/my-history?t=${Date.now()}`, { headers });
+      console.log('[FRONTEND] HistoryActionsPage fetch response status', historyRes.status);
 
-        if (enc.status_history && Array.isArray(enc.status_history)) {
-          enc.status_history.forEach(event => {
-            allEvents.push({
-              id: `${enc._id}-${event.status}-${event.changed_at || event.timestamp}`,
-              encounterId: enc._id,
-              patientName: enc.patient?.name || 'Unknown Patient',
-              patientId: enc.patient?._id,
-              status: event.status,
-              timestamp: event.changed_at || event.timestamp,
-              notes: event.notes || '',
-              updatedBy: event.changed_by || event.updated_by || 'System'
-            });
-          });
-        }
+      if (!historyRes.ok) {
+        const payload = await historyRes.json().catch(() => ({}));
+        console.log('[FRONTEND] HistoryActionsPage fetch error payload', payload);
+        throw new Error(payload.message || 'Failed to fetch your action history');
+      }
 
-        if (enc.clinical_handovers && Array.isArray(enc.clinical_handovers)) {
-          enc.clinical_handovers.forEach((handover, idx) => {
-            allEvents.push({
-              id: `${enc._id}-handover-${idx}`,
-              encounterId: enc._id,
-              patientName: enc.patient?.name || 'Unknown Patient',
-              patientId: enc.patient?._id,
-              status: 'HANDOVER',
-              timestamp: handover.handover_at || handover.created_at,
-              notes: handover.summary || '',
-              updatedBy: handover.from_clinician?.name || handover.from || 'Unknown Clinician',
-              handoverTo: handover.to_clinician?.name || handover.to || 'Unknown Clinician'
-            });
-          });
-        }
-      });
+      const historyData = await historyRes.json();
+      console.log('[FRONTEND] HistoryActionsPage raw payload', historyData);
+
+      const allEvents = (historyData.events || []).map((event) => ({
+        ...event,
+        updatedBy: event.updatedBy || 'You'
+      }));
 
       allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      console.log('[FRONTEND] HistoryActionsPage normalized events', allEvents);
       setHistory(allEvents);
       setLoading(false);
     } catch (err) {

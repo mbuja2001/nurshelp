@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
+import { normalizeClinicalAnalysis } from "./utils/triageHelpers";
 
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -142,6 +143,8 @@ export default function PatientReport() {
   const [manuallySelectedClinicians, setManuallySelectedClinicians] = useState([]);
   const [recommendedClinicians, setRecommendedClinicians] = useState([]);
   const [showClinicianSelector, setShowClinicianSelector] = useState(false);
+  const [showPatientHistoryEvidence, setShowPatientHistoryEvidence] = useState(true);
+  const [showEvidenceTrail, setShowEvidenceTrail] = useState(false);
 
   // Ward and bed selection
   const [needsHospitalization, setNeedsHospitalization] = useState(null); // null = not decided, true = yes, false = no
@@ -912,16 +915,16 @@ export default function PatientReport() {
   };
 
   const renderEvidenceTrail = (casesList) => {
-    if (!Array.isArray(casesList) || casesList.length === 0) return null;
-
-    const referencedCases = casesList.filter(c => c.medgemma_referenced === true);
-    const totalCases = casesList.length;
+    const safeCases = Array.isArray(casesList) ? casesList : [];
+    const referencedCases = safeCases.filter(c => c.medgemma_referenced === true);
+    const totalCases = safeCases.length;
+    const ragData = triage?.ragData ?? {};
 
     return (
       <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: "#fffbeb", borderLeft: "4px solid #eab308" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 13 }}>
-            Evidence Trail
+            PubMed / RAG reference evidence
           </div>
           <button
             onClick={() => setShowEvidenceTrail(!showEvidenceTrail)}
@@ -937,13 +940,112 @@ export default function PatientReport() {
               transition: "all 0.2s"
             }}
           >
-            {showEvidenceTrail ? "Hide Evidence" : "Show Evidence"}
+            {showEvidenceTrail ? "Hide references" : "Show references"}
           </button>
+        </div>
+
+        <div style={{ color: "#475569", fontSize: 12, lineHeight: 1.5 }}>
+          {ragData.enabled_by_request === false || triage.computeMode === "llm_only" || triage.computeMode === "LLM_ONLY"
+            ? "RAG was disabled for this decision. No population reference cases were used."
+            : `${totalCases} population reference case${totalCases === 1 ? "" : "s"} retrieved; ${referencedCases.length} marked as used by the model.`}
         </div>
 
         {showEvidenceTrail && (
           <div style={{ marginTop: 10, borderTop: "1px solid #fcd34d", paddingTop: 12 }}>
-            {renderRAGCases(casesList)}
+            {totalCases > 0 ? renderRAGCases(safeCases) : (
+              <div style={{ color: "#64748b", fontSize: 13 }}>No PubMed/RAG reference cases were returned.</div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPatientHistoryEvidence = (provenance) => {
+    const history = provenance && typeof provenance === "object" ? provenance : null;
+    const assessment = history?.patient_history_assessment;
+    const references = Array.isArray(history?.referenced_encounters) ? history.referenced_encounters : [];
+    const exclusions = Array.isArray(history?.ignored_encounters) ? history.ignored_encounters : [];
+    const criticalHistory = Array.isArray(history?.critical_history) ? history.critical_history : [];
+    const hasHistoryProvenance = Boolean(assessment || history?.statement || references.length > 0 || exclusions.length > 0 || criticalHistory.length > 0);
+    const status = assessment === "referenced"
+      ? "Referenced in this decision"
+      : assessment === "loaded_not_relevant"
+        ? "Reviewed, not relevant"
+        : assessment === "not_available"
+          ? "No previous encounters available"
+          : assessment === "reviewed"
+            ? "History reviewed for this decision"
+          : "Provenance unavailable";
+
+    const openEncounterInLibrary = (encounterId) => {
+      if (!encounterId) return;
+      const patientId = encounter?.patient?.id_number || encounter?.patientId || encounter?.patient?.id;
+      const patientQuery = patientId ? `patient=${encodeURIComponent(patientId)}&` : "";
+      navigate(`/ehr?${patientQuery}encounter=${encodeURIComponent(encounterId)}`);
+    };
+
+    return (
+      <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: "#eff6ff", borderLeft: "4px solid #2563eb" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 13 }}>Patient EHR history</div>
+          <button
+            type="button"
+            onClick={() => setShowPatientHistoryEvidence(!showPatientHistoryEvidence)}
+            style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "1px solid #93c5fd", borderRadius: 6, background: "white", color: "#1d4ed8", cursor: "pointer" }}
+          >
+            {showPatientHistoryEvidence ? "Hide history" : "Show history"}
+          </button>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: assessment === "referenced" ? "#1d4ed8" : "#475569" }}>
+          {status}
+        </div>
+        {showPatientHistoryEvidence && (
+          <div style={{ marginTop: 8, borderTop: "1px solid #bfdbfe", paddingTop: 10, color: "#334155", fontSize: 12, lineHeight: 1.6 }}>
+            {!hasHistoryProvenance && <div>Evidence provenance is unavailable for this older encounter.</div>}
+            {history?.statement && <div>{history.statement}</div>}
+            {criticalHistory.length > 0 && <div><strong>Critical history:</strong> {criticalHistory.map((item) => typeof item === "string" ? item : JSON.stringify(item)).join(", ")}</div>}
+            {references.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <strong>Used in triage decision:</strong>
+                <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+                  {references.map((reference, index) => (
+                    <li key={`${reference.encounterId || "encounter"}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => openEncounterInLibrary(reference.encounterId)}
+                        style={{ border: 0, padding: 0, background: "transparent", color: "#1d4ed8", textDecoration: "underline", cursor: "pointer", fontWeight: 700 }}
+                        title="Open this encounter in the EHR Library"
+                      >
+                        {reference.encounterId}
+                      </button>
+                      {reference.timestamp ? ` - ${new Date(reference.timestamp).toLocaleString()}` : ""}
+                      {reference.reason ? `: ${reference.reason}` : reference.rationale ? `: ${reference.rationale}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {exclusions.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <strong>Excluded from triage decision:</strong>
+                <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+                  {exclusions.map((exclusion, index) => (
+                    <li key={`${exclusion.encounterId || "encounter"}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => openEncounterInLibrary(exclusion.encounterId)}
+                        style={{ border: 0, padding: 0, background: "transparent", color: "#64748b", textDecoration: "underline", cursor: "pointer", fontWeight: 700 }}
+                        title="Open this encounter in the EHR Library"
+                      >
+                        {exclusion.encounterId}
+                      </button>
+                      {exclusion.reason ? `: ${exclusion.reason}` : exclusion.rationale ? `: ${exclusion.rationale}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1156,6 +1258,15 @@ export default function PatientReport() {
   const transcript = Array.isArray(encounter.transcript) ? encounter.transcript : [];
   const externalTriage = location.state?.triagePayload ?? {};
   const triage = { ...(encounter.triage ?? {}), ...externalTriage };
+  const aiReport = triage.aiTriageReport ?? {};
+  const normalizedAI = normalizeClinicalAnalysis({
+    aiTriageReport: aiReport,
+    SATS_reasoning: triage.SATS_reasoning,
+    tews_total: triage.tews_total,
+    priority_code: triage.priority_code,
+    ai_summary: triage.ai_summary,
+    summary: triage.summary
+  });
 
   // DEBUG: inspect what the backend returned so we can trace missing BP values
   if (process.env.NODE_ENV !== 'production') {
@@ -1165,7 +1276,7 @@ export default function PatientReport() {
 
   // Compute BP display using merged vitals (which now includes vitals_parsed fallback)
   const displayBP = computeDisplayBP(vitals, triage);
-  const priorityCode = triage.priority_code ?? triage.priority ?? null;
+  const priorityCode = normalizedAI.priority_code ?? triage.priority_code ?? triage.priority ?? null;
   
   // Use editable SATS color for display if it's been edited, otherwise use original
   const displayPriorityCode = satsColorEdited ? editableSATSColor : priorityCode;
@@ -1174,9 +1285,11 @@ export default function PatientReport() {
   const targetMins = triage.target_time_mins ?? triage.target_mins ?? null;
   const waitingSeverity = triage.waitingSeverity ?? triage.waiting_severity ?? triage?.aiTriageReport?.urgency_level ?? encounter.waitingSeverity ?? null;
   // Use discriminators_readable (human-friendly text) instead of discriminators_found (concept keys)
-  const discriminators = triage?.SATS_reasoning?.discriminators_readable ?? triage?.SATS_reasoning?.discriminators_found ?? triage?.SATS_reasoning?.discriminators ?? triage?.discriminators ?? [];
+  const discriminators = normalizedAI.clinical_discriminators.length > 0
+    ? normalizedAI.clinical_discriminators
+    : triage?.SATS_reasoning?.discriminators_readable ?? triage?.SATS_reasoning?.discriminators_found ?? triage?.SATS_reasoning?.discriminators ?? triage?.discriminators ?? [];
   const tews = triage?.SATS_reasoning?.tews_components ?? triage?.tews_components ?? {};
-  const tewsTotal = triage?.SATS_reasoning?.tews_total ?? triage?.tews_total ?? null;
+  const tewsTotal = normalizedAI.tews_total ?? triage?.SATS_reasoning?.tews_total ?? triage?.tews_total ?? null;
   const mobility = triage?.SATS_reasoning?.mobility ?? triage?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
   const traumaPresent = Boolean(triage?.SATS_reasoning?.traumaPresent ?? triage?.traumaPresent ?? encounter?.vitals?.traumaPresent);
   
@@ -1184,11 +1297,67 @@ export default function PatientReport() {
   const displayTewsTotal = satsPointsEdited ? editableSATSPoints : tewsTotal;
   
   const assignedPhys = triage?.assigned_physician ?? triage?.assignedPhysician ?? null;
-  const assignedSpec = triage?.aiTriageReport?.specialty ?? triage?.assigned_specialty ?? triage?.assignedSpecialty ?? null;
+  const assignedSpec = aiReport?.specialty ?? triage?.assigned_specialty ?? triage?.assignedSpecialty ?? null;
   const ward = triage?.ward ?? null;
 
-  const aiSummaryRaw = triage?.ai_summary ?? triage?.summary ?? "";
+  const normalizeHistoryEncounters = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => {
+      if (typeof item === "string" || typeof item === "number") return { encounterId: String(item) };
+      if (!item || typeof item !== "object") return null;
+      const encounterId = item.encounterId || item.encounter_id || item.id || item._id;
+      return encounterId ? { ...item, encounterId: String(encounterId) } : null;
+    }).filter(Boolean);
+  };
+
+  const referencedHistory = normalizeHistoryEncounters(
+    aiReport?.referenced_historical_encounters || triage?.referenced_historical_encounters ||
+    triage?.referencedHistoricalEncounters || encounter?.referencedHistoricalEncounters
+  );
+  const ignoredHistory = normalizeHistoryEncounters(
+    aiReport?.ignored_historical_encounters || triage?.ignored_historical_encounters ||
+    triage?.ignoredHistoricalEncounters || encounter?.ignoredHistoricalEncounters
+  );
+  const historySource = triage?.longitudinalHistory || triage?.longitudinal_history || {};
+  const historyEvidence = {
+    assessment: referencedHistory.length > 0 || ignoredHistory.length > 0 ? "reviewed" : undefined,
+    referenced_encounters: referencedHistory,
+    ignored_encounters: ignoredHistory,
+    critical_history: historySource.critical_history || triage?.criticalHistory || encounter?.criticalHistory || []
+  };
+
+  const aiSummaryRaw = normalizedAI.clinical_summary || triage?.ai_summary || triage?.summary || "";
   const aiSummaryParsed = tryParsePossibleObjectString(aiSummaryRaw);
+  const clinicalAnalysisSections = [
+    { key: "pathophysiology", title: "Pathophysiology", icon: "🔬", value: normalizedAI.pathophysiology },
+    { key: "clinicalSummary", title: "Clinical Summary", icon: "✓", value: normalizedAI.clinical_summary },
+    { key: "severityAssessment", title: "Severity Assessment", icon: "⚠", value: normalizedAI.severity_assessment },
+    { key: "differential", title: "Differential Diagnoses", icon: "📊", value: normalizedAI.differential_diagnoses },
+    { key: "lifeThreats", title: "Life Threats Excluded", icon: "✅", value: normalizedAI.life_threats_excluded },
+    { key: "specialists", title: "Recommended Specialists", icon: "👨‍⚕", value: normalizedAI.recommended_specialists },
+    { key: "statActions", title: "Immediate Actions", icon: "🚨", value: normalizedAI.immediate_actions },
+    { key: "diagnosticWorkup", title: "Diagnostic Workup", icon: "🧪", value: normalizedAI.diagnostic_workup },
+    { key: "recommendations", title: "Recommendations", icon: "💊", value: normalizedAI.recommendations },
+    { key: "pathognomonic", title: "Pathognomonic Findings", icon: "⭐", value: normalizedAI.pathognomonic_markers },
+    { key: "riskFactors", title: "Risk Factors", icon: "⚠", value: normalizedAI.risk_factors },
+    { key: "disposition", title: "Disposition Rationale", icon: "📍", value: normalizedAI.disposition_rationale }
+  ];
+  const hasEmergencyPriority = [1, 2].includes(Number(normalizedAI.priority_code ?? triage.priority_code)) ||
+    /emergent|immediate|critical/i.test(String(aiReport.urgency_level || triage.waiting_severity || ""));
+  const renderClinicalValue = (value) => {
+    if (Array.isArray(value)) {
+      return value.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          {value.map((item, index) => (
+            <li key={index} style={{ marginBottom: 5 }}>
+              {typeof item === "object" ? `${item.dx || item.diagnosis || "Finding"}${item.confidence != null ? ` (${Math.round(Number(item.confidence) * 100)}% confidence)` : ""}` : String(item)}
+            </li>
+          ))}
+        </ul>
+      ) : null;
+    }
+    return value ? <div style={{ whiteSpace: "pre-wrap" }}>{String(value)}</div> : null;
+  };
 
   // Add CSS animation for spinner
   if (typeof document !== 'undefined' && !document.getElementById('spin-animation')) {
@@ -1318,7 +1487,26 @@ export default function PatientReport() {
 
 
           <section className="block" style={{ marginTop: 12 }}>
-            <h4 className="block-label">AI Triage</h4>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <h4 className="block-label" style={{ margin: 0 }}>AI Triage</h4>
+              {hasEmergencyPriority && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/manual-triage-report", {
+                    state: {
+                      patientData: patient,
+                      vitalsData: vitals,
+                      selectedMrn: patient?.id_number,
+                      ehrSummary: { encounterId: getEncounterId(encounter), source: "ai-triage-override" }
+                    }
+                  })}
+                  style={{ padding: "8px 12px", background: "#b91c1c", color: "white", border: "none", borderRadius: 5, cursor: "pointer", fontWeight: 800, fontSize: 11 }}
+                  title="Switch immediately to manual triage"
+                >
+                  🚨 Manual Triage Override
+                </button>
+              )}
+            </div>
             <div style={{ marginTop: 8 }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
                 <div>
@@ -1633,6 +1821,30 @@ export default function PatientReport() {
                   </div>
                 )}
 
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>
+                    AI Triage Report Analysis
+                  </div>
+                  {clinicalAnalysisSections.map((section) => {
+                    const hasValue = Array.isArray(section.value) ? section.value.length > 0 : Boolean(section.value);
+                    if (!hasValue) return null;
+                    return (
+                      <CollapsibleSection
+                        key={section.key}
+                        title={section.title}
+                        icon={section.icon}
+                        isExpanded={expandedClinicalSections[section.key] !== false}
+                        onToggle={() => toggleClinicalSection(section.key)}
+                        bgColor="#ffffff"
+                        borderColor="#cbd5e1"
+                        headerBgColor="#f8fafc"
+                      >
+                        {renderClinicalValue(section.value)}
+                      </CollapsibleSection>
+                    );
+                  })}
+                </div>
+
               </div>
 
               <div style={{ marginTop: 12, fontSize: 13 }}>
@@ -1813,7 +2025,11 @@ export default function PatientReport() {
                 </div>
               )}
 
-              {renderEvidenceTrail(triage?.similar_cases_rag)}
+              {renderPatientHistoryEvidence({
+                ...(triage?.evidence_provenance ?? aiReport?.evidence_provenance ?? {}),
+                ...historyEvidence
+              })}
+              {renderEvidenceTrail(triage?.similar_cases_rag ?? triage?.ragData?.cases ?? [])}
             </div>
           </section>
 
