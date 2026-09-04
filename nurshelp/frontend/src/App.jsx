@@ -29,6 +29,7 @@ import EHRLibrary from "./Dashboard/Pages/EHRLibrary.jsx";
 import TriagedPatients from "./Dashboard/Pages/TriagedPatients.jsx";
 import BedsAllocation from "./Dashboard/Pages/BedsAllocation.jsx";
 import StaffScheduleManager from "./Dashboard/Pages/StaffScheduleManager.jsx";
+import StaffStatusPage from "./Dashboard/Pages/StaffStatusPage.jsx";
 import StaffTeamPage from "./Dashboard/Pages/StaffTeamPage.jsx";
 import Pharmacy from "./Dashboard/Pages/Pharmacy.jsx";
 import PharmacyPublic from "./Dashboard/Pages/PharmacyPublic.jsx";
@@ -43,7 +44,7 @@ import TriageAnalytics from "./Dashboard/Pages/TriageAnalytics.jsx";
 import Help from "./Dashboard/Pages/Help.jsx";
 import Notifications from "./Dashboard/Pages/Notifications.jsx";
 import ClockInOutBoard from "./Dashboard/Pages/ClockInOutBoard.jsx";
-import MyClockHistoryPage from "./Dashboard/Pages/MyClockHistoryPage.jsx";
+import ClockDashboard from "./Dashboard/ClockDashboard.jsx";
 import ManagerApprovalPage from "./Dashboard/Pages/ManagerApprovalPage.jsx";
 import StatisticsPage from "./Dashboard/Pages/StatisticsPage.jsx";
 import AdminSettingsPage from "./Dashboard/Pages/AdminSettingsPage.jsx";
@@ -110,6 +111,18 @@ function App() {
 
           {/* CLINICIAN SCHEDULER (manually pick staff for encounter) */}
           <Route path="/scheduler" element={<ClinicianScheduler />} />
+          <Route
+            path="/shift-management"
+            element={
+              <StaffScheduleManager />
+            }
+          />
+          <Route
+            path="/staff-schedule"
+            element={
+              <StaffScheduleManager />
+            }
+          />
 
           {/* CLINICAL HANDOVER CONFIRMATIONS */}
           <Route path="/handover/ai/:encounterId" element={<ConfirmingAIClinicalHandover />} />
@@ -183,7 +196,8 @@ function App() {
 
           {/* Clock Management Routes */}
           <Route path="/clock-in-out" element={<ClockInOutBoard token={localStorage.getItem('token')} user={JSON.parse(localStorage.getItem('user') || '{}')} />} />
-          <Route path="/clock-history" element={<MyClockHistoryPage token={localStorage.getItem('token')} />} />
+          <Route path="/staff-status" element={<StaffStatusPage token={localStorage.getItem('token')} />} />
+          <Route path="/dashboard/staff-status" element={<StaffStatusPage token={localStorage.getItem('token')} />} />
           <Route path="/approvals" element={<ManagerApprovalPage token={localStorage.getItem('token')} userRole={JSON.parse(localStorage.getItem('user') || '{}').role} />} />
           <Route path="/statistics" element={<StatisticsPage token={localStorage.getItem('token')} />} />
           <Route path="/admin-settings" element={<AdminSettingsPage token={localStorage.getItem('token')} />} />

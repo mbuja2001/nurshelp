@@ -115,132 +115,122 @@ export default function ClockDashboard({ user, token, onLogout }) {
     }
   };
 
+  const navItems = getNavItems();
+
   return (
     <div style={styles.container}>
-      {/* Sidebar Navigation */}
-      <div style={styles.sidebar}>
-        <div style={styles.sidebarHeader}>
-          <h2 style={styles.appTitle}>🏥 Nurse Helpdesk</h2>
-          <p style={styles.version}>v1.0 - Clock Management</p>
-        </div>
-
-        {/* User Profile */}
-        <div style={styles.userProfile}>
-          <div style={styles.userAvatar}>
-            {user?.name?.charAt(0).toUpperCase()}
-          </div>
-          <div style={styles.userInfo}>
-            <p style={styles.userName}>{user?.name || 'User'}</p>
-            <p style={styles.userRole}>
-              {user?.role === 'NURSE' ? 'Staff' : user?.role || 'USER'}
-            </p>
+      <header style={styles.topBar}>
+        <div style={styles.brandBlock}>
+          <div style={styles.brandMark}>🏥</div>
+          <div>
+            <h1 style={styles.appTitle}>Nurse Helpdesk</h1>
+            <p style={styles.version}>Clock management</p>
           </div>
         </div>
+        <div style={styles.userBlock}>
+          <span style={styles.userAvatar}>{user?.name?.charAt(0).toUpperCase() || 'U'}</span>
+          <span style={styles.userName}>{user?.name || 'User'}</span>
+          <span style={styles.userRole}>{user?.role === 'NURSE' ? 'Staff' : user?.role || 'USER'}</span>
+          <button onClick={handleLogout} style={styles.logoutBtn} title="Log out">
+            <FaSignOutAlt />
+            <span>Logout</span>
+          </button>
+        </div>
+      </header>
 
-        {/* Navigation */}
-        <nav style={styles.nav}>
-          {getNavItems().map(item => (
+      <nav style={styles.topTabs} aria-label="Clock management sections">
+        {navItems.map(item => {
+          const Icon = item.icon;
+          return (
             <button
               key={item.id}
               onClick={() => setActivePage(item.id)}
-              style={{
-                ...styles.navItem,
-                ...(activePage === item.id ? styles.navItemActive : {})
-              }}
+              style={{ ...styles.topTab, ...(activePage === item.id ? styles.topTabActive : {}) }}
               title={item.label}
             >
-              <item.icon style={{ marginRight: '8px', fontSize: '16px' }} />
-              <span style={styles.navLabel}>{item.label}</span>
+              <Icon />
+              <span>{item.label}</span>
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </nav>
 
-        {/* User Stats Widget */}
-        {!loading && userStats && (
-          <div style={styles.statsWidget}>
-            <h4 style={styles.statsTitle}>This Week</h4>
-            <div style={styles.statRow}>
-              <span style={styles.statLabel}>Hours:</span>
-              <span style={styles.statValue}>{userStats.weeklyHours?.toFixed(1) || '0'}h</span>
-            </div>
-            <div style={styles.statRow}>
-              <span style={styles.statLabel}>Late:</span>
-              <span style={styles.statValue}>{userStats.weeklyLateArrivals || 0}</span>
-            </div>
-            <div style={styles.statRow}>
-              <span style={styles.statLabel}>Pending:</span>
-              <span style={styles.statValue}>{userStats.pendingApprovals || 0}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Logout Button */}
-        <button onClick={handleLogout} style={styles.logoutBtn}>
-          <FaSignOutAlt style={{ marginRight: '8px' }} />
-          Logout
-        </button>
-      </div>
-
-      {/* Main Content */}
-      <div style={styles.mainContent}>
-        <div style={styles.pageContent}>
-          {renderPage()}
+      {!loading && userStats && (
+        <div style={styles.summaryStrip}>
+          <span><strong>{userStats.weeklyHours?.toFixed(1) || '0'}h</strong> this week</span>
+          <span><strong>{userStats.weeklyLateArrivals || 0}</strong> late arrivals</span>
+          <span><strong>{userStats.pendingApprovals || 0}</strong> pending approvals</span>
         </div>
-      </div>
+      )}
+
+      <main style={styles.mainContent}>
+        <div style={styles.pageContent}>{renderPage()}</div>
+      </main>
     </div>
   );
 }
 
 const styles = {
   container: {
-    display: 'flex',
-    height: '100vh',
+    minHeight: '100vh',
     backgroundColor: '#f3f4f6',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    color: '#0f172a'
   },
-  sidebar: {
-    width: '280px',
-    backgroundColor: '#1f2937',
-    color: 'white',
-    padding: '0',
-    display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '2px 0 4px rgba(0,0,0,0.1)',
-    overflowY: 'auto'
-  },
-  sidebarHeader: {
-    padding: '20px 16px',
-    borderBottom: '1px solid rgba(255,255,255,0.1)',
-    textAlign: 'center'
-  },
-  appTitle: {
-    margin: '0 0 4px 0',
-    fontSize: '16px',
-    fontWeight: '700',
-    letterSpacing: '0.5px'
-  },
-  version: {
-    margin: '0',
-    fontSize: '11px',
-    color: '#9ca3af'
-  },
-  userProfile: {
-    padding: '16px',
+  topBar: {
+    backgroundColor: '#ffffff',
+    borderBottom: '1px solid #e2e8f0',
+    padding: '16px 24px',
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    borderBottom: '1px solid rgba(255,255,255,0.1)'
+    justifyContent: 'space-between',
+    gap: 20,
+    flexWrap: 'wrap'
+  },
+  brandBlock: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    minWidth: 0
+  },
+  appTitle: {
+    margin: 0,
+    fontSize: '20px',
+    fontWeight: '700',
+    letterSpacing: '0.2px',
+    color: '#0f172a'
+  },
+  version: {
+    margin: '3px 0 0',
+    fontSize: '11px',
+    color: '#64748b'
+  },
+  brandMark: {
+    width: 38,
+    height: 38,
+    display: 'grid',
+    placeItems: 'center',
+    borderRadius: 10,
+    background: '#ecfdf5',
+    fontSize: 19
+  },
+  userBlock: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
   },
   userAvatar: {
-    width: '44px',
-    height: '44px',
+    width: 34,
+    height: 34,
     borderRadius: '50%',
     backgroundColor: '#3b82f6',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: '700',
-    fontSize: '18px',
+    fontSize: '15px',
     flexShrink: 0
   },
   userInfo: {
@@ -248,9 +238,9 @@ const styles = {
     minWidth: 0
   },
   userName: {
-    margin: '0',
+    margin: 0,
     fontWeight: '600',
-    fontSize: '14px',
+    fontSize: '13px',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis'
@@ -258,68 +248,50 @@ const styles = {
   userRole: {
     margin: '2px 0 0 0',
     fontSize: '12px',
-    color: '#d1d5db'
+    color: '#64748b'
   },
-  nav: {
-    flex: 1,
-    padding: '16px 0',
+  topTabs: {
+    backgroundColor: '#ffffff',
+    borderBottom: '2px solid #e2e8f0',
+    padding: '0 24px',
     display: 'flex',
-    flexDirection: 'column'
+    gap: 24,
+    overflowX: 'auto'
   },
-  navItem: {
-    padding: '12px 16px',
+  topTab: {
+    padding: '15px 0 13px',
     backgroundColor: 'transparent',
     border: 'none',
-    color: '#d1d5db',
-    textAlign: 'left',
+    borderBottom: '3px solid transparent',
+    color: '#64748b',
+    textAlign: 'center',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
+    gap: 7,
     fontWeight: '500',
-    fontSize: '14px',
-    transition: 'all 0.2s ease',
-    borderLeft: '3px solid transparent'
-  },
-  navItemActive: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    color: '#60a5fa',
-    borderLeftColor: '#60a5fa'
-  },
-  navLabel: {
-    flex: 1
-  },
-  statsWidget: {
-    margin: '16px',
-    padding: '16px',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: '8px',
-    borderTop: '1px solid rgba(255,255,255,0.1)'
-  },
-  statsTitle: {
-    margin: '0 0 12px 0',
-    fontSize: '12px',
-    fontWeight: '700',
-    color: '#9ca3af',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px'
-  },
-  statRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
     fontSize: '13px',
-    marginBottom: '8px',
-    padding: '4px 0'
+    whiteSpace: 'nowrap',
+    transition: 'all 0.2s ease'
   },
-  statLabel: {
-    color: '#9ca3af'
+  topTabActive: {
+    color: '#10b981',
+    borderBottomColor: '#10b981',
+    fontWeight: '700'
   },
-  statValue: {
-    fontWeight: '700',
-    color: '#f3f4f6'
+  summaryStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 24,
+    flexWrap: 'wrap',
+    padding: '12px 32px',
+    background: '#f8fafc',
+    borderBottom: '1px solid #e2e8f0',
+    color: '#64748b',
+    fontSize: 12
   },
   logoutBtn: {
-    margin: '16px',
-    padding: '10px 16px',
+    padding: '8px 12px',
     backgroundColor: '#ef4444',
     color: 'white',
     border: 'none',
@@ -329,18 +301,19 @@ const styles = {
     fontSize: '14px',
     display: 'flex',
     alignItems: 'center',
+    gap: 7,
     justifyContent: 'center',
     transition: 'background-color 0.2s ease'
   },
   mainContent: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden'
+    width: '100%',
+    minWidth: 0
   },
   pageContent: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '0'
+    width: '100%',
+    maxWidth: 1440,
+    margin: '0 auto',
+    padding: '24px 32px 48px',
+    minWidth: 0
   }
 };

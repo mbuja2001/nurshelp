@@ -246,6 +246,37 @@
   border-left: 3px solid var(--color-success);
 }
 
+/* Keep wide clinical tables readable inside narrow dashboard columns. */
+.nurse-responsive-table-shell {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+
+.nurse-responsive-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+.nurse-responsive-table th,
+.nurse-responsive-table td {
+  white-space: nowrap;
+}
+
+.nurse-dashboard-columns,
+.nurse-dashboard-main,
+.nurse-dashboard-main .queue-box,
+.nurse-responsive-table-shell {
+  min-width: 0;
+}
+
 .table-warning-row {
   background-color: rgba(245, 158, 11, 0.03);
   border-left: 3px solid var(--color-warning);
@@ -534,6 +565,15 @@ button:disabled {
   .table td {
     padding: var(--space-md) var(--space-md);
   }
+
+  .nurse-responsive-table {
+    min-width: 760px;
+  }
+
+  .nurse-responsive-table th,
+  .nurse-responsive-table td {
+    padding: 11px 12px !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -564,6 +604,16 @@ button:disabled {
   .table th,
   .table td {
     padding: var(--space-sm);
+  }
+
+  .nurse-responsive-table {
+    min-width: 700px;
+    font-size: 12px !important;
+  }
+
+  .nurse-responsive-table th,
+  .nurse-responsive-table td {
+    padding: 9px 10px !important;
   }
   
   .btn {
@@ -597,6 +647,34 @@ button:disabled {
   
   .table-wrapper {
     border-radius: 0;
+  }
+
+  .nurse-responsive-table-shell {
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .nurse-responsive-table {
+    min-width: 660px;
+  }
+
+  .nurse-dashboard-columns {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .nurse-dashboard-main {
+    width: 100% !important;
+  }
+
+  .nurse-responsive-table-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .nurse-responsive-table th,
+  .nurse-responsive-table td {
+    padding: 8px !important;
   }
   
   .btn-large {

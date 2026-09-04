@@ -12,7 +12,9 @@ import { notificationService } from '../services/notificationService';
 const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarWidth, setSidebarWidth] = useState(52); // Default width in pixels
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth <= 900);
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [displayName, setDisplayName] = useState(username);
@@ -190,6 +192,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   const radiologyPath = normalizedRole === 'RADIOLOGIST' ? '/radiology' : '/lab-requests?specialty=RADIOLOGY';
   const pathologyPath = normalizedRole === 'PATHOLOGIST' ? '/pathology' : '/lab-requests?specialty=PATHOLOGY';
 
+  const isManager = ['ADMIN', 'MANAGER'].includes((decoded?.role || '').toUpperCase());
+
   const navItems = [
     { id: 'nav-dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiHome size={16} /> },
     { id: 'nav-dashboard-tools', label: 'Toolbar', path: '/dashboard-tools', icon: <FiBarChart2 size={16} /> },
@@ -199,6 +203,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
     { id: 'nav-radiology', label: 'Radiology', path: radiologyPath, icon: <FaRadiation size={16} /> },
     { id: 'nav-pathology', label: 'Pathology', path: pathologyPath, icon: <FaFlask size={16} /> },
     { id: 'nav-beds', label: 'Beds Allocation', path: '/beds', icon: <FaBed size={16} /> },
+    { id: 'nav-shift-management', label: 'Staff Scheduling', path: '/shift-management', icon: <FiClock size={16} /> },
+    ...(isManager ? [{ id: 'nav-staff-status', label: 'Staff Status', path: '/staff-status', icon: <FiUsers size={16} /> }] : []),
     { id: 'nav-staff-team', label: 'Staff Team', path: '/staff-team', icon: <FiUsers size={16} /> },
     { id: 'nav-reference', label: 'Reference Cases Library', path: '/reference-cases', icon: <MdLibraryBooks size={16} /> },
     { id: 'nav-analytics', label: 'Analytics', path: '/analytics', icon: <FiBarChart2 size={16} /> },
@@ -208,20 +214,38 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   ];
 
   const isActive = (path) => location.pathname === path;
+  const isSidebarCollapsed = !sidebarOpen;
 
   // Sidebar drag handlers
+  useEffect(() => {
+    const updateViewportMode = () => {
+      const compact = window.innerWidth <= 900;
+      setIsCompactViewport(compact);
+    };
+
+    updateViewportMode();
+    window.addEventListener('resize', updateViewportMode);
+    return () => window.removeEventListener('resize', updateViewportMode);
+  }, []);
+
   const handleMouseDown = (e) => {
+    if (isCompactViewport) return;
     e.preventDefault();
     setIsDraggingSidebar(true);
   };
 
+  const toggleSidebar = () => {
+    setSidebarOpen((current) => !current);
+    setSidebarWidth((current) => (sidebarOpen ? 64 : 240));
+  };
+
   useEffect(() => {
     const handleMouseMove = (e) => {
-      if (!isDraggingSidebar) return;
-      
-      // Min width 52px (collapsed), Max width 400px
+      if (!isDraggingSidebar || isCompactViewport) return;
+
       const newWidth = Math.max(52, Math.min(e.clientX, 400));
       setSidebarWidth(newWidth);
+      setSidebarOpen(newWidth > 100);
     };
 
     const handleMouseUp = () => {
@@ -241,7 +265,10 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
       document.body.style.cursor = 'default';
       document.body.style.userSelect = 'auto';
     };
-  }, [isDraggingSidebar]);
+  }, [isDraggingSidebar, isCompactViewport]);
+
+  const sidebarVisible = true;
+  const resolvedSidebarWidth = isCompactViewport ? (sidebarOpen ? 280 : 44) : (sidebarOpen ? Math.max(sidebarWidth, 220) : 44);
 
   return (
     <div style={{ fontFamily: "sans-serif", backgroundColor: "#fff", minHeight: "100vh", display: "flex", flexDirection: "row", width: "100%", overflow: "hidden" }}>
@@ -255,6 +282,13 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           height: 100%;
           margin: 0;
           padding: 0;
+        }
+
+        .responsive-shell {
+          width: 100%;
+          min-height: 100vh;
+          display: flex;
+          overflow: hidden;
         }
 
         .nav-item {
@@ -281,6 +315,40 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         }
         .nav-item.active svg {
           stroke: #10b981;
+        }
+        .sidebar-icon-button {
+          width: 30px;
+          height: 30px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #475569;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 4px auto;
+          cursor: pointer;
+          transition: all 200ms ease;
+        }
+        .sidebar-icon-button svg {
+          width: 18px !important;
+          height: 18px !important;
+          flex: 0 0 18px;
+        }
+        .sidebar-icon-button:hover {
+          background: #f1f5f9;
+          border-color: #e2e8f0;
+          color: #10b981;
+        }
+        .sidebar-icon-button.active {
+          background: #ecfdf5;
+          border-color: #d1fae5;
+          color: #10b981;
+        }
+        .sidebar-icon-button.logout:hover {
+          background: #fff5f5;
+          border-color: #fecaca;
+          color: #ef4444;
         }
         .sidebar-item {
           margin: 0.3rem 0;
@@ -348,7 +416,6 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           }
 
           .main-content-wrapper {
-            margin-left: 0 !important;
             width: 100% !important;
           }
 
@@ -364,10 +431,6 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         }
 
         @media (max-width: 480px) {
-          .sidebar-container {
-            width: 100% !important;
-          }
-
           .sidebar-text-label {
             display: block;
             font-size: 10px !important;
@@ -383,12 +446,26 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         }
       `}</style>
 
+      {isCompactViewport && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.28)',
+            zIndex: 150,
+            backdropFilter: 'blur(2px)'
+          }}
+        />
+      )}
+
       {/* Sidebar */}
       <aside className="sidebar-container" style={{
-        width: sidebarWidth,
-        transition: isDraggingSidebar ? 'none' : 'width 200ms ease',
+        width: resolvedSidebarWidth,
+        maxWidth: isCompactViewport ? (sidebarOpen ? '82vw' : '44px') : 'none',
+        transition: isDraggingSidebar ? 'none' : 'width 200ms ease, transform 200ms ease, padding 200ms ease',
         borderRight: '1px solid #e6edf3',
-        padding: sidebarWidth > 100 ? 16 : 6,
+        padding: isSidebarCollapsed ? 2 : 16,
         boxSizing: 'border-box',
         backgroundColor: '#fff',
         overflowY: 'auto',
@@ -396,44 +473,76 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         flexDirection: 'column',
         flexShrink: 0,
         height: '100vh',
-        zIndex: 100,
-        position: 'relative'
+        zIndex: 200,
+        position: isCompactViewport ? 'fixed' : 'relative',
+        left: isCompactViewport ? 0 : 'auto',
+        top: 0,
+        transform: isCompactViewport ? (sidebarOpen ? 'translateX(0)' : 'translateX(0)') : 'translateX(0)',
+        boxShadow: isCompactViewport && sidebarOpen ? '12px 0 28px rgba(15, 23, 42, 0.12)' : 'none',
       }}>
-        {/* Drag handle on the right edge */}
-        <div 
-          className="sidebar-drag-handle" 
-          onMouseDown={handleMouseDown}
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            width: 5,
-            height: '100%',
-            cursor: isDraggingSidebar ? 'col-resize' : 'col-resize',
-            backgroundColor: isDraggingSidebar ? '#e0e7ff' : 'transparent',
-            transition: 'background 200ms ease'
-          }}
-        />
+        {!isCompactViewport && (
+          <div 
+            className="sidebar-drag-handle" 
+            onMouseDown={handleMouseDown}
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              width: 5,
+              height: '100%',
+              cursor: isDraggingSidebar ? 'col-resize' : 'col-resize',
+              backgroundColor: isDraggingSidebar ? '#e0e7ff' : 'transparent',
+              transition: 'background 200ms ease'
+            }}
+          />
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, minHeight: 24 }}>
-          {sidebarWidth > 100 && <strong style={{ fontSize: 14, color: '#0f172a' }}>Clinical Sidebar</strong>}
+          {!isSidebarCollapsed && <strong style={{ fontSize: 14, color: '#0f172a' }}>Clinical Sidebar</strong>}
           <button
-            onClick={() => setSidebarWidth(sidebarWidth > 100 ? 52 : 253.8)}
+            onClick={toggleSidebar}
             style={{
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
               fontSize: 16,
               color: '#64748b',
-              padding: '4px 8px'
+              padding: '4px 8px',
+              marginLeft: 'auto'
             }}
           >
-            {sidebarWidth > 100 ? '◀' : '▶'}
+            {sidebarOpen ? '◀' : '▶'}
           </button>
         </div>
 
-        {sidebarWidth > 100 && (
-          <div>
+        {isSidebarCollapsed ? (
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            {navItems.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                title={item.label}
+                className={`sidebar-icon-button ${isActive(item.path) ? 'active' : ''}`}
+                onClick={() => navigate(item.path)}
+              >
+                {item.icon}
+              </button>
+            ))}
+            <button
+              type="button"
+              title="Log out"
+              className="sidebar-icon-button logout"
+              onClick={() => {
+                localStorage.removeItem('token');
+                handleLogout();
+              }}
+              style={{ marginTop: '8px' }}
+            >
+              <FiLogOut size={16} />
+            </button>
+          </div>
+        ) : (
+          <div style={{ width: '100%' }}>
             {/* Navigation Links */}
             <nav style={{ marginBottom: 20 }}>
               {navItems.map(item => (
@@ -579,7 +688,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
       </aside>
 
       {/* Main Content */}
-      <main className="main-content-wrapper" style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden', position: 'relative' }}>
+      <main className="main-content-wrapper" style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden', position: 'relative', marginLeft: isCompactViewport && isSidebarCollapsed ? resolvedSidebarWidth : 0 }}>
         <header style={{
           ...styles.header,
           display: 'flex',

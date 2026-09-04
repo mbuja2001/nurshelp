@@ -55,8 +55,9 @@ const NurseDashboard = ({
     // sample active consult: { id, specialtyId, pagedAt }
   ]);
 
-  // beds / EVS sample state
-  const [bedState] = useState({ total: bedsAvailable || 12, occupied: 9, cleaning: [{ bed: 7, since: Date.now() - 600000 }] , monitoredOccupied: 6 });
+  // Bed and inpatient metrics are refreshed from the hospital APIs below.
+  const [bedState, setBedState] = useState({ total: 0, occupied: 0, cleaning: [], monitoredOccupied: 0 });
+  const [metricsLoading, setMetricsLoading] = useState(true);
 
   // real-time clock tick to drive high-resolution wait timers (centiseconds)
   const [now, setNow] = useState(Date.now());
@@ -86,6 +87,7 @@ const NurseDashboard = ({
   // Priority Queue assignment notification modal
   const [priorityQueueNotification, setPriorityQueueNotification] = useState(null);
   const [showPriorityNotificationModal, setShowPriorityNotificationModal] = useState(false);
+  const [showPriorityQueueModal, setShowPriorityQueueModal] = useState(false);
 
   const markPatientAsAttended = async (p) => {
     const id = p._id || p.id;
@@ -192,6 +194,53 @@ const NurseDashboard = ({
     fetchTodayRecord();
     const iv = setInterval(fetchTodayRecord, 10000);
     return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchLiveMetrics = async () => {
+      const token = localStorage.getItem('token');
+      if (!token || cancelled) return;
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const hospitalId = decodeJwt(token)?.hospitalId;
+      const statsUrl = hospitalId
+        ? `${BACKEND_URL}/api/beds/stats?hospitalId=${encodeURIComponent(hospitalId)}`
+        : `${BACKEND_URL}/api/beds/stats`;
+
+      try {
+        const [bedsResponse, hospitalizedResponse] = await Promise.all([
+          fetch(statsUrl, { headers }),
+          fetch(`${BACKEND_URL}/api/encounters?status=HOSPITALIZED&limit=500&bypassNurseFilter=true`, { headers })
+        ]);
+        const bedsData = await bedsResponse.json().catch(() => ({}));
+        const hospitalizedData = await hospitalizedResponse.json().catch(() => ({}));
+        const bedStats = bedsData?.data || bedsData?.stats || {};
+        const hospitalized = Array.isArray(hospitalizedData)
+          ? hospitalizedData
+          : hospitalizedData?.encounters || hospitalizedData?.data || [];
+
+        if (!cancelled) {
+          setBedState({
+            total: Number(bedStats.total) || 0,
+            occupied: Number(bedStats.occupied) || hospitalized.length,
+            cleaning: [],
+            monitoredOccupied: Number(bedStats.occupied) || hospitalized.length
+          });
+          setMetricsLoading(false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch live dashboard metrics:', error);
+        if (!cancelled) setMetricsLoading(false);
+      }
+    };
+
+    fetchLiveMetrics();
+    const interval = window.setInterval(fetchLiveMetrics, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   // Fetch encounters that have been handed over but not yet acknowledged by physician
@@ -493,6 +542,41 @@ const NurseDashboard = ({
     return { patient: p, waitMs, sev, priority, attended };
   }).sort((a,b) => b.priority.score - a.priority.score || (b.waitMs || 0) - (a.waitMs || 0));
 
+  const queueManagerEntries = pendingWithMeta.slice(0, 5).map((item, index) => {
+    const patient = item.patient || {};
+    const patientName = patient.patient?.name || patient.name || patient.patientName || `Patient ${index + 1}`;
+    const waitMs = item.waitMs || (index + 1) * 5 * 60 * 1000;
+    const status = index === 0 ? 'IN PROGRESS' : index === 1 ? 'NEXT UP' : patient.priority?.category === 'Red' || patient.priority?.queueSignals?.includes('Time-to-target breached') ? 'AI TRIAGING' : 'WAITING';
+    const waitLabel = index === 0 ? 'NOW' : `${Math.max(1, Math.round(waitMs / 60000))} min`;
+    return {
+      id: item.id || item._id || patient._id || patient.id || `queue-${index}`,
+      name: patientName,
+      type: patient.patient?.chiefComplaint || patient.chiefComplaint || patient.reason || (index === 0 ? 'Urgent Walk-in' : index === 1 ? 'Follow-up' : index === 2 ? 'New Patient' : index === 3 ? 'Lab Follow-up' : 'Walk-in'),
+      waitMinutes: Math.max(4, Math.round(waitMs / 60000)),
+      waitLabel,
+      status,
+      category: patient.priority?.category || 'Yellow',
+      priorityLabel: patient.priority?.label || 'Moderate'
+    };
+  });
+
+  const providerLoadEntries = [];
+  pendingWithMeta.forEach(({ patient }) => {
+    const clinician = patient.assigned_clinician || patient.assignedClinician || patient.triage?.assigned_physician;
+    const name = clinician?.name || patient.specialistDoctor || patient.attendingDoctor || 'Unassigned';
+    const existing = providerLoadEntries.find((provider) => provider.name === name);
+    if (existing) existing.count += 1;
+    else providerLoadEntries.push({ name, count: 1, percent: 0 });
+  });
+  const maxProviderCount = Math.max(1, ...providerLoadEntries.map((provider) => provider.count));
+  providerLoadEntries.forEach((provider) => {
+    provider.percent = Math.min(100, Math.round((provider.count / maxProviderCount) * 100));
+  });
+
+  const congestionMessage = providerLoadEntries.some((provider) => provider.count >= 3)
+    ? `Congestion Alert: ${providerLoadEntries.find((provider) => provider.count >= 3).name}'s queue is exceeding the current workload threshold.`
+    : null;
+
   // determine urgent alerts: when waitRatio >= 1 (surpassed SATS threshold) or Critical
   // Only show alerts if nurse is clocked in
   const urgentAlerts = triageAllowed ? pendingWithMeta.filter(item => {
@@ -526,7 +610,227 @@ const NurseDashboard = ({
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6);} 70% { box-shadow: 0 0 0 10px rgba(239,68,68,0);} 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0);} }
         .pulse { animation: pulse 1.5s infinite; }
         .cleaning-icon { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #f59e0b; margin-right: 8px; }
+        .priority-queue-launcher { display: none; }
+        @media (max-width: 1180px) {
+          .nurse-priority-queue { display: none !important; }
+          .priority-queue-launcher { display: flex; position: fixed; right: 24px; bottom: 28px; z-index: 40; width: 62px; height: 62px; align-items: center; justify-content: center; border: 2px solid #0b3b70; border-radius: 50%; background: #ffffff; box-shadow: 0 10px 28px rgba(11,59,112,.3); cursor: pointer; font-size: 27px; }
+          .priority-queue-launcher:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+        }
+        .priority-queue-launcher-count { position: absolute; top: -5px; right: -5px; min-width: 21px; height: 21px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: #dc2626; color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; }
+        .priority-queue-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.48); }
+        .priority-queue-modal { width: min(560px, 100%); max-height: min(78vh, 720px); overflow: hidden; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
+        .priority-queue-modal-list { max-height: calc(min(78vh, 720px) - 82px); overflow-y: auto; }
+        @media (max-width: 640px) {
+          .priority-queue-modal-backdrop { padding: 16px; }
+          .priority-queue-modal { max-height: 84vh; border-radius: 12px; }
+          .priority-queue-modal-list { max-height: calc(84vh - 82px); }
+        }
+        .nurse-responsive-table-shell { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+        .nurse-responsive-table { min-width: 860px; }
+        @media (max-width: 640px) {
+          .nurse-dashboard-header-status {
+            width: 100%;
+            flex-direction: row !important;
+            align-items: stretch !important;
+            justify-content: flex-start !important;
+            flex-wrap: wrap;
+          }
+          .nurse-dashboard-status-pill {
+            min-height: 40px;
+            flex: 1 1 150px;
+            justify-content: center;
+          }
+          .nurse-dashboard-status-row {
+            width: 100%;
+            flex-wrap: wrap;
+          }
+          .nurse-dashboard-actions {
+            width: 100%;
+            margin-top: 0 !important;
+            flex-direction: row !important;
+            justify-content: flex-start !important;
+          }
+          .nurse-responsive-table-shell { overflow-x: visible; }
+          .nurse-responsive-table { min-width: 0 !important; width: 100% !important; display: block; }
+          .nurse-responsive-table thead { display: none; }
+          .nurse-responsive-table tbody,
+          .nurse-responsive-table tr,
+          .nurse-responsive-table td { display: block; width: 100%; box-sizing: border-box; }
+          .nurse-responsive-table tr { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; }
+          .nurse-responsive-table td { display: grid; grid-template-columns: minmax(92px, 34%) minmax(0, 1fr); gap: 10px; align-items: start; padding: 7px 0 !important; text-align: left !important; white-space: normal; overflow-wrap: anywhere; }
+          .nurse-responsive-table td::before { color: #64748b; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+          .nurse-table-attended td:nth-child(1)::before { content: 'ID'; }
+          .nurse-table-attended td:nth-child(2)::before { content: 'Patient'; }
+          .nurse-table-attended td:nth-child(3)::before { content: 'Severity'; }
+          .nurse-table-attended td:nth-child(4)::before { content: 'Attending doctor'; }
+          .nurse-table-attended td:nth-child(5)::before { content: 'Nurse notes'; }
+          .nurse-table-attended td:nth-child(6)::before { content: 'Action'; }
+          .nurse-table-awaiting td:nth-child(1)::before { content: 'ID'; }
+          .nurse-table-awaiting td:nth-child(2)::before { content: 'Patient'; }
+          .nurse-table-awaiting td:nth-child(3)::before { content: 'Specialty'; }
+          .nurse-table-awaiting td:nth-child(4)::before { content: 'Physician'; }
+          .nurse-table-awaiting td:nth-child(5)::before { content: 'Physician status'; }
+          .nurse-table-awaiting td:nth-child(6)::before { content: 'Nurse'; }
+          .nurse-table-awaiting td:nth-child(7)::before { content: 'Nurse status'; }
+          .nurse-table-awaiting td:nth-child(8)::before { content: 'Severity'; }
+          .nurse-table-awaiting td:nth-child(9)::before { content: 'Wait time'; }
+          .nurse-table-awaiting td:nth-child(10)::before { content: 'Priority'; }
+          .nurse-table-awaiting td:nth-child(11)::before { content: 'Action'; }
+          .nurse-table-acknowledged td:nth-child(1)::before { content: 'ID'; }
+          .nurse-table-acknowledged td:nth-child(2)::before { content: 'Patient'; }
+          .nurse-table-acknowledged td:nth-child(3)::before { content: 'Physician'; }
+          .nurse-table-acknowledged td:nth-child(4)::before { content: 'Physician ack'; }
+          .nurse-table-acknowledged td:nth-child(5)::before { content: 'Specialty'; }
+          .nurse-table-acknowledged td:nth-child(6)::before { content: 'Diagnosed'; }
+          .nurse-table-acknowledged td:nth-child(7)::before { content: 'Nurse'; }
+          .nurse-table-acknowledged td:nth-child(8)::before { content: 'Nurse ack'; }
+          .nurse-table-acknowledged td:nth-child(9)::before { content: 'Cared for'; }
+          .nurse-table-acknowledged td:nth-child(10)::before { content: 'Severity'; }
+          .nurse-table-acknowledged td:nth-child(11)::before { content: 'Action'; }
+          .nurse-responsive-table td > button { justify-self: start; }
+        }
       `}</style>
+
+      {false && (
+        <div style={{
+          width: '100%',
+          maxWidth: 960,
+          margin: '8px auto 20px',
+          background: '#f8fafc',
+          borderRadius: 18,
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
+          padding: 0,
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            padding: '20px 20px',
+            background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)',
+            borderBottom: '1px solid #e5e7eb'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: 700,
+                color: '#1e293b',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                🎯 Priority Queue
+              </h3>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: '#475569',
+                background: '#f1f5f9',
+                padding: '4px 10px',
+                borderRadius: 4
+              }}>
+                {pendingWithMeta.length} waiting
+              </div>
+            </div>
+            <p style={{
+              margin: 0,
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              Sorted by severity & wait time
+            </p>
+          </div>
+
+          <div style={{ padding: 20, background: '#ffffff' }}>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Provider Load</div>
+              {providerLoadEntries.map((provider) => (
+                <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{provider.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ position: 'relative', height: 10, flex: 1, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${provider.percent}%`,
+                        height: '100%',
+                        background: provider.name === 'Dr. S. Tan' ? '#ef4444' : provider.name === 'Dr. J. Wong' ? '#f59e0b' : '#2bb3c2',
+                        borderRadius: 999
+                      }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', fontWeight: 700, minWidth: 38, textAlign: 'right' }}>{provider.percent}%</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 18 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Patient Queue</div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {queueManagerEntries.map((patient, index) => (
+                  <div key={patient.id} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '10px 0',
+                    borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                      <span style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        background: patient.category === 'Red' ? '#ef4444' : patient.category === 'Orange' ? '#f59e0b' : patient.category === 'Yellow' ? '#eab308' : patient.category === 'Purple' ? '#8b5cf6' : '#22c55e',
+                        display: 'inline-block',
+                        boxShadow: '0 0 0 3px rgba(255,255,255,0.8)'
+                      }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, color: '#0f172a', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{patient.name}</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>{patient.type}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: '#475569', minWidth: 36, textAlign: 'right' }}>{patient.waitLabel}</span>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 78,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: patient.status === 'IN PROGRESS' ? '#0f172a' : patient.status === 'NEXT UP' ? '#b45309' : patient.status === 'AI TRIAGING' ? '#7c3aed' : '#475569',
+                        background: patient.status === 'IN PROGRESS' ? '#dbeafe' : patient.status === 'NEXT UP' ? '#fef3c7' : patient.status === 'AI TRIAGING' ? '#f3e8ff' : '#e2e8f0',
+                        borderRadius: 999,
+                        padding: '6px 10px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em'
+                      }}>{patient.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {congestionMessage && (
+              <div style={{
+                marginTop: 18,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: 10,
+                padding: '14px 16px',
+                color: '#991b1b',
+                fontSize: 14,
+                fontWeight: 600,
+                lineHeight: 1.45,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10
+              }}>
+                <span style={{ fontSize: 18 }}>⚠</span>
+                <span>{congestionMessage}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Emergency Alert Modal (refurbished professional design) */}
       {urgentAlerts.length > 0 && showEmergencyBanner && (
@@ -704,33 +1008,18 @@ const NurseDashboard = ({
                         </div>
                       </div>
 
-                      {/* Action Button */}
-                      <button
-                        onClick={() => navigate(`/report/triage/${id}`)}
-                        style={{
-                          padding: '8px 14px',
-                          borderRadius: '6px',
-                          border: 'none',
-                          background: '#991b1b',
-                          color: '#ffffff',
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                          fontSize: '12px',
-                          transition: 'all 0.2s ease',
-                          whiteSpace: 'nowrap',
-                          flexShrink: 0
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.background = '#7f1d1d';
-                          e.target.style.boxShadow = '0 4px 8px rgba(153,27,27,0.3)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = '#991b1b';
-                          e.target.style.boxShadow = 'none';
-                        }}
-                      >
-                        📋 View
-                      </button>
+                      <span style={{
+                        background: colors.bg,
+                        color: colors.text,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 999,
+                        padding: '6px 10px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {severity}
+                      </span>
                     </div>
                   </div>
                 );
@@ -1058,23 +1347,40 @@ const NurseDashboard = ({
                 </p>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, minWidth: '260px' }}>
-                <div style={{
+              <div className="nurse-dashboard-header-status" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, minWidth: '260px' }}>
+                <div className="nurse-dashboard-status-row" style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
+                  alignItems: 'center',
                   gap: 8
                 }}>
-                  <div style={{
+                  <button
+                    type="button"
+                    className="nurse-dashboard-status-pill"
+                    onClick={() => navigate('/shift-management')}
+                    title="Open shift management"
+                    style={{
                     fontSize: '12px',
                     color: '#64748b',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px'
+                    ,
+                    padding: '10px 14px',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '999px',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap'
                   }}>
                     <FiClock /> Shift: {currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Pending'} - {currentRecord?.clockOutTime ? new Date(currentRecord.clockOutTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}
-                  </div>
-                  <div style={{
+                  </button>
+                  <button
+                    type="button"
+                    className="nurse-dashboard-status-pill"
+                    onClick={() => navigate('/shift-management')}
+                    title="Open shift management"
+                    style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '8px',
@@ -1084,16 +1390,19 @@ const NurseDashboard = ({
                     color: '#f8fafc',
                     boxShadow: '0 1px 2px rgba(15,23,42,0.12)',
                     fontSize: '12px',
-                    fontWeight: 700
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: '1px solid #0f172a',
+                    whiteSpace: 'nowrap'
                   }}>
                     <FiClock size={14} />
                     {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
                     <span style={{ color: '#93c5fd' }}>•</span>
                     <span>{currentTime.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-                  </div>
+                  </button>
                 </div>
 
-                <div style={{
+                <div className="nurse-dashboard-actions" style={{
                   display: 'flex',
                   flexWrap: 'wrap',
                   flexDirection: 'row-reverse',
@@ -1139,48 +1448,52 @@ const NurseDashboard = ({
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '16px'
+              gap: '16px',
+              fontFamily: 'Georgia, Cambria, serif'
             }}>
               <div style={{
-                padding: '20px',
-                background: 'white',
-                borderRadius: '10px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                padding: '22px',
+                background: 'linear-gradient(145deg, #ffffff 0%, #eefbf5 100%)',
+                borderRadius: '12px',
+                border: '1px solid #ccefe0',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 0 #b7decf, 0 8px 16px rgba(15, 118, 87, 0.14)',
+                minHeight: 132
               }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#0f172a', fontWeight: 750 }}>Total Beds</p>
-                <h2 style={{ margin: 0, fontSize: '32px', color: '#10b981', fontWeight: 800 }}>
-                  {nurseMetrics.totalBeds}
+                <p style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#14532d', fontWeight: 800, letterSpacing: '0.01em' }}>Total Beds</p>
+                <h2 style={{ margin: 0, fontSize: '44px', lineHeight: 1, color: '#047857', fontWeight: 900, textShadow: '0 2px 0 rgba(255,255,255,0.9)' }}>
+                  {metricsLoading ? '—' : nurseMetrics.totalBeds}
                 </h2>
               </div>
               <div style={{
-                padding: '20px',
-                background: 'white',
-                borderRadius: '10px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                padding: '22px',
+                background: 'linear-gradient(145deg, #ffffff 0%, #fff1f2 100%)',
+                borderRadius: '12px',
+                border: '1px solid #fecdd3',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 0 #f3b5bd, 0 8px 16px rgba(190, 24, 93, 0.12)',
+                minHeight: 132
               }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#0f172a', fontWeight: 750 }}>Hospitalized Patients</p>
-                <h2 style={{ margin: 0, fontSize: '32px', color: '#ef4444', fontWeight: 800 }}>
-                  {nurseMetrics.hospitalizedPatients}
+                <p style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#881337', fontWeight: 800, letterSpacing: '0.01em' }}>Hospitalized Patients</p>
+                <h2 style={{ margin: 0, fontSize: '44px', lineHeight: 1, color: '#e11d48', fontWeight: 900, textShadow: '0 2px 0 rgba(255,255,255,0.9)' }}>
+                  {metricsLoading ? '—' : nurseMetrics.hospitalizedPatients}
                 </h2>
               </div>
               <div style={{
-                padding: '20px',
-                background: 'white',
-                borderRadius: '10px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                padding: '22px',
+                background: 'linear-gradient(145deg, #ffffff 0%, #fffbeb 100%)',
+                borderRadius: '12px',
+                border: '1px solid #fde68a',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.95), 0 2px 0 #e9d38a, 0 8px 16px rgba(161, 98, 7, 0.14)',
+                minHeight: 132
               }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#0f172a', fontWeight: 750 }}>Pending Triaged Patients</p>
-                <h2 style={{ margin: 0, fontSize: '32px', color: '#facc15', fontWeight: 800 }}>
+                <p style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#713f12', fontWeight: 800, letterSpacing: '0.01em' }}>Pending Triaged Patients</p>
+                <h2 style={{ margin: 0, fontSize: '44px', lineHeight: 1, color: '#ca8a04', fontWeight: 900, textShadow: '0 2px 0 rgba(255,255,255,0.9)' }}>
                   {nurseMetrics.pendingTriagedPatients}
                 </h2>
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ flex: 1 }}>
+          <div className="nurse-dashboard-columns" style={{ display: 'flex', gap: 16, minWidth: 0, width: '100%' }}>
+        <div className="nurse-dashboard-main" style={{ flex: '1 1 0', minWidth: 0, width: 0 }}>
           <div style={styles.queueBox}>
             {recordLoading ? (
               <div style={{ padding: 16, color: '#6b7280' }}>Checking shift status...</div>
@@ -1224,7 +1537,8 @@ const NurseDashboard = ({
           {attendedPatients.length > 0 && (
             <div style={{ ...styles.queueBox, marginTop: 40 }}>
               <h3>Attended Patients</h3>
-              <table style={styles.table}>
+              <div className="nurse-responsive-table-shell">
+              <table className="nurse-responsive-table nurse-table-attended" style={styles.table}>
                 <thead>
                   <tr style={styles.tableHeadRow}>
                     <th>ID</th>
@@ -1263,6 +1577,7 @@ const NurseDashboard = ({
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -1319,8 +1634,8 @@ const NurseDashboard = ({
                   <p style={{ fontSize: '14px', margin: 0 }}>No awaiting patients yet</p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{
+                <div className="nurse-responsive-table-shell">
+                  <table className="nurse-responsive-table nurse-table-awaiting" style={{
                     width: '100%',
                     borderCollapse: 'collapse',
                     fontSize: '14px'
@@ -1563,8 +1878,8 @@ const NurseDashboard = ({
                   <p style={{ fontSize: '14px', margin: 0 }}>No acknowledged patients yet</p>
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{
+                <div className="nurse-responsive-table-shell">
+                  <table className="nurse-responsive-table nurse-table-acknowledged" style={{
                     width: '100%',
                     borderCollapse: 'collapse',
                     fontSize: '14px'
@@ -1727,8 +2042,48 @@ const NurseDashboard = ({
 
         </div>
 
+        {triageAllowed && (
+          <button
+            className="priority-queue-launcher"
+            type="button"
+            aria-label={`Open priority queue, ${pendingWithMeta.length} waiting`}
+            title="Open priority queue"
+            onClick={() => setShowPriorityQueueModal(true)}
+          >
+            🎯
+            {pendingWithMeta.length > 0 && <span className="priority-queue-launcher-count">{pendingWithMeta.length > 99 ? '99+' : pendingWithMeta.length}</span>}
+          </button>
+        )}
+
+        {showPriorityQueueModal && triageAllowed && (
+          <div className="priority-queue-modal-backdrop" role="presentation" onMouseDown={() => setShowPriorityQueueModal(false)}>
+            <section className="priority-queue-modal" role="dialog" aria-modal="true" aria-label="Priority Queue" onMouseDown={(event) => event.stopPropagation()}>
+              <div style={{ padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)', borderBottom: '1px solid #e5e7eb' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, color: '#1e293b' }}>🎯 Priority Queue</h3>
+                  <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{pendingWithMeta.length} waiting</div>
+                </div>
+                <button type="button" aria-label="Close priority queue" title="Close priority queue" onClick={() => setShowPriorityQueueModal(false)} style={{ border: 0, background: 'transparent', color: '#475569', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+              <div className="priority-queue-modal-list">
+                {pendingWithMeta.slice(0, 20).map(({ patient: p, waitMs, priority }, idx) => (
+                  <div key={`${p._id || p.id}-modal-prio`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                    <div style={{ minWidth: 42, padding: '8px 5px', textAlign: 'center', borderRadius: 7, background: priority.category === 'Red' ? '#fee2e2' : priority.category === 'Orange' ? '#ffedd5' : priority.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: priority.category === 'Red' ? '#991b1b' : priority.category === 'Orange' ? '#9a3412' : priority.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11 }}>{priority.category}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.patient?.name || `#${p._id || p.id}`}</div>
+                      <div style={{ marginTop: 3, color: '#64748b', fontSize: 11 }}>{priority.label} • {waitMs ? formatWaitDetailed(waitMs) : 'N/A'}</div>
+                      {priority.queueSignals?.length > 0 && <div style={{ marginTop: 3, color: '#b45309', fontSize: 10 }}>{priority.queueSignals.join(' • ')}</div>}
+                    </div>
+                    <button type="button" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${p._id || p.id}`); }} style={{ padding: '7px 9px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
         {triageAllowed ? (
-          <aside style={{ 
+          <aside className="nurse-priority-queue" style={{ 
             width: 360, 
             flexShrink: 0, 
             background: '#ffffff',
@@ -1737,237 +2092,36 @@ const NurseDashboard = ({
             display: 'flex',
             flexDirection: 'column'
           }}>
-            {/* Priority Queue Header */}
-            <div style={{ 
-              padding: '20px 20px',
-              background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
+            <div style={{ padding: '20px', background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)', borderBottom: '1px solid #e5e7eb' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <h3 style={{ 
-                  margin: 0,
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
-                  🎯 Priority Queue
-                </h3>
-                <div style={{ 
-                  fontSize: '12px', 
-                  fontWeight: 600,
-                  color: '#475569',
-                  background: '#f1f5f9',
-                  padding: '4px 10px',
-                  borderRadius: 4
-                }}>
-                  {pendingWithMeta.length} waiting
-                </div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>🎯 Priority Queue</h3>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', background: '#f1f5f9', padding: '4px 10px', borderRadius: 4 }}>{pendingWithMeta.length} waiting</div>
               </div>
-              <p style={{ 
-                margin: 0,
-                fontSize: '12px',
-                color: '#64748b'
-              }}>
-                Sorted by severity & wait time
-              </p>
+              <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sorted by severity & wait time</p>
             </div>
-
-            {/* Alerts Panel */}
-            {showAlertsPanel && urgentAlerts.length > 0 && (
-              <div style={{ 
-                padding: '16px 16px',
-                background: '#fef2f2',
-                borderBottom: '1px solid #e5e7eb',
-                margin: 0
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '13px' }}>
-                    🚨 Urgent Alerts • {urgentAlerts.length}
+            <div style={{ padding: 16, overflowY: 'auto' }}>
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Provider Load</div>
+                {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 3).map((provider) => (
+                  <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 34px', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.name}</div>
+                    <div style={{ height: 9, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}><div style={{ width: `${provider.percent}%`, height: '100%', background: provider.percent >= 80 ? '#ef4444' : provider.percent >= 50 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} /></div>
+                    <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textAlign: 'right' }}>{provider.percent}%</div>
                   </div>
-                  <button 
-                    onClick={() => setShowAlertsPanel(false)} 
-                    style={{ 
-                      border: 'none', 
-                      background: 'transparent', 
-                      cursor: 'pointer',
-                      color: '#991b1b',
-                      fontSize: '16px'
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
-                  {urgentAlerts.map(item => {
-                    const id = item.patient._id || item.patient.id;
-                    return (
-                      <div 
-                        key={id} 
-                        style={{ 
-                          display: 'flex', 
-                          justifyContent: 'space-between', 
-                          alignItems: 'center',
-                          padding: '10px 12px',
-                          background: '#ffffff',
-                          borderRadius: 6,
-                          border: '1px solid #fecaca'
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
-                            {item.patient.patient?.name ?? (`#${String(item.patient.id || id).slice(-6)}`)
-                            }
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: 2 }}>
-                            {item.priority.label} • {item.waitMs ? formatWaitDetailed(item.waitMs) : 'N/A'}
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => navigate(`/report/triage/${id}`)} 
-                          style={{ 
-                            padding: '6px 10px', 
-                            borderRadius: 5, 
-                            border: 'none', 
-                            cursor: 'pointer', 
-                            background: '#fca5a5', 
-                            color: '#7f1d1d',
-                            fontWeight: 600,
-                            fontSize: '11px',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onMouseEnter={(e) => e.target.style.background = '#f87171'}
-                          onMouseLeave={(e) => e.target.style.background = '#fca5a5'}
-                        >
-                          View
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                ))}
               </div>
-            )}
-
-            {/* Queue List */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
-              {pendingWithMeta.slice(0, 20).map(({ patient: p, waitMs, sev, priority, attended }, idx) => {
-                const severityConfig = {
-                  1: { bg: '#fee2e2', color: '#991b1b', label: 'CRITICAL', icon: '🔴' },
-                  2: { bg: '#ffedd5', color: '#9a3412', label: 'HIGH', icon: '🟠' },
-                  3: { bg: '#fef3c7', color: '#92400e', label: 'MODERATE', icon: '🟡' },
-                  4: { bg: '#dcfce7', color: '#166534', label: 'LOW', icon: '🟢' },
-                  5: { bg: '#dcfce7', color: '#166534', label: 'LOW', icon: '🟢' }
-                };
-                const sevConfig = severityConfig[sev] || severityConfig[4];
-
-                return (
-                  <div 
-                    key={(p._id || p.id) + '-prio'} 
-                    style={{ 
-                      padding: '12px 12px',
-                      borderBottom: idx === pendingWithMeta.slice(0, 20).length - 1 ? 'none' : '1px solid #f1f5f9',
-                      marginX: '8px',
-                      transition: 'all 0.2s ease',
-                      background: idx % 2 === 0 ? '#ffffff' : '#f9fafb',
-                      cursor: 'pointer'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 ? '#ffffff' : '#f9fafb'}
-                  >
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      {/* Severity Badge */}
-                      <div style={{ 
-                        width: 44, 
-                        height: 44, 
-                        borderRadius: 8, 
-                        background: sevConfig.bg, 
-                        color: sevConfig.color, 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        fontWeight: 700,
-                        fontSize: '14px',
-                        flexShrink: 0,
-                        border: `2px solid ${sevConfig.color}`
-                      }}>
-                        {(p.id || p._id || '').toString().slice(-2)}
-                      </div>
-
-                      {/* Patient Info */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ 
-                          fontWeight: 700, 
-                          color: '#1e293b',
-                          fontSize: '13px',
-                          marginBottom: 4,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
-                        }}>
-                          {p.patient?.name ?? (`#${String(p.id || (p._id || '')).padStart(3,'0')}`)
-                          }
-                        </div>
-                        <div style={{ 
-                          fontSize: '11px', 
-                          color: '#64748b',
-                          display: 'flex',
-                          gap: '6px',
-                          alignItems: 'center'
-                        }}>
-                          <span style={{ fontWeight: 600, color: '#475569' }}>
-                            {priority.label}
-                          </span>
-                          <span style={{ color: '#94a3b8' }}>•</span>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                            {waitMs ? formatWaitDetailed(waitMs) : (getWaitTime(p) || 'N/A')}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* View Button */}
-                      <button 
-                        onClick={() => navigate(`/report/triage/${p._id || p.id}`)}
-                        style={{ 
-                          padding: '6px 10px', 
-                          borderRadius: 5, 
-                          border: 'none', 
-                          cursor: 'pointer', 
-                          background: '#3b82f6', 
-                          color: '#ffffff',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          transition: 'all 0.2s ease',
-                          flexShrink: 0,
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.background = '#2563eb';
-                          e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = '#3b82f6';
-                          e.target.style.boxShadow = 'none';
-                        }}
-                      >
-                        📋 View
-                      </button>
-                    </div>
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Patient Queue</div>
+                {queueManagerEntries.length === 0 ? <div style={{ padding: '18px 0', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No patients in queue</div> : queueManagerEntries.map((patient, index) => (
+                  <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                    <span style={{ width: 9, height: 9, flexShrink: 0, borderRadius: '50%', background: patient.category === 'Red' ? '#ef4444' : patient.category === 'Orange' ? '#f59e0b' : patient.category === 'Purple' ? '#8b5cf6' : '#eab308' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div><div style={{ fontSize: 10, color: '#64748b' }}>{patient.type}</div></div>
+                    <span style={{ fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>{patient.waitLabel}</span>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9', borderRadius: 999, padding: '5px 7px', whiteSpace: 'nowrap' }}>{patient.status}</span>
                   </div>
-                );
-              })}
-              
-              {pendingWithMeta.length === 0 && (
-                <div style={{ 
-                  color: '#94a3b8', 
-                  padding: '20px 16px',
-                  textAlign: 'center',
-                  fontSize: '13px'
-                }}>
-                  ✓ No patients in queue
-                </div>
-              )}
+                ))}
+              </div>
+              {congestionMessage && <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 11, lineHeight: 1.4 }}>⚠ {congestionMessage}</div>}
             </div>
           </aside>
         ) : null}

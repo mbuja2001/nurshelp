@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiPlus, FiDownload, FiUpload, FiEdit2, FiTrash2, FiChevronDown, FaClock, FaHistory, FaFilter } from 'react-icons/fi';
-import { FaClock as FaClock2, FaHistory as FaHistory2, FaCalendarAlt, FaChartBar } from 'react-icons/fa';
+import { FiX, FiPlus, FiDownload, FiUpload, FiEdit2, FiTrash2, FiChevronDown, FiFilter } from 'react-icons/fi';
+import { FaClock, FaHistory, FaCalendarAlt, FaChartBar } from 'react-icons/fa';
 import SidebarLayout from '../SidebarLayout';
 import { useUserFromToken } from '../../hooks/useUserFromToken';
 

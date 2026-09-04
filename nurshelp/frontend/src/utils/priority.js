@@ -54,6 +54,72 @@ export const normalizePatient = (p) => {
   return copy;
 };
 
+const firstValue = (...values) => values.find((value) => value !== undefined && value !== null && value !== '');
+
+const asNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const getVitals = (value = {}) => value?.vitals || value?.vitalSigns || value?.triage?.vitals_parsed || value?.report?.vitals || {};
+
+const getVitalHistory = (value = {}) => {
+  const history = firstValue(
+    value.vitalsHistory,
+    value.vitalHistory,
+    value.vitalsTrend,
+    value.recentVitals,
+    value.triage?.vitalsHistory,
+    value.triage?.vital_history,
+    value.triage?.vitals_trend,
+    value.report?.vitalsHistory
+  );
+  if (!Array.isArray(history)) return [];
+  return history.map((entry) => entry?.vitals || entry?.vitalSigns || entry).filter((entry) => entry && typeof entry === 'object');
+};
+
+const vitalsValue = (vitals, names) => asNumber(firstValue(...names.map((name) => vitals?.[name])));
+
+const historyText = (value = {}) => JSON.stringify([
+  value.criticalHistory,
+  value.critical_history,
+  value.history,
+  value.medicalHistory,
+  value.patient?.criticalHistory,
+  value.triage?.criticalHistory,
+  value.triage?.critical_history
+]).toLowerCase();
+
+const getCriticalHistorySignals = (value = {}) => {
+  const text = historyText(value);
+  const activeCoagulopathy = /haemophilia|hemophilia|warfarin.*apixaban|apixaban.*warfarin|concurrent anticoagul/.test(text);
+  const asplenicSepsisRisk = /splenectomy|asplenic|asplenia/.test(text);
+  const temperature = vitalsValue(getVitals(value), ['temperature', 'temp', 'temperature_celsius']);
+  return { activeCoagulopathy, asplenicSepsisRisk: asplenicSepsisRisk && temperature !== null && temperature > 38.5 };
+};
+
+const getPhysiologicalDrift = (value = {}) => {
+  const current = getVitals(value);
+  const readings = [...getVitalHistory(value), current].filter((reading) => Object.keys(reading).length > 0);
+  const previous = readings.length > 1 ? readings[readings.length - 2] : null;
+  const currentHr = vitalsValue(current, ['heartRate', 'heart_rate', 'hr']);
+  const currentSbp = vitalsValue(current, ['systolicBP', 'systolic_bp', 'bp_systolic', 'sbp']);
+  const currentO2 = vitalsValue(current, ['oxygenSaturation', 'oxygen_saturation', 'o2', 'spo2', 'o2_sat']);
+  const previousHr = vitalsValue(previous, ['heartRate', 'heart_rate', 'hr']);
+  const previousSbp = vitalsValue(previous, ['systolicBP', 'systolic_bp', 'bp_systolic', 'sbp']);
+  const previousO2 = vitalsValue(previous, ['oxygenSaturation', 'oxygen_saturation', 'o2', 'spo2', 'o2_sat']);
+  const shockIndex = currentHr !== null && currentSbp > 0 ? currentHr / currentSbp : null;
+  const hypoxicDrop = previousO2 !== null && currentO2 !== null ? previousO2 - currentO2 : 0;
+  const relativeBradycardia = previousHr !== null && previousSbp !== null && currentHr !== null && currentSbp !== null && currentHr < previousHr && currentSbp < previousSbp;
+  return {
+    shockIndex,
+    shockIndexAlert: shockIndex !== null && shockIndex > 1,
+    hypoxicDrop,
+    hypoxicTrendAlert: hypoxicDrop >= 3,
+    relativeBradycardia
+  };
+};
+
 export const formatTimestamp = (ts) => {
   if (!ts) return null;
   try {
@@ -67,7 +133,14 @@ export const formatTimestamp = (ts) => {
 
 export const computePriority = (p, nowMs) => {
   const rpt = p.report ?? p.patientReport ?? {};
-  const satsCat = (rpt.satsCategory || rpt.sats || null);
+  const satsCat = firstValue(
+    rpt.satsCategory,
+    rpt.sats,
+    p.triageCategory,
+    p.triage?.triageCategory,
+    p.triage?.satsLevel,
+    p.satsLevel
+  );
   const sev = severityFromReport(p);
 
   const satsMap = {
@@ -87,22 +160,48 @@ export const computePriority = (p, nowMs) => {
   }
 
   const meta = satsMap[category] || satsMap.Green;
-  if (category === 'Red') return { score: meta.base, label: 'Critical', category };
 
   const start = waitStartFor(p);
-  const waitMs = start ? Math.max(0, nowMs - start) : 0;
+  const startMs = start ? new Date(start).getTime() : NaN;
+  const waitMs = Number.isFinite(startMs) ? Math.max(0, nowMs - startMs) : 0;
   const threshold = meta.threshold || (60 * 60 * 1000);
   const waitRatio = threshold > 0 ? (waitMs / threshold) : Infinity;
 
-  const maxWaitContribution = 5000;
-  const waitScore = Math.min(Math.floor(waitRatio * maxWaitContribution), maxWaitContribution);
+  const drift = getPhysiologicalDrift(p);
+  const criticalHistory = getCriticalHistorySignals(p);
+  const timeDebt = waitRatio >= 1;
+  const hardClinicalOverride = criticalHistory.asplenicSepsisRisk || drift.relativeBradycardia || drift.shockIndexAlert;
+  if (hardClinicalOverride && category !== 'Red') category = 'Red';
+  const effectiveMeta = satsMap[category] || satsMap.Green;
+  const timeDecayScore = Math.min(Math.floor((Math.exp(Math.min(waitRatio, 4)) - 1) * 900), 5000);
+  const driftScore = (drift.shockIndexAlert ? 700 : 0) + (drift.hypoxicTrendAlert ? 600 : 0) + (drift.relativeBradycardia ? 800 : 0);
+  const crossRiskScore = (criticalHistory.activeCoagulopathy ? 500 : 0) + (criticalHistory.asplenicSepsisRisk ? 900 : 0);
+  const waitScore = Math.min(timeDecayScore + driftScore + crossRiskScore, 7000);
 
-  const score = meta.base + waitScore;
+  const score = effectiveMeta.base + waitScore;
   let label = 'Low';
-  if (waitRatio >= 1) label = 'High';
+  if (category === 'Red') label = 'Critical';
+  else if (criticalHistory.asplenicSepsisRisk || drift.relativeBradycardia || drift.shockIndexAlert) label = 'Immediate review';
+  else if (timeDebt) label = 'High';
   else if (waitRatio >= 0.5) label = 'Med';
   else label = 'Low';
-  return { score, label, category, waitRatio };
+  return {
+    score,
+    label,
+    category,
+    waitRatio,
+    timeDebt,
+    physiologicalDrift: drift,
+    crossRisk: criticalHistory,
+    queueSignals: [
+      drift.shockIndexAlert ? 'Shock index > 1.0' : null,
+      drift.hypoxicTrendAlert ? 'O2 drop >= 3%' : null,
+      drift.relativeBradycardia ? 'Heart rate and blood pressure both falling' : null,
+      criticalHistory.activeCoagulopathy ? 'Active coagulopathy overlap' : null,
+      criticalHistory.asplenicSepsisRisk ? 'Asplenic fever risk' : null,
+      timeDebt ? 'Time-to-target breached' : null
+    ].filter(Boolean)
+  };
 };
 
 export default {

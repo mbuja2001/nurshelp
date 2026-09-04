@@ -124,7 +124,7 @@ const StaffScheduleManager = () => {
           <div style={{ marginBottom: 32 }}>
             <h1 style={{ margin: '0 0 8px 0', fontSize: 28, fontWeight: 700, color: '#0f172a' }}>
               <FiClock size={32} style={{ marginRight: 12, verticalAlign: 'middle', color: '#0369a1' }} />
-              Staff Dashboard
+              Time Schedule
             </h1>
             <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>Clock in/out, view assigned shifts, and manage your schedule</p>
           </div>

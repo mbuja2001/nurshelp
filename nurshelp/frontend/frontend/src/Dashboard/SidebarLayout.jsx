@@ -11,7 +11,7 @@ import { decodeJwt } from "../utils/jwt";
 const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [displayName, setDisplayName] = useState(username);
   const [userRole, setUserRole] = useState("ED Nurse");
@@ -147,6 +147,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   ];
 
   const isActive = (path) => location.pathname === path;
+  const isSidebarCollapsed = !sidebarOpen;
 
   return (
     <div style={{ fontFamily: "sans-serif", backgroundColor: "#fff", minHeight: "100vh", display: "flex" }}>
@@ -190,16 +191,16 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
 
       {/* Sidebar */}
       <aside style={{
-        width: sidebarOpen ? 253.8 : 52,
+        width: sidebarOpen ? 253.8 : 64,
         transition: 'width 200ms ease',
         borderRight: '1px solid #e6edf3',
-        padding: sidebarOpen ? 16 : 6,
+        padding: isSidebarCollapsed ? 8 : 16,
         boxSizing: 'border-box',
         backgroundColor: '#fff',
         overflowY: 'auto'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          {sidebarOpen && <strong style={{ fontSize: 14, color: '#0f172a' }}>Clinical Sidebar</strong>}
+          {!isSidebarCollapsed && <strong style={{ fontSize: 14, color: '#0f172a' }}>Clinical Sidebar</strong>}
           <button
             onClick={() => setSidebarOpen(s => !s)}
             style={{
@@ -215,7 +216,56 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           </button>
         </div>
 
-        {sidebarOpen && (
+        {isSidebarCollapsed ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            {navItems.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                title={item.label}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  border: '1px solid transparent',
+                  background: isActive(item.path) ? '#ecfdf5' : 'transparent',
+                  color: '#475569',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  margin: '4px auto'
+                }}
+                onClick={() => navigate(item.path)}
+              >
+                {item.icon}
+              </button>
+            ))}
+            <button
+              type="button"
+              title="Log out"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: '1px solid #fecaca',
+                background: '#fff5f5',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                margin: '8px auto 0'
+              }}
+              onClick={() => {
+                localStorage.removeItem('token');
+                handleLogout();
+              }}
+            >
+              <FiLogOut size={16} />
+            </button>
+          </div>
+        ) : (
           <div>
             {/* Navigation Links */}
             <nav style={{ marginBottom: 20 }}>

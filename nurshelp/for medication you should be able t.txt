@@ -12,6 +12,10 @@ Perfect the ui organization and display of patient records and search results in
 the priority queuing algorithm: put messages of why the patient moved up the priority queuing'
 the algorithm for showing patients who need attention based on health state in clinicians dashboards
 
+when the doctor diagnoses, diagnoses.jsx should ask the doctor are any of these nurse diagnostics suggestions match the official diagnosis
+
+if its using EHR timestamped encounters or rag PubMed scaled data repo for searching relevant cases for triage decisions. the rag referencing ui is there at the bottom in Patienreport.jsx, but thats a different type of compute. when its llm only compute and if your loading previous encounters and critical history, the llm should point out it referenced the previous encounters. if previous encounters are irrelevant in this new triage, it should declare that
+
 
 perfect Ordered Meds
 Perfect Pharmacy, radiology and pathology dashboards
