@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FiChevronLeft, FiDownload, FiEdit } from 'react-icons/fi';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { calculateTews, getInitialTewsProfile } from './utils/tewsCalculator';
 
 const OfficialTriageReport = () => {
   const navigate = useNavigate();
@@ -53,7 +54,7 @@ const OfficialTriageReport = () => {
           'Cache-Control': 'no-cache'
         };
 
-        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?t=${Date.now()}`, {
+        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?reportType=TRIAGE&t=${Date.now()}`, {
           headers,
           cache: 'no-store'
         });
@@ -100,18 +101,6 @@ const OfficialTriageReport = () => {
     }
     // Final fallback to triage assigned specialty
     return encounter?.triage?.assigned_specialty || 'Unassigned';
-  };
-
-  // Get priority badge color and label
-  const getPriorityBadge = (priority) => {
-    const priMap = {
-      'ESI-1': { color: '#dc2626', bgColor: '#fee2e2', label: 'EMERGENT', border: '#991b1b' },
-      'ESI-2': { color: '#ea580c', bgColor: '#ffedd5', label: 'URGENT', border: '#9a3412' },
-      'ESI-3': { color: '#b45309', bgColor: '#fef3c7', label: 'MODERATE', border: '#92400e' },
-      'ESI-4': { color: '#059669', bgColor: '#d1fae5', label: 'STABLE', border: '#047857' },
-      'ESI-5': { color: '#0891b2', bgColor: '#cffafe', label: 'MINIMAL', border: '#164e63' }
-    };
-    return priMap[priority] || { color: '#475569', bgColor: '#f1f5f9', label: priority || 'N/A', border: '#94a3b8' };
   };
 
   // Determine vital sign color (abnormal = red/orange, normal = green)
@@ -256,21 +245,31 @@ const OfficialTriageReport = () => {
   const manualReport = encounter?.manual_triage_report || {};
   const manuallySelected = encounter?.manually_selected_clinicians || [];
   const aiRecommended = encounter?.assigned_clinicians || [];
+  const reportVitals = encounter?.vitals || {};
+  const storedTews = triageData?.tews || triageData?.SATS_reasoning || aiReport?.tews || manualReport?.tews || {};
+  const canonicalTews = calculateTews(
+    getInitialTewsProfile(encounter?.patient || encounter),
+    {
+      temperature: reportVitals.temp ?? reportVitals.temperature,
+      heartRate: reportVitals.hr ?? reportVitals.heartRate,
+      respiratoryRate: reportVitals.resp ?? reportVitals.respiratoryRate,
+      systolicBP: reportVitals.bp_systolic ?? reportVitals.systolicBP,
+      avpu: storedTews.avpu ?? triageData?.avpu ?? reportVitals.avpu,
+      mobility: storedTews.mobility ?? triageData?.mobility ?? reportVitals.mobility,
+      traumaPresent: storedTews.traumaPresent ?? triageData?.traumaPresent ?? reportVitals.traumaPresent
+    }
+  );
   const satsPriority = normalizeSatsLevel(
     reportType === 'AI'
       ? (aiReport?.calculated_priority ?? triageData?.priority_code ?? triageData?.SATS_reasoning?.priority ?? 'yellow')
       : (manualReport?.selected_priority ?? manualReport?.satsLevel ?? triageData?.priority_code ?? triageData?.manualTriageReport?.satsLevel ?? 'yellow')
   );
   const satsBadge = satsPriority ? getSATSBadge(satsPriority) : getSATSBadge('N/A');
-  const tewsTotal = reportType === 'AI'
-    ? (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? aiReport?.tews_total ?? null)
-    : (triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? manualReport?.tews_total ?? null);
-  const mobility = triageData?.SATS_reasoning?.mobility ?? triageData?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
-  const traumaPresent = Boolean(triageData?.SATS_reasoning?.traumaPresent ?? triageData?.traumaPresent ?? encounter?.vitals?.traumaPresent);
-  const acuityScore = reportType === 'AI'
-    ? (aiReport?.urgencyScore ?? triageData?.urgencyScore ?? null)
-    : (manualReport?.urgencyScore ?? manualReport?.urgency_score ?? triageData?.urgencyScore ?? triageData?.urgency_score ?? null);
-
+  const tewsTotal = canonicalTews.complete ? canonicalTews.total : (
+    triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? manualReport?.tews_total ?? aiReport?.tews_total ?? null
+  );
+  const mobility = storedTews.mobility ?? triageData?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
+  const traumaPresent = canonicalTews.components.trauma === 1;
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '20px' }}>
       <div style={{ maxWidth: '210mm', margin: '0 auto' }}>
@@ -467,7 +466,7 @@ const OfficialTriageReport = () => {
           {(reportType === 'AI' ? aiReport : manualReport) && (
             <div style={{ marginBottom: '7px' }}>
               <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 800, color: '#000000', borderBottom: '2px solid #1e293b', paddingBottom: '3px' }}>TRIAGE ASSESSMENT</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '7px', fontSize: '10px' }}>
                 <div>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>SATS CLASSIFICATION:</span>
                   <div style={{ marginTop: '4px' }}>
@@ -490,25 +489,13 @@ const OfficialTriageReport = () => {
                     )}
                   </div>
                 </div>
-                <div>
-                  <span style={{ color: '#1e293b', fontWeight: 600 }}>ESI LEVEL:</span>
-                  <div style={{ marginTop: '4px', fontWeight: 600, color: '#000000', fontSize: '11px' }}>
-                    {reportType === 'AI' ? (aiReport?.esi_level || triageData?.esi_level || 'N/A') : (manualReport?.esi_level || 'N/A')}
-                  </div>
-                </div>
               </div>
 
-              <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
+              <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '7px', fontSize: '10px' }}>
                 <div>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>TEWS SCORE:</span>
                   <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
                     {tewsTotal !== null ? `${tewsTotal} points` : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <span style={{ color: '#1e293b', fontWeight: 600 }}>ACUITY / URGENCY SCORE:</span>
-                  <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
-                    {acuityScore !== null ? `${acuityScore}` : 'N/A'}
                   </div>
                 </div>
                 <div>
@@ -641,7 +628,8 @@ const OfficialTriageReport = () => {
           display: 'flex',
           gap: 12,
           marginTop: 24,
-          justifyContent: 'center'
+          justifyContent: 'center',
+          flexWrap: 'wrap'
         }}>
           <button
             onClick={() => navigate('/dashboard')}

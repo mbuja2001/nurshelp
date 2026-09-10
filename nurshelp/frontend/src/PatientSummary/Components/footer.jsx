@@ -1,31 +1,21 @@
-import React, { useState } from "react";
+import React from "react";
 
 function Footer() {
   return (
-    <footer style={footerStyle}>
-      <p style={textStyle}>2026 Living Compute Labs. All Intellectual Property Rights Reserved.</p>
-      <p style={textStyle}>Nurse Help Desk v1.0</p>
+    <footer className="ps-footer">
+      <div className="ps-footer-brand">
+        <div>
+          <strong>Nurse Help Desk</strong>
+          <span>Clinical intake workspace</span>
+        </div>
+      </div>
+      <div className="ps-footer-meta">
+        <span>v1.0</span>
+        <span>2026 Living Compute Labs</span>
+        <span className="ps-footer-status"><i aria-hidden="true" /> Secure session</span>
+      </div>
     </footer>
   );
 }
-
-const footerStyle = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '0 40px',
-  height: '50px',
-  backgroundColor: '#ffffff',
-  borderTop: '1px solid #ddd',
-  width: '100vw',
-  boxSizing: 'border-box',
-  marginTop: 'auto' 
-};
-
-const textStyle = {
-  fontSize: '14px',
-  color: '#666',
-  margin: 0
-};
 
 export default Footer;

@@ -444,6 +444,112 @@
   line-height: 1.65;
 }
 
+.triage-loaded-patient {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f0fdf9 0%, #ffffff 100%);
+  box-shadow: inset 3px 0 0 #10b981;
+}
+
+.triage-loaded-patient-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.triage-loaded-patient-dot,
+.ps-footer-status i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+.triage-loaded-patient-identity {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.triage-loaded-patient-avatar {
+  display: grid;
+  flex: 0 0 42px;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.triage-loaded-patient-copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.triage-loaded-patient-copy strong,
+.triage-loaded-patient-copy span,
+.triage-loaded-patient-facts span {
+  overflow-wrap: anywhere;
+}
+
+.triage-loaded-patient-copy strong {
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.triage-loaded-patient-copy span,
+.triage-loaded-patient-facts {
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.triage-loaded-patient-facts {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  max-width: 42%;
+  text-align: right;
+}
+
+.triage-loaded-patient-facts span + span::before {
+  content: "•";
+  margin-right: 10px;
+  color: #94a3b8;
+}
+
+.triage-loaded-patient-note {
+  padding-top: 10px;
+  border-top: 1px solid rgba(15, 118, 110, 0.14);
+  color: #475569;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.triage-loaded-patient-note span {
+  margin-right: 5px;
+  color: #0f766e;
+  font-weight: 800;
+}
+
 .triage-search-modal {
   position: fixed;
   inset: 0;
@@ -821,11 +927,33 @@
 .save-file-btn:hover { transform: translateY(-2px); background-color: #0b1220; }
 
 /* Footer */
-footer {
-  height: 46px; flex-shrink:0; background: var(--card);
-  border-top: 1px solid var(--border);
-  display:flex; align-items:center; justify-content:center;
+.ps-footer {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px clamp(16px, 4vw, 40px);
+  background: #ffffff;
+  border-top: 1px solid #dbe4ee;
 }
+
+.ps-footer-brand,
+.ps-footer-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.ps-footer-brand { gap: 10px; }
+.ps-footer-brand div { display: grid; gap: 2px; }
+.ps-footer-brand strong { color: #0f172a; font-size: 0.8rem; }
+.ps-footer-brand span { color: #64748b; font-size: 0.7rem; }
+.ps-footer-meta { flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; color: #64748b; font-size: 0.72rem; }
+.ps-footer-status { display: inline-flex; align-items: center; gap: 7px; color: #047857; font-weight: 700; }
 
 /* Chat blocks styles */
 .chat-block { padding: 12px; border-radius: 8px; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
@@ -1039,6 +1167,161 @@ footer {
 .patient-report-page .vital-item span { color: #475569; }
 .patient-report-page .vital-item strong { color: #0f172a; font-weight: 800; }
 
+/* Patient reports use dense clinical content; let every region shrink before wrapping. */
+.patient-report-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.patient-report-page .patient-report-columns,
+.patient-report-page .patient-report-columns > div,
+.patient-report-page .block,
+.patient-report-page .content-area {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.patient-report-page .patient-report-section-header,
+.patient-report-page .patient-report-priority-row {
+  min-width: 0;
+}
+
+.patient-report-page .patient-report-section-header > *,
+.patient-report-page .patient-report-priority-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.patient-report-page pre,
+.patient-report-page code,
+.patient-report-page li,
+.patient-report-page div {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.patient-report-page input,
+.patient-report-page textarea,
+.patient-report-page button {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.patient-report-page .patient-history-metadata,
+.patient-report-page .patient-history-summary {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.patient-report-page .patient-history-metadata {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.patient-report-page .patient-history-summary {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.patient-report-page .hospitalization-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.patient-report-page .hospitalization-choice,
+.patient-report-page .hospitalization-option-grid button {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+}
+
+.patient-report-page .hospitalization-option-grid {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .patient-report-page {
+    padding: 14px !important;
+  }
+
+  .patient-report-page .patient-report-columns {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .patient-report-page {
+    padding: 10px !important;
+  }
+
+  .patient-report-page h2 {
+    font-size: 1.2rem;
+    overflow-wrap: anywhere;
+  }
+
+  .patient-report-page .block {
+    padding: 12px;
+  }
+
+  .patient-report-page .patient-report-section-header,
+  .patient-report-page .patient-report-priority-row {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .patient-report-page .patient-report-section-header > div:last-child {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .patient-report-page .patient-report-demographics {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .patient-report-page .patient-report-demographics > div {
+    grid-column: 1 / -1 !important;
+  }
+
+  .patient-report-page .patient-report-priority-row > div:last-child {
+    text-align: left !important;
+  }
+
+  .patient-report-page .hospitalization-choice-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .patient-report-page .hospitalization-choice {
+    width: 100%;
+    min-height: 52px;
+    padding: 10px !important;
+    justify-content: flex-start !important;
+    text-align: left;
+  }
+
+  .patient-report-page .hospitalization-panel > div:first-of-type {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+
+  .patient-report-page .hospitalization-panel > div:first-of-type > button {
+    width: 100%;
+  }
+
+  .patient-report-page .hospitalization-option-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 /* =========== Exquisite AI Field Inline Editing =========== */
 
 /* Edit mode button state transitions */
@@ -1179,4 +1462,22 @@ footer {
     font-size: 10px;
     padding: 6px 8px;
   }
+}
+
+@media (max-width: 640px) {
+  .triage-shell-top { align-items: flex-start; flex-direction: column; }
+  .triage-shell-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .triage-shell-actions > button:not(.triage-shell-icon-btn) { flex: 1 1 180px; min-width: 0; }
+  .triage-loaded-patient-identity { align-items: flex-start; flex-wrap: wrap; }
+  .triage-loaded-patient-facts { width: 100%; max-width: none; justify-content: flex-start; padding-left: 53px; text-align: left; }
+  .triage-loaded-patient-facts span + span::before { margin-right: 7px; }
+  .ps-footer { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .ps-footer-meta { justify-content: flex-start; }
+}
+
+@media (max-width: 380px) {
+  .triage-shell-card { padding: 14px; }
+  .triage-loaded-patient { padding: 12px; }
+  .triage-loaded-patient-facts { padding-left: 0; }
+  .ps-footer-meta { align-items: flex-start; flex-direction: column; gap: 5px; }
 }

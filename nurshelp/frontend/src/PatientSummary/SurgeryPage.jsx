@@ -34,7 +34,7 @@ const SurgeryPage = () => {
       try {
         setLoading(true);
         const headers = { Authorization: `Bearer ${token}` };
-        const res = await fetch(`${BACKEND_URL}/api/encounters/${id}`, { headers });
+        const res = await fetch(`${BACKEND_URL}/api/encounters/${id}?reportType=SURGERY`, { headers });
         if (!res.ok) throw new Error("Failed to load encounter");
 
         const data = await res.json();

@@ -30,7 +30,7 @@ const InpatientReport = () => {
           'Cache-Control': 'no-cache'
         };
 
-        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?t=${Date.now()}`, {
+        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?reportType=CLINICAL_NOTE&t=${Date.now()}`, {
           headers,
           cache: 'no-store'
         });

@@ -26,8 +26,9 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   const [onCallConsults, setOnCallConsults] = useState([]);
   const [onCallLoading, setOnCallLoading] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [alertCount, setAlertCount] = useState(3);
-  const [messageCount, setMessageCount] = useState(2);
+  const [messages, setMessages] = useState([]);
+  const [alertCount, setAlertCount] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [showMessagesDropdown, setShowMessagesDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -84,35 +85,27 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   useEffect(() => {
     let cancelled = false;
 
-    const loadUnreadNotifications = async () => {
+    const loadOperationsFeed = async () => {
       try {
-        const response = await notificationService.getUnreadNotifications(6);
+        const response = await notificationService.getOperationsFeed(50);
         if (cancelled) return;
 
-        const items = Array.isArray(response?.notifications) ? response.notifications : [];
-        const nextCount = response?.count || items.length || 3;
+        const feed = response?.feed || {};
+        const alerts = Array.isArray(feed.alerts) ? feed.alerts : [];
+        const nextMessages = Array.isArray(feed.messages) ? feed.messages : [];
+        const fallbackAlertCount = Math.max(alerts.length, Array.isArray(response?.unreadNotifications) ? response.unreadNotifications.length : 0);
 
-        setNotifications(items.length > 0 ? items : [
-          { _id: 'demo-alert-1', title: 'Priority queue updated', message: 'Three urgent cases need physician review.', type: 'alert' },
-          { _id: 'demo-alert-2', title: 'Lab review pending', message: 'Radiology results are ready for sign-off.', type: 'info' }
-        ]);
-        setAlertCount(nextCount || 3);
-        setMessageCount(Math.max(2, Math.min(9, nextCount + 1)));
+        setNotifications(alerts);
+        setMessages(nextMessages);
+        setAlertCount(fallbackAlertCount);
+        setMessageCount(nextMessages.length);
       } catch (err) {
         console.error('Error loading unread notifications:', err);
-        if (!cancelled) {
-          setNotifications([
-            { _id: 'demo-alert-1', title: 'Priority queue updated', message: 'Three urgent cases need physician review.', type: 'alert' },
-            { _id: 'demo-alert-2', title: 'Lab review pending', message: 'Radiology results are ready for sign-off.', type: 'info' }
-          ]);
-          setAlertCount(3);
-          setMessageCount(2);
-        }
       }
     };
 
-    loadUnreadNotifications();
-    const interval = window.setInterval(loadUnreadNotifications, 15000);
+    loadOperationsFeed();
+    const interval = window.setInterval(loadOperationsFeed, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -350,6 +343,39 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           border-color: #fecaca;
           color: #ef4444;
         }
+
+        .sidebar-header-brand,
+        .sidebar-header-user,
+        .sidebar-header-control {
+          min-width: 0;
+        }
+
+        .sidebar-header-user {
+          border: 0;
+          color: inherit;
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .sidebar-header-control-label {
+          overflow: hidden;
+          max-width: 140px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .sidebar-header-control-badge {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          z-index: 2;
+          min-width: 14px !important;
+          height: 14px !important;
+          padding: 0 3px !important;
+          border: 2px solid #1e3a8a;
+          border-radius: 999px;
+          font-size: 9px !important;
+          line-height: 1;
+        }
         .sidebar-item {
           margin: 0.3rem 0;
         }
@@ -404,6 +430,41 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           .sidebar-text-label {
             font-size: 12px !important;
           }
+
+          .sidebar-header-control-label,
+          .sidebar-header-user-copy {
+            display: none !important;
+          }
+
+          .sidebar-header-control-badge {
+            display: inline-flex !important;
+          }
+
+          .sidebar-header-brand-copy {
+            display: flex !important;
+          }
+
+          .sidebar-header-control {
+            width: 38px;
+            height: 38px;
+            justify-content: center;
+            padding: 8px !important;
+          }
+
+          .sidebar-header-user {
+            padding: 4px !important;
+            background: transparent !important;
+            border: 0 !important;
+          }
+
+          .sidebar-header-user-avatar {
+            width: 36px !important;
+            height: 36px !important;
+          }
+
+          .sidebar-header-brand img {
+            height: 2.35rem !important;
+          }
         }
 
         @media (max-width: 768px) {
@@ -428,9 +489,34 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           .nav-item {
             padding: 6px 6px !important;
           }
+
+          .sidebar-header-brand {
+            gap: 8px !important;
+          }
+
+          .sidebar-header-brand-copy h2 {
+            font-size: 15px !important;
+          }
+          .sidebar-header-brand-copy span {
+            font-size: 9px !important;
+          }
+
+          .sidebar-header-brand img {
+            height: 2.15rem !important;
+          }
         }
 
         @media (max-width: 480px) {
+          .sidebar-header-brand-copy {
+            display: flex !important;
+            gap: 1px;
+          }
+          .sidebar-header-brand-copy h2 {
+            font-size: 14px !important;
+          }
+          .sidebar-header-brand-copy span {
+            font-size: 9px !important;
+          }
           .sidebar-text-label {
             display: block;
             font-size: 10px !important;
@@ -442,6 +528,10 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           }
           .nav-item {
             padding: 5px 4px !important;
+          }
+
+          .sidebar-header-brand img {
+            height: 2rem !important;
           }
         }
       `}</style>
@@ -498,7 +588,16 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, minHeight: 24 }}>
-          {!isSidebarCollapsed && <strong style={{ fontSize: 14, color: '#0f172a' }}>Clinical Sidebar</strong>}
+          {!isSidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              title="Open dashboard"
+              style={{ border: 0, padding: 0, background: 'transparent', color: '#0f172a', cursor: 'pointer', fontSize: 14, fontWeight: 800 }}
+            >
+              Clinical Sidebar
+            </button>
+          )}
           <button
             onClick={toggleSidebar}
             style={{
@@ -703,17 +802,17 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)',
           position: 'relative'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <button className="sidebar-header-brand" type="button" onClick={() => navigate('/dashboard')} title="Open dashboard" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: 0, padding: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
             <img src={nhpLogo} alt="NurseHelpDesk" style={{ height: '2.8rem', width: 'auto' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div className="sidebar-header-brand-copy" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#ffffff' }}>NurseHelpDesk</h2>
               <span style={{ fontSize: 12, color: '#dbeafe' }}>Operational command center</span>
             </div>
-          </div>
+          </button>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px', marginLeft: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <div style={{
+              <button className="sidebar-header-user" type="button" onClick={() => navigate('/profile')} style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
@@ -722,8 +821,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                 background: 'rgba(255,255,255,0.12)',
                 border: '1px solid rgba(255,255,255,0.18)',
                 boxShadow: '0 1px 3px rgba(15,23,42,0.12)'
-              }}>
-                <div style={{
+              }} title="Open profile">
+                <div className="sidebar-header-user-avatar" style={{
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
@@ -737,7 +836,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                 }}>
                   {(displayName || 'S').slice(0, 1).toUpperCase()}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
+                <div className="sidebar-header-user-copy" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
                   <span style={{ fontWeight: 800, color: '#ffffff', fontSize: 14, letterSpacing: '0.2px', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{displayName}</span>
                   <span style={{ fontSize: 12, color: '#dbeafe', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{userRole}</span>
                   <span style={{ fontSize: 11, color: '#86efac', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
@@ -745,14 +844,16 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                     {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 </div>
-              </div>
+              </button>
 
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => {
-                    setShowMessagesDropdown(v => !v);
+                <button className="sidebar-header-control"
+                  onMouseEnter={() => {
+                    setShowMessagesDropdown(true);
                     setShowNotificationsDropdown(false);
                   }}
+                  onMouseLeave={() => setShowMessagesDropdown(false)}
+                  onClick={() => navigate('/staff-chat')}
                   style={{
                     position: 'relative',
                     background: 'rgba(255,255,255,0.16)',
@@ -770,8 +871,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   title="Staff messaging"
                 >
                   <FiMessageCircle size={16} />
-                  <span>Messages</span>
-                  <span style={{
+                  <span className="sidebar-header-control-label">Messages</span>
+                  <span className="sidebar-header-control-badge" style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -788,11 +889,13 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   </span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    setShowNotificationsDropdown(v => !v);
+                <button className="sidebar-header-control"
+                  onMouseEnter={() => {
+                    setShowNotificationsDropdown(true);
                     setShowMessagesDropdown(false);
                   }}
+                  onMouseLeave={() => setShowNotificationsDropdown(false)}
+                  onClick={() => navigate('/alerts')}
                   style={{
                     position: 'relative',
                     background: alertCount > 0 ? 'rgba(248,113,113,0.18)' : 'rgba(255,255,255,0.16)',
@@ -810,8 +913,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   title={`${alertCount} alert${alertCount !== 1 ? 's' : ''}`}
                 >
                   <FiBell size={16} />
-                  <span>Alerts</span>
-                  <span style={{
+                  <span className="sidebar-header-control-label">Alerts</span>
+                  <span className="sidebar-header-control-badge" style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -828,8 +931,9 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   </span>
                 </button>
 
-                <button
-                  onClick={() => navigate('/dashboard-tools')}
+                <button className="sidebar-header-control"
+                  onClick={() => navigate('/system-performance')}
+                  onMouseEnter={() => setShowNotificationsDropdown(false)}
                   style={{
                     position: 'relative',
                     background: 'rgba(255,255,255,0.16)',
@@ -848,7 +952,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
                   title="System performance"
                 >
                   <FiBarChart2 size={16} />
-                  <span>System Performance</span>
+                  <span className="sidebar-header-control-label">System Performance</span>
                 </button>
               </div>
             </div>
@@ -870,13 +974,12 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
             }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Staff messages</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {[
-                  { title: 'Dr. Patel', detail: 'Surgical prep update for room 12' },
-                  { title: 'Nurse Rivera', detail: 'Medication timing confirmed for ICU' }
-                ].map((item) => (
-                  <div key={item.title} style={{ padding: '8px 10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#334155' }}>
-                    <div style={{ fontWeight: 700 }}>{item.title}</div>
-                    <div style={{ color: '#64748b', marginTop: '2px' }}>{item.detail}</div>
+                {messages.length === 0 ? (
+                  <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new messages</div>
+                ) : messages.slice(0, 6).map((item) => (
+                  <div key={item.id} style={{ padding: '8px 10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#334155' }}>
+                    <div style={{ fontWeight: 700 }}>{item.title || 'Staff message'}</div>
+                    <div style={{ color: '#64748b', marginTop: '2px' }}>{item.message || 'New staff update'}</div>
                   </div>
                 ))}
               </div>
@@ -888,20 +991,25 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
               position: 'absolute',
               top: 'calc(100% + 8px)',
               right: '12px',
-              minWidth: '280px',
+              width: 'min(320px, calc(100vw - 24px))',
+              minWidth: '240px',
               background: '#ffffff',
               border: '1px solid #e2e8f0',
-              borderRadius: '12px',
+              borderRadius: '9px',
               boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
-              padding: '12px',
+              padding: '8px',
               zIndex: 1100
             }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Live alerts</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {notifications.slice(0, 3).map((item) => (
-                  <div key={item._id || item.title} style={{ padding: '8px 10px', borderRadius: '8px', background: '#fef2f2', fontSize: 12, color: '#7f1d1d' }}>
-                    <div style={{ fontWeight: 700 }}>{item.title || 'Alert'}</div>
-                    <div style={{ color: '#b91c1c', marginTop: '2px' }}>{item.message || item.body || 'New clinical update'}</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>Live alerts</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new alerts</div>
+                ) : notifications.slice(0, 6).map((item) => (
+                  <div key={item.id || item._id || item.title} style={{ padding: '5px 7px', borderRadius: '6px', background: item.severity === 'CRITICAL' ? '#fef2f2' : '#fff7ed', fontSize: 10, lineHeight: 1.25, color: item.severity === 'CRITICAL' ? '#7f1d1d' : '#7c2d12' }}>
+                    <div style={{ fontWeight: 700, fontSize: 10 }}>{item.title || 'Alert'}</div>
+                    <div style={{ color: 'inherit', marginTop: '1px', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>{item.message || item.body || 'New clinical update'}</div>
+                    {item.patient?.name && <div style={{ marginTop: '2px', color: '#475569', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.patient.name}{item.patient.chiefComplaint ? ` • ${item.patient.chiefComplaint}` : ''}</div>}
+                    {item.action?.route && <button type="button" onClick={() => navigate(item.action.route)} style={{ marginTop: '3px', border: 0, background: 'transparent', padding: 0, color: '#1d4ed8', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>{item.action.label || 'Open'}</button>}
                   </div>
                 ))}
               </div>

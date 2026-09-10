@@ -55,7 +55,17 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
     wardName: bed.wardName || bed.ward || bed.department || 'General Ward',
     status: bed.status?.toLowerCase() || 'available',
     bedType: bed.bedType || 'Standard',
-    equipment: bed.equipment || bed.equipment?.join?.(', ') || '',
+    equipment: [
+      ...(Array.isArray(bed.equipment) ? bed.equipment : bed.equipment ? [bed.equipment] : []),
+      ...(Array.isArray(bed.equipment_baseline) ? bed.equipment_baseline : []),
+      bed.hasMonitor && 'Monitor',
+      bed.hasVentilator && 'Ventilator',
+      bed.hasDialysis && 'Dialysis Machine'
+    ].filter(Boolean).filter((item, index, items) => items.indexOf(item) === index),
+    equipment_baseline: bed.equipment_baseline || [],
+    hasMonitor: Boolean(bed.hasMonitor),
+    hasVentilator: Boolean(bed.hasVentilator),
+    hasDialysis: Boolean(bed.hasDialysis),
     roomNumber: bed.roomNumber || bed.room || null,
     acuityLevel: bed.acuityLevel || 'General'
   });
@@ -289,6 +299,11 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
                       >
                         <div style={bedIdStyle}>{bed.bedNumber}</div>
                         <div style={bedDeptStyle}>{bed.department}</div>
+                        {bed.equipment.length > 0 && (
+                          <div style={{ marginTop: 6, color: '#475569', fontSize: 11, lineHeight: 1.35 }}>
+                            Equipment: {bed.equipment.join(', ')}
+                          </div>
+                        )}
                         <div style={{
                           ...bedStatusStyle,
                           ...(bed.status === 'available'
@@ -317,7 +332,7 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
           {selectedNurse && <p><strong>Nurse:</strong> {selectedNurse.name} ({selectedNurse.specialty})</p>}
           {selectedPhysician && <p><strong>Physician:</strong> {selectedPhysician.name} ({selectedPhysician.specialty})</p>}
           {selectedSpecialist && <p><strong>Specialist:</strong> {selectedSpecialist.name} ({selectedSpecialist.specialty})</p>}
-          {selectedBed && <p><strong>Bed:</strong> {selectedBed.bedNumber} ({selectedBed.department})</p>}
+          {selectedBed && <p><strong>Bed:</strong> {selectedBed.bedNumber} ({selectedBed.department}){selectedBed.equipment?.length ? ` - ${selectedBed.equipment.join(', ')}` : ''}</p>}
         </div>
       )}
     </div>

@@ -1,0 +1,86 @@
+.confirming-ai-handover {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.confirming-ai-handover .confirming-ai-header {
+  min-width: 0;
+  gap: 16px;
+}
+
+.confirming-ai-handover .confirming-ai-header > div:first-child {
+  min-width: 0;
+}
+
+.confirming-ai-handover .confirming-ai-header h1,
+.confirming-ai-handover .confirming-ai-header p {
+  overflow-wrap: anywhere;
+}
+
+.confirming-ai-handover .confirming-ai-back-button,
+.confirming-ai-handover .confirming-ai-action-button {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.confirming-ai-handover .confirming-ai-actions {
+  min-width: 0;
+}
+
+.confirming-ai-handover .confirming-ai-action-button {
+  flex: 0 1 auto;
+}
+
+@media (max-width: 700px) {
+  .confirming-ai-handover {
+    padding: 12px !important;
+  }
+
+  .confirming-ai-handover .confirming-ai-header {
+    align-items: stretch !important;
+    flex-direction: column;
+    margin-bottom: 16px !important;
+  }
+
+  .confirming-ai-handover .confirming-ai-back-button {
+    align-self: stretch;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .confirming-ai-handover .confirming-ai-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px !important;
+    margin-top: 16px !important;
+  }
+
+  .confirming-ai-handover .confirming-ai-action-button {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 14px !important;
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .confirming-ai-handover {
+    padding: 8px !important;
+  }
+
+  .confirming-ai-handover .confirming-ai-header h1 {
+    font-size: 20px !important;
+  }
+
+  .confirming-ai-handover .confirming-ai-action-button,
+  .confirming-ai-handover .confirming-ai-back-button {
+    font-size: 12px !important;
+  }
+}

@@ -43,6 +43,8 @@ import Settings from "./Dashboard/Pages/Settings.jsx";
 import TriageAnalytics from "./Dashboard/Pages/TriageAnalytics.jsx";
 import Help from "./Dashboard/Pages/Help.jsx";
 import Notifications from "./Dashboard/Pages/Notifications.jsx";
+import AlertsPage from "./Dashboard/Pages/AlertsPage.jsx";
+import SystemPerformance from "./Dashboard/Pages/SystemPerformance.jsx";
 import ClockInOutBoard from "./Dashboard/Pages/ClockInOutBoard.jsx";
 import ClockDashboard from "./Dashboard/ClockDashboard.jsx";
 import ManagerApprovalPage from "./Dashboard/Pages/ManagerApprovalPage.jsx";
@@ -161,6 +163,8 @@ function App() {
           <Route path="/pharmacy-public" element={<OrderedMeds />} />
           <Route path="/staff-to-pharmacist" element={<StaffToPharmacist />} />
           <Route path="/dashboard-tools" element={<DashboardTools />} />
+          <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/system-performance" element={<SystemPerformance />} />
           <Route path="/staff-chat" element={<StaffTeamChat />} />
           <Route path="/staff-team" element={<StaffTeamPage />} />
           <Route path="/calendar" element={<CalendarPage />} />

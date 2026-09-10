@@ -1,4 +1,5 @@
 import { Encounter } from '../models/encounter.model.js';
+import { Prescription } from '../models/pharmacy.model.js';
 import { Notification } from '../models/notification.model.js';
 import mongoose from 'mongoose';
 import { UserSearchHistory } from '../models/userSearchHistory.model.js';
@@ -301,6 +302,21 @@ export const getPatientEHR = async (req, res) => {
       .populate('assigned_bed', 'bedId bedNumber roomNumber')
       .sort({ createdAt: -1 })
       .lean();
+
+    const encounterIds = patientEncounters.map((encounter) => encounter._id);
+    const prescriptions = await Prescription.find({ hospitalId, encounterId: { $in: encounterIds } })
+      .sort({ date_issued: -1, createdAt: -1 })
+      .lean();
+    const prescriptionsByEncounter = new Map();
+    prescriptions.forEach((prescription) => {
+      const key = String(prescription.encounterId);
+      const current = prescriptionsByEncounter.get(key) || [];
+      current.push(prescription);
+      prescriptionsByEncounter.set(key, current);
+    });
+    patientEncounters.forEach((encounter) => {
+      encounter.prescriptions = prescriptionsByEncounter.get(String(encounter._id)) || [];
+    });
 
     console.log('[EHR] Found', patientEncounters.length, 'encounters for patient', {
       hospitalId,

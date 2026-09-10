@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiChevronLeft, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { calculateTews, getInitialTewsProfile } from './utils/tewsCalculator';
+import './ConfirmingAIClinicalHandover.css';
 
 const ConfirmingAIClinicalHandover = () => {
   const navigate = useNavigate();
@@ -226,12 +228,26 @@ const ConfirmingAIClinicalHandover = () => {
   const aiReport = triageData.aiTriageReport || {};
   const manuallySelected = encounter.manually_selected_clinicians || [];
   const aiRecommended = encounter.assigned_clinicians || []; // FIXED: Read from top-level, not from triage!
+  const tewsSource = triageData.SATS_reasoning || triageData.tews || aiReport.SATS_reasoning || {};
+  const tewsResult = calculateTews(
+    getInitialTewsProfile(encounter.patient || encounter),
+    {
+      temperature: encounter.vitals?.temp ?? encounter.vitals?.temperature,
+      heartRate: encounter.vitals?.hr ?? encounter.vitals?.heartRate,
+      respiratoryRate: encounter.vitals?.resp ?? encounter.vitals?.respiratoryRate,
+      systolicBP: encounter.vitals?.bp_systolic ?? encounter.vitals?.systolicBP,
+      avpu: encounter.vitals?.avpu ?? tewsSource.avpu,
+      mobility: encounter.vitals?.mobility ?? tewsSource.mobility,
+      traumaPresent: encounter.vitals?.traumaPresent ?? tewsSource.traumaPresent
+    }
+  );
+  const tewsTotal = tewsResult.complete ? tewsResult.total : (tewsSource.tews_total ?? triageData.tews_total ?? null);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', padding: 20 }}>
+    <div className="confirming-ai-handover" style={{ minHeight: '100vh', background: '#f8fafc', padding: 20 }}>
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div className="confirming-ai-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
               Confirm AI Clinical Handover
@@ -240,7 +256,7 @@ const ConfirmingAIClinicalHandover = () => {
               Review and confirm the AI-generated triage report before handing over to assigned clinicians
             </p>
           </div>
-          <button
+          <button className="confirming-ai-back-button"
             onClick={() => navigate(`/summary/${encounterId}`)}
             style={{
               display: 'flex',
@@ -443,7 +459,7 @@ const ConfirmingAIClinicalHandover = () => {
         </div>
 
         {/* TEWS Score Section */}
-        {(encounter.triage?.SATS_reasoning?.tews_total !== undefined || encounter.triage?.tews_total !== undefined) && (
+        {tewsTotal !== null && (
           <div style={{ background: '#ffffff', padding: '11px', borderRadius: '3px', marginBottom: '11px', border: '1px solid #e2e8f0', marginTop: '11px' }}>
             <h4 style={{ margin: '0 0 7px 0', fontSize: '11px', fontWeight: 800, color: '#000000', borderBottom: '2px solid #1e293b', paddingBottom: '3px' }}>TEWS SCORE ANALYSIS</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
@@ -460,7 +476,7 @@ const ConfirmingAIClinicalHandover = () => {
                     fontSize: '12px',
                     border: '2px solid #1e293b'
                   }}>
-                    {encounter.triage?.SATS_reasoning?.tews_total ?? encounter.triage?.tews_total ?? 'N/A'} points
+                    {tewsTotal} points
                   </div>
                 </div>
               </div>
@@ -468,14 +484,13 @@ const ConfirmingAIClinicalHandover = () => {
                 <span style={{ color: '#1e293b', fontWeight: 600 }}>COMPONENT BREAKDOWN:</span>
                 <div style={{ marginTop: '4px', fontSize: '9px', color: '#1e293b', fontWeight: 600, lineHeight: '1.35' }}>
                   {(() => {
-                    const tewsComp = encounter.triage?.SATS_reasoning?.tews_components ?? encounter.triage?.tews_components ?? {};
-                    if (!Object.keys(tewsComp).length) return <div style={{ color: '#64748b' }}>Not Available</div>;
-                    return Object.entries(tewsComp).map(([k, v]) => (
-                      <div key={k}>{k.replace(/_points/g, '').replace(/_/g, ' ')}: <strong>{v}</strong></div>
+                    if (!tewsResult.components) return <div style={{ color: '#64748b' }}>Not Available</div>;
+                    return Object.entries(tewsResult.components).map(([k, v]) => (
+                      <div key={k}>{k.replace(/_/g, ' ')}: <strong>{v}</strong></div>
                     ));
                   })()}
-                  <div>mobility: <strong>{encounter.vitals?.mobility ?? 'Walks'}</strong></div>
-                  <div>trauma modifier: <strong>{encounter.vitals?.traumaPresent ? '+1' : '+0'}</strong></div>
+                  <div>mobility: <strong>{encounter.vitals?.mobility ?? tewsSource.mobility ?? 'Walks'}</strong></div>
+                  <div>trauma modifier: <strong>{tewsResult.traumaModifier ? '+1' : '+0'}</strong></div>
                 </div>
               </div>
             </div>
@@ -786,8 +801,8 @@ const ConfirmingAIClinicalHandover = () => {
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24 }}>
-          <button
+        <div className="confirming-ai-actions" style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24 }}>
+          <button className="confirming-ai-action-button"
             onClick={() => navigate('/dashboard')}
             style={{
               padding: '10px 24px',
@@ -804,7 +819,7 @@ const ConfirmingAIClinicalHandover = () => {
           >
             ← Back to Dashboard
           </button>
-          <button
+          <button className="confirming-ai-action-button"
             onClick={() => navigate(`/summary/${encounterId}`)}
             style={{
               padding: '10px 24px',
@@ -820,7 +835,7 @@ const ConfirmingAIClinicalHandover = () => {
           >
             Go Back & Edit
           </button>
-          <button
+          <button className="confirming-ai-action-button confirming-ai-primary-action"
             onClick={handleConfirmHandover}
             style={{
               padding: '10px 24px',

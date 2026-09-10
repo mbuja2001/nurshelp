@@ -8,6 +8,8 @@ import { canAccessEncounter } from "./encounterAccess.js";
 import { normalizeMedicationRequest, isMedicationRequestValid } from "../utils/medicationRequestUtils.js";
 import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
 import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHistory.js";
+import { Prescription } from "../models/pharmacy.model.js";
+import { canAccessReport, REPORT_TYPES } from "../utils/reportAccess.js";
 
 /** Safe transcript parser used across functions */
 const parseTranscript = (transcript) => {
@@ -435,6 +437,9 @@ export const startEncounter = async (req, res) => {
 
     // sanitize before returning
     const obj = encounter.toObject();
+    obj.prescriptions = await Prescription.find({ encounterId: encounter._id })
+      .sort({ date_issued: 1, createdAt: 1 })
+      .lean();
     obj.vitals = obj.vitals || {};
     if (typeof obj.vitals.bp === 'string' && obj.vitals.bp.toLowerCase().includes('undefined')) obj.vitals.bp = null;
     return res.status(201).json({ message: "Encounter created successfully", encounter: obj });
@@ -618,7 +623,13 @@ export const getEncounterById = async (req, res) => {
     const encounter = await Encounter.findById(id);
     if (!encounter) return res.status(404).json({ message: "Encounter not found" });
 
-    const hasAccess = canAccessEncounter(encounter, currentUser);
+    const sameHospital = encounter.hospitalId?.toString() === (currentUser.hospitalId || req.hospitalId)?.toString();
+    const historicalReadAccess = sameHospital && encounter.syntheticData === true && encounter.status === 'DISCHARGED';
+    const requestedReportType = req.query.reportType?.toString().toUpperCase();
+    const reportAccess = requestedReportType
+      ? canAccessReport({ user: currentUser, encounter, reportType: requestedReportType })
+      : null;
+    const hasAccess = reportAccess?.allowed ?? (canAccessEncounter(encounter, currentUser) || historicalReadAccess);
     if (!hasAccess) {
       return res.status(403).json({ message: "Not authorized to access this encounter" });
     }
@@ -956,8 +967,12 @@ export const getEncountersForNurse = async (req, res) => {
     
     console.log('[GET_ENCOUNTERS] isAdmin:', isAdmin, 'bypassNurseFilter:', bypassNurseFilter, 'shouldBypass:', shouldBypassFilter);
     
-    let query = shouldBypassFilter ? {} : { nurse_id: nurseId };
-    
+const operationalStatuses = ['AWAITING_PHYSICIAN', 'DIAGNOSED', 'SEEN', 'HOSPITALIZED', 'OFFICIAL_REPORT'];
+    const isOperationalView = Boolean(handover_status) || (status && String(status).split(',').some((value) => operationalStatuses.includes(value.trim())));
+    const shouldApplyNurseFilter = !shouldBypassFilter && !isOperationalView;
+
+    let query = shouldApplyNurseFilter ? { nurse_id: nurseId } : {};
+
     if (handover_status) {
       // Query for encounters where any clinician handover is in the requested state(s)
       const statuses = String(handover_status)
@@ -965,8 +980,11 @@ export const getEncountersForNurse = async (req, res) => {
         .map((s) => s.trim())
         .filter(Boolean);
 
+      // These are hospital-wide workflow states. Nurse filtering hides active
+      // cases that are already acknowledged or pending elsewhere in the system.
       query = {
         ...query,
+        hospitalId: currentNurse.hospitalId || req.hospitalId,
         "clinical_handovers.handover_status": statuses.length > 1 ? { $in: statuses } : statuses[0]
       };
       console.log('[GET_ENCOUNTERS] Filtering by handover_status:', statuses);
@@ -976,8 +994,12 @@ export const getEncountersForNurse = async (req, res) => {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-      
-      query.status = statusList.length > 1 ? { $in: statusList } : statusList[0];
+
+      query = {
+        ...query,
+        hospitalId: currentNurse.hospitalId || req.hospitalId,
+        status: statusList.length > 1 ? { $in: statusList } : statusList[0]
+      };
       console.log('[GET_ENCOUNTERS] Filtering by status:', statusList);
     } else {
       console.log('[GET_ENCOUNTERS] No status filter');
@@ -1888,19 +1910,7 @@ export const createSurgeryRecord = async (req, res) => {
       return res.status(404).json({ message: 'Encounter not found' });
     }
 
-    let access = await canAccessEncounter(req.user, encounter);
-    // Allow physicians/surgeons to create surgery records for encounters within the same hospital
-    // even when not explicitly assigned (common workflow where surgeons schedule cases).
-    if (!access) {
-      const role = (req.user?.role || '').toString().toUpperCase();
-      const isPhysician = ['PHYSICIAN', 'DOCTOR', 'SURGEON', 'SPECIALIST'].includes(role);
-      const sameHospital = req.user?.hospitalId && encounter?.hospitalId && req.user.hospitalId.toString() === encounter.hospitalId.toString();
-      if (isPhysician && sameHospital) {
-        access = true;
-      }
-    }
-
-    if (!access) {
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.SURGERY, action: 'edit' })) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
 
@@ -1978,8 +1988,7 @@ export const updateSurgeryRecord = async (req, res) => {
       return res.status(404).json({ message: 'Encounter not found' });
     }
 
-    const access = await canAccessEncounter(req.user, encounter);
-    if (!access) {
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.SURGERY, action: 'edit' })) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
 
@@ -2037,8 +2046,7 @@ export const getSurgeryRecords = async (req, res) => {
       return res.status(404).json({ message: 'Encounter not found' });
     }
 
-    const access = await canAccessEncounter(req.user, encounter);
-    if (!access) {
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.SURGERY })) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
 

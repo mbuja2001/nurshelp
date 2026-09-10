@@ -44,6 +44,7 @@ import calendarRouter from "./routes/calendar.route.js";
 
 // EHR System - New Routes
 import notificationRouter from "./routes/notification.routes.js";
+import operationsRouter from "./routes/operations.routes.js";
 import patientRouter from "./routes/patient.routes.js";
 
 dotenv.config();
@@ -285,6 +286,7 @@ app.use("/api/clinical", clinicalRouter);
 // EHR System - Patient Lookup & Notifications
 app.use("/api/patients", patientRouter);  // Patient search and EHR retrieval
 app.use("/api/notifications", notificationRouter);  // Handover notifications
+app.use("/api/operations", operationsRouter);  // Shared live operations feed
 
 // ============================================
 // HEALTH CHECK ENDPOINT

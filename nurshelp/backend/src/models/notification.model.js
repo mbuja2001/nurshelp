@@ -1,6 +1,30 @@
 import mongoose from 'mongoose';
 
 const notificationSchema = new mongoose.Schema({
+  // ============ GENERALIZED OPERATIONS EVENT ============
+  type: {
+    type: String,
+    default: 'HANDOVER_PENDING',
+    index: true
+  },
+  category: {
+    type: String,
+    enum: ['ALERT', 'MESSAGE', 'QUEUE'],
+    default: 'ALERT',
+    index: true
+  },
+  title: String,
+  message: String,
+  source: {
+    type: String,
+    enum: ['PRIORITY_QUEUE', 'HANDOVER', 'RADIOLOGY', 'PATHOLOGY', 'PHARMACY', 'PRESCRIPTION', 'SURGERY', 'STAFF_MESSAGE', 'SYSTEM'],
+    default: 'HANDOVER',
+    index: true
+  },
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+  action_route: String,
+  action_label: String,
+
   // ============ ENCOUNTER & PATIENT ============
   encounter_id: {
     type: mongoose.Schema.Types.ObjectId,
@@ -60,9 +84,14 @@ const notificationSchema = new mongoose.Schema({
 
   read_at: Date,
   acknowledged_at: Date,
+  acknowledgedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+  acknowledgedAt: Date,
   acknowledged_notes: String,
   dismissed_at: Date,
   dismiss_reason: String,
+  resolved_at: Date,
+  resolved_by: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+  resolution_reason: String,
 
   // ============ ENGAGEMENT METRICS ============
   time_to_first_view_minutes: Number,  // How long until clinician viewed

@@ -152,9 +152,8 @@
   .compact.esi-grid { grid-template-columns: 1fr; }
   .toggle-button, .submit-button { width: 100%; }
   .tews-summary-panel .toggle-button { width:auto; }
-  .step-buttons { grid-template-columns: 1fr; }
-  .step-buttons .toggle-button,
-  .step-buttons .submit-button { font-size: 0.85rem; min-height: 48px; }
+  .manual-navigation-actions { grid-template-columns: 1fr; gap: 8px; }
+  .manual-navigation-actions .manual-navigation-button { font-size: 0.85rem; min-height: 48px; }
   .modal-content { width: 100%; max-width: 100%; margin: 0 12px; }
   .tews-input-grid { grid-template-columns: 1fr; }
   .patient-card-header,
@@ -525,6 +524,31 @@ textarea {
   font-size: 0.92rem;
   padding: 12px 14px;
   flex: 1 1 0;
+}
+
+.manual-navigation-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.manual-navigation-actions .manual-navigation-button {
+  width: 100%;
+  min-height: 52px;
+  height: 100%;
+  margin-top: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .manual-navigation-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .manual-navigation-actions .manual-navigation-button {
+    min-height: 48px;
+    font-size: 0.85rem;
+  }
 }
 
 /* Modal used for staff selection to keep page short */

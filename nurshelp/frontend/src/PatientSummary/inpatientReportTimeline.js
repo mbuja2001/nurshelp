@@ -86,14 +86,14 @@ export const buildInpatientTimeline = (encounter = {}) => {
     ? encounter.ai_triage_report
     : encounter.triage;
   if (aiReport && Object.keys(aiReport).length) {
-    pushEntry('AI_TRIAGE', 'AI triage report', summarizeReport(aiReport), encounter.submittedAt || encounterTimestamp, {
+    pushEntry('AI_TRIAGE', 'AI triage report', summarizeReport(aiReport), aiReport.generated_at || aiReport.generatedAt || encounter.submittedAt || encounterTimestamp, {
       source: encounter.ai_triage_report && Object.keys(encounter.ai_triage_report).length ? 'ai_triage_report' : 'triage',
       report: aiReport
     });
   }
 
   if (encounter.manual_triage_report && Object.keys(encounter.manual_triage_report).length) {
-    pushEntry('MANUAL_TRIAGE', 'Manual triage report', summarizeReport(encounter.manual_triage_report), encounter.manual_triage_report.recorded_at || encounter.updatedAt || encounterTimestamp, {
+    pushEntry('MANUAL_TRIAGE', 'Manual triage report', summarizeReport(encounter.manual_triage_report), encounter.manual_triage_report.confirmed_at || encounter.manual_triage_report.recorded_at || encounter.updatedAt || encounterTimestamp, {
       source: 'manual_triage_report',
       report: encounter.manual_triage_report
     });
@@ -177,6 +177,17 @@ export const buildInpatientTimeline = (encounter = {}) => {
       [medication.status, medication.dosage, medication.route, medication.patient_response].filter(Boolean).join(' | ') || 'Medication administration recorded',
       medication.administered_at || medication.recorded_at || encounterTimestamp,
       { medication, index, source: 'medication_administrations' }
+    );
+  });
+
+  (encounter.prescriptions || []).forEach((prescription, index) => {
+    const item = prescription.items?.[0] || {};
+    pushEntry(
+      'PRESCRIPTION',
+      prescription.prescription_number || 'ePrescription',
+      [prescription.status, item.medication_name, item.dosage, item.frequency, item.route].filter(Boolean).join(' | ') || 'ePrescription recorded',
+      prescription.date_issued || prescription.createdAt || encounterTimestamp,
+      { prescription, index, source: 'prescriptions' }
     );
   });
 

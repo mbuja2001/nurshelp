@@ -33,11 +33,12 @@ router.post('/', createPrescription);
 // GET /api/prescriptions/ordered-meds - Get ordered medication reports for a physician
 router.get('/ordered-meds', getOrderedMedsForPhysician);
 
+// GET /api/prescriptions/encounter/:encounterId - Get all prescriptions for encounter
+// Must precede /:prescriptionId so "encounter" is not treated as an id.
+router.get('/encounter/:encounterId', getPrescriptionsByEncounter);
+
 // GET /api/prescriptions/:prescriptionId - Get single prescription
 router.get('/:prescriptionId', getPrescription);
-
-// GET /api/prescriptions/encounter/:encounterId - Get all prescriptions for encounter
-router.get('/encounter/:encounterId', getPrescriptionsByEncounter);
 
 // POST /api/prescriptions/:prescriptionId/submit - Submit to pharmacy
 router.post('/:prescriptionId/submit', submitPrescriptionToPharmacy);

@@ -13,6 +13,7 @@ import PhysicianDashboard from '../components/dashboards/PhysicianDashboard';
 import OffDutyDashboard from '../components/dashboards/OffDutyDashboard';
 import { decodeJwt } from '../utils/jwt';
 import { isAwaitingPhysicianAcknowledgment, ACKNOWLEDGED_HANDOVER_STATUSES } from '../utils/handoverStatusUtils';
+import { notificationService } from '../services/notificationService';
 import './DashboardTheme.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -88,6 +89,8 @@ const NurseDashboard = ({
   const [priorityQueueNotification, setPriorityQueueNotification] = useState(null);
   const [showPriorityNotificationModal, setShowPriorityNotificationModal] = useState(false);
   const [showPriorityQueueModal, setShowPriorityQueueModal] = useState(false);
+  const [operationsQueue, setOperationsQueue] = useState(null);
+  const [operationsProviders, setOperationsProviders] = useState([]);
 
   const markPatientAsAttended = async (p) => {
     const id = p._id || p.id;
@@ -254,24 +257,34 @@ const NurseDashboard = ({
     try {
       setHandoverLoading(true);
       console.log('[DASHBOARD_FETCH] Fetching handed over encounters (awaiting acknowledgment)...');
-      const res = await fetch(`${BACKEND_URL}/api/encounters?status=AWAITING_PHYSICIAN&handover_status=NOTIFIED`, {
+      const requestOptions = {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-      });
-      
-      console.log('[DASHBOARD_FETCH] Response status:', res.status);
-      const data = await res.json().catch((e) => {
-        console.error('[DASHBOARD_FETCH] Failed to parse response:', e);
-        return {};
-      });
-      
-      console.log('[DASHBOARD_FETCH] Response data:', data);
-      
-      if (res.ok && data.success && Array.isArray(data.encounters)) {
-        console.log('[DASHBOARD_FETCH] Found', data.encounters.length, 'encounters from backend');
-        
-        // Frontend filter: exclude encounters that have ANY acknowledged handover
-        // (in case multiple handovers exist for same encounter with mixed statuses)
-        const filtered = data.encounters.filter((enc) => isAwaitingPhysicianAcknowledgment(enc));
+      };
+      const [handoverRes, triageRes] = await Promise.all([
+        fetch(`${BACKEND_URL}/api/encounters?handover_status=NOTIFIED,VIEWED`, requestOptions),
+        fetch(`${BACKEND_URL}/api/encounters?status=TRIAGE_IN_PROGRESS,AWAITING_PHYSICIAN`, requestOptions)
+      ]);
+      const [handoverData, triageData] = await Promise.all([
+        handoverRes.json().catch(() => ({})),
+        triageRes.json().catch(() => ({}))
+      ]);
+      const encounters = [
+        ...(handoverRes.ok && handoverData.success && Array.isArray(handoverData.encounters) ? handoverData.encounters : []),
+        ...(triageRes.ok && triageData.success && Array.isArray(triageData.encounters) ? triageData.encounters : [])
+      ];
+      const uniqueEncounters = Array.from(
+        new Map(encounters.map((encounter) => [String(encounter._id), encounter])).values()
+      );
+      console.log('[DASHBOARD_FETCH] Found', uniqueEncounters.length, 'handover or triage encounters');
+
+      if (handoverRes.ok || triageRes.ok) {
+        // Include newly triaged encounters even before a clinician handover is created.
+        const filtered = uniqueEncounters.filter((enc) => {
+          const hasAcknowledgedHandover = Array.isArray(enc.clinical_handovers)
+            && enc.clinical_handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status));
+          const isNewlyTriaged = ['TRIAGE_IN_PROGRESS', 'AWAITING_PHYSICIAN'].includes(enc.status);
+          return !hasAcknowledgedHandover && (isAwaitingPhysicianAcknowledgment(enc) || isNewlyTriaged);
+        });
         
         console.log('[DASHBOARD_FETCH] After filtering acknowledged:', filtered.length, 'encounters awaiting physician acknowledgment');
         setHandedOverEncounters(filtered);
@@ -297,7 +310,7 @@ const NurseDashboard = ({
     try {
       setAcknowledgedLoading(true);
       console.log('[DASHBOARD_FETCH] Fetching acknowledged encounters...');
-      const res = await fetch(`${BACKEND_URL}/api/encounters?handover_status=ACKNOWLEDGED,IN_PROGRESS`, {
+      const res = await fetch(`${BACKEND_URL}/api/encounters?handover_status=ACKNOWLEDGED,IN_PROGRESS,COMPLETED`, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
       
@@ -353,6 +366,23 @@ const NurseDashboard = ({
       if (handoverInterval) clearInterval(handoverInterval);
     };
   }, [currentRecord]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOperationsQueue = async () => {
+      const response = await notificationService.getOperationsFeed(50);
+      if (cancelled || !response?.success || !response.feed?.queue?.engineReady) return;
+      setOperationsQueue(Array.isArray(response.feed.queue.patients) ? response.feed.queue.patients : []);
+      setOperationsProviders(Array.isArray(response.feed.queue.providers) ? response.feed.queue.providers : []);
+    };
+
+    loadOperationsQueue();
+    const interval = window.setInterval(loadOperationsQueue, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   // Update `now` frequently (every 100ms) to keep timers and priority calculations live
   useEffect(() => {
@@ -522,6 +552,13 @@ const NurseDashboard = ({
 
   const currentTime = new Date(now);
 
+  const priorityCategoryEmoji = {
+    Red: '🔴',
+    Orange: '🟠',
+    Yellow: '🟡',
+    Green: '🟢'
+  };
+
   const severityColor = (sev) => {
     if (sev === 1) return "#ef4444";  // RED
     if (sev === 2) return "#f97316";  // ORANGE
@@ -542,11 +579,17 @@ const NurseDashboard = ({
     return { patient: p, waitMs, sev, priority, attended };
   }).sort((a,b) => b.priority.score - a.priority.score || (b.waitMs || 0) - (a.waitMs || 0));
 
-  const queueManagerEntries = pendingWithMeta.slice(0, 5).map((item, index) => {
-    const patient = item.patient || {};
+  // The operations feed is authoritative when it has patients; keep the local
+  // list as a live fallback while the feed is empty or unavailable.
+  const queueSource = Array.isArray(operationsQueue) && operationsQueue.length > 0
+    ? operationsQueue
+    : pendingWithMeta;
+  const queueManagerEntries = queueSource.map((item, index) => {
+    const patient = item.patient || item;
+    const canonicalPriority = item.priority || {};
     const patientName = patient.patient?.name || patient.name || patient.patientName || `Patient ${index + 1}`;
-    const waitMs = item.waitMs || (index + 1) * 5 * 60 * 1000;
-    const status = index === 0 ? 'IN PROGRESS' : index === 1 ? 'NEXT UP' : patient.priority?.category === 'Red' || patient.priority?.queueSignals?.includes('Time-to-target breached') ? 'AI TRIAGING' : 'WAITING';
+    const waitMs = canonicalPriority.waitMs || item.waitMs || 0;
+    const status = item.queueState === 'IN_PROGRESS' ? 'IN PROGRESS' : index === 1 ? 'NEXT UP' : canonicalPriority.escalationTriggered ? 'AI TRIAGING' : 'WAITING';
     const waitLabel = index === 0 ? 'NOW' : `${Math.max(1, Math.round(waitMs / 60000))} min`;
     return {
       id: item.id || item._id || patient._id || patient.id || `queue-${index}`,
@@ -555,14 +598,25 @@ const NurseDashboard = ({
       waitMinutes: Math.max(4, Math.round(waitMs / 60000)),
       waitLabel,
       status,
-      category: patient.priority?.category || 'Yellow',
-      priorityLabel: patient.priority?.label || 'Moderate'
+      category: canonicalPriority.code
+        ? canonicalPriority.code.charAt(0) + canonicalPriority.code.slice(1).toLowerCase()
+        : patient.priority?.category || 'Yellow',
+      priorityLabel: canonicalPriority.label || patient.priority?.label || 'Moderate',
+      categoryEmoji: priorityCategoryEmoji[canonicalPriority.code
+        ? canonicalPriority.code.charAt(0) + canonicalPriority.code.slice(1).toLowerCase()
+        : patient.priority?.category || 'Yellow'] || '🟡'
     };
   });
 
-  const providerLoadEntries = [];
-  pendingWithMeta.forEach(({ patient }) => {
-    const clinician = patient.assigned_clinician || patient.assignedClinician || patient.triage?.assigned_physician;
+  const providerLoadEntries = operationsProviders.map((provider) => ({
+    name: provider.name || provider.specialty || 'Unassigned',
+    count: Number(provider.activeCases ?? provider.count ?? 0),
+    percent: Math.min(100, Number(provider.percent ?? provider.workloadPercent ?? 0))
+  }));
+  queueSource.forEach((item) => {
+    if (operationsProviders.length > 0) return;
+    const patient = item.patient || item;
+    const clinician = item.assignedClinician || patient.assigned_clinician || patient.assignedClinician || patient.triage?.assigned_physician;
     const name = clinician?.name || patient.specialistDoctor || patient.attendingDoctor || 'Unassigned';
     const existing = providerLoadEntries.find((provider) => provider.name === name);
     if (existing) existing.count += 1;
@@ -613,14 +667,47 @@ const NurseDashboard = ({
         .priority-queue-launcher { display: none; }
         @media (max-width: 1180px) {
           .nurse-priority-queue { display: none !important; }
-          .priority-queue-launcher { display: flex; position: fixed; right: 24px; bottom: 28px; z-index: 40; width: 62px; height: 62px; align-items: center; justify-content: center; border: 2px solid #0b3b70; border-radius: 50%; background: #ffffff; box-shadow: 0 10px 28px rgba(11,59,112,.3); cursor: pointer; font-size: 27px; }
+          .priority-queue-launcher { display: flex; position: fixed; right: 24px; bottom: 28px; z-index: 1200; width: 62px; height: 62px; align-items: center; justify-content: center; border: 2px solid #0b3b70; border-radius: 50%; background: #ffffff; box-shadow: 0 10px 28px rgba(11,59,112,.3); cursor: pointer; font-size: 27px; }
           .priority-queue-launcher:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
         }
         .priority-queue-launcher-count { position: absolute; top: -5px; right: -5px; min-width: 21px; height: 21px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: #dc2626; color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; }
-        .priority-queue-modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.48); }
+        .priority-queue-modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.48); }
         .priority-queue-modal { width: min(560px, 100%); max-height: min(78vh, 720px); overflow: hidden; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
         .priority-queue-modal-list { max-height: calc(min(78vh, 720px) - 82px); overflow-y: auto; }
         @media (max-width: 640px) {
+          .nurse-dashboard-main-header {
+            padding: 16px !important;
+            gap: 14px !important;
+          }
+          .nurse-dashboard-main-header > div:first-child {
+            min-width: 0 !important;
+            width: 100%;
+          }
+          .nurse-dashboard-main-header h1 {
+            font-size: 22px !important;
+            line-height: 1.15 !important;
+            overflow-wrap: anywhere;
+          }
+          .nurse-dashboard-header-status {
+            min-width: 0 !important;
+          }
+          .nurse-dashboard-status-row {
+            width: 100%;
+            flex-wrap: wrap;
+          }
+          .nurse-dashboard-status-pill {
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .nurse-dashboard-actions button {
+            min-width: 0;
+            flex: 0 1 42px;
+            padding: 10px !important;
+            justify-content: center;
+          }
+          .nurse-dashboard-action-label { display: none; }
           .priority-queue-modal-backdrop { padding: 16px; }
           .priority-queue-modal { max-height: 84vh; border-radius: 12px; }
           .priority-queue-modal-list { max-height: calc(84vh - 82px); }
@@ -728,7 +815,7 @@ const NurseDashboard = ({
                 padding: '4px 10px',
                 borderRadius: 4
               }}>
-                {pendingWithMeta.length} waiting
+                {queueManagerEntries.length} waiting
               </div>
             </div>
             <p style={{
@@ -742,7 +829,7 @@ const NurseDashboard = ({
 
           <div style={{ padding: 20, background: '#ffffff' }}>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Provider Load</div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
               {providerLoadEntries.map((provider) => (
                 <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'center', gap: 10, marginBottom: 12 }}>
                   <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{provider.name}</div>
@@ -784,7 +871,7 @@ const NurseDashboard = ({
                       }} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontSize: 14, color: '#0f172a', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{patient.name}</div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>{patient.type}</div>
+                        <div title={patient.type} style={{ fontSize: 12, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type}</div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -852,7 +939,7 @@ const NurseDashboard = ({
           <div style={{
             background: '#ffffff',
             borderRadius: '12px',
-            width: '420px',
+            width: 'min(360px, calc(100vw - 24px))',
             maxHeight: 'calc(100vh - 100px)',
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
             display: 'flex',
@@ -863,21 +950,21 @@ const NurseDashboard = ({
             {/* Header with Gradient Background */}
             <div style={{
               background: 'linear-gradient(135deg, #fee2e2 0%, #fef3c7 100%)',
-              padding: '24px 24px',
+              padding: '16px 18px',
               borderBottom: '2px solid #fecaca',
               position: 'relative'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{
-                    width: '48px',
-                    height: '48px',
+                    width: '40px',
+                    height: '40px',
                     borderRadius: '10px',
                     background: '#991b1b',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '24px',
+                    fontSize: '19px',
                     fontWeight: 700,
                     color: '#fef2f2',
                     boxShadow: '0 0 12px rgba(153,27,27,0.4)'
@@ -886,7 +973,7 @@ const NurseDashboard = ({
                   </div>
                   <div>
                     <div style={{
-                      fontSize: '16px',
+                      fontSize: '14px',
                       fontWeight: 700,
                       color: '#991b1b',
                       letterSpacing: '0.5px'
@@ -894,7 +981,7 @@ const NurseDashboard = ({
                       CRITICAL ALERT
                     </div>
                     <div style={{
-                      fontSize: '12px',
+                      fontSize: '11px',
                       color: '#7f1d1d',
                       marginTop: '2px'
                     }}>
@@ -936,7 +1023,7 @@ const NurseDashboard = ({
             <div style={{
               flex: 1,
               overflowY: 'auto',
-              padding: '16px 0'
+              padding: '8px 0'
             }}>
               {urgentAlerts.map((item, idx) => {
                 const id = item.patient._id || item.patient.id;
@@ -953,7 +1040,7 @@ const NurseDashboard = ({
                   <div
                     key={id}
                     style={{
-                      padding: '16px 16px',
+                      padding: '10px 12px',
                       borderBottom: idx === urgentAlerts.length - 1 ? 'none' : '1px solid #f1f5f9',
                       background: idx % 2 === 0 ? '#ffffff' : '#f9fafb',
                       transition: 'background 0.2s ease'
@@ -964,8 +1051,8 @@ const NurseDashboard = ({
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                       {/* Severity Badge */}
                       <div style={{
-                        width: '44px',
-                        height: '44px',
+                        width: '36px',
+                        height: '36px',
                         borderRadius: '8px',
                         background: colors.bg,
                         border: `2px solid ${colors.border}`,
@@ -974,27 +1061,27 @@ const NurseDashboard = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         fontWeight: 700,
-                        fontSize: '14px',
+                        fontSize: '12px',
                         flexShrink: 0
                       }}>
                         {String(item.patient.id || id).slice(-2)}
                       </div>
 
                       {/* Patient Info */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
                           fontWeight: 700,
                           color: '#1e293b',
-                          fontSize: '14px',
-                          marginBottom: '4px'
+                          fontSize: '12px',
+                          marginBottom: '2px'
                         }}>
                           {item.patient.patient?.name ?? (`#${String(item.patient.id || id).slice(-6)}`)}
                         </div>
-                        <div style={{
-                          fontSize: '12px',
+                          <div style={{
+                          fontSize: '10px',
                           color: '#64748b',
                           display: 'flex',
-                          gap: '8px',
+                          gap: '5px',
                           alignItems: 'center',
                           flexWrap: 'wrap'
                         }}>
@@ -1005,6 +1092,27 @@ const NurseDashboard = ({
                           <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
                             {item.waitMs ? formatWaitDetailed(item.waitMs) : 'N/A'} waiting
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowEmergencyBanner(false);
+                              navigate(`/report/triage/${id}`);
+                            }}
+                            style={{
+                              marginTop: 8,
+                              width: '100%',
+                              padding: '7px 10px',
+                              border: '1px solid #bfdbfe',
+                              borderRadius: 6,
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 800
+                            }}
+                          >
+                            View report
+                          </button>
                         </div>
                       </div>
 
@@ -1013,8 +1121,8 @@ const NurseDashboard = ({
                         color: colors.text,
                         border: `1px solid ${colors.border}`,
                         borderRadius: 999,
-                        padding: '6px 10px',
-                        fontSize: '11px',
+                        padding: '4px 8px',
+                        fontSize: '10px',
                         fontWeight: 700,
                         whiteSpace: 'nowrap'
                       }}>
@@ -1028,10 +1136,10 @@ const NurseDashboard = ({
 
             {/* Footer with Summary */}
             <div style={{
-              padding: '12px 16px',
+              padding: '8px 12px',
               background: '#f9fafb',
               borderTop: '1px solid #e5e7eb',
-              fontSize: '12px',
+              fontSize: '10px',
               color: '#64748b',
               textAlign: 'center'
             }}>
@@ -1268,7 +1376,7 @@ const NurseDashboard = ({
                   e.target.style.boxShadow = 'none';
                 }}
               >
-                View Details
+                View report
               </button>
             </div>
           </div>
@@ -1328,7 +1436,7 @@ const NurseDashboard = ({
       ) : (
         <>
           <div style={{ marginBottom: 24, display: 'grid', gap: 20 }}>
-            <header style={{
+            <header className="nurse-dashboard-main-header" style={{
               padding: '24px',
               background: 'linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%)',
               borderRadius: 12,
@@ -1438,7 +1546,7 @@ const NurseDashboard = ({
                       }}
                     >
                       <span style={{ fontSize: '14px' }}>{item.icon}</span>
-                      <span>{item.label}</span>
+                      <span className="nurse-dashboard-action-label">{item.label}</span>
                     </button>
                   ))}
                 </div>
@@ -2046,12 +2154,12 @@ const NurseDashboard = ({
           <button
             className="priority-queue-launcher"
             type="button"
-            aria-label={`Open priority queue, ${pendingWithMeta.length} waiting`}
+            aria-label={`Open priority queue, ${queueManagerEntries.length} waiting`}
             title="Open priority queue"
             onClick={() => setShowPriorityQueueModal(true)}
           >
             🎯
-            {pendingWithMeta.length > 0 && <span className="priority-queue-launcher-count">{pendingWithMeta.length > 99 ? '99+' : pendingWithMeta.length}</span>}
+            {queueManagerEntries.length > 0 && <span className="priority-queue-launcher-count">{queueManagerEntries.length > 99 ? '99+' : queueManagerEntries.length}</span>}
           </button>
         )}
 
@@ -2061,20 +2169,20 @@ const NurseDashboard = ({
               <div style={{ padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)', borderBottom: '1px solid #e5e7eb' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 17, color: '#1e293b' }}>🎯 Priority Queue</h3>
-                  <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{pendingWithMeta.length} waiting</div>
+                  <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{queueManagerEntries.length} waiting</div>
                 </div>
                 <button type="button" aria-label="Close priority queue" title="Close priority queue" onClick={() => setShowPriorityQueueModal(false)} style={{ border: 0, background: 'transparent', color: '#475569', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
               <div className="priority-queue-modal-list">
-                {pendingWithMeta.slice(0, 20).map(({ patient: p, waitMs, priority }, idx) => (
-                  <div key={`${p._id || p.id}-modal-prio`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                    <div style={{ minWidth: 42, padding: '8px 5px', textAlign: 'center', borderRadius: 7, background: priority.category === 'Red' ? '#fee2e2' : priority.category === 'Orange' ? '#ffedd5' : priority.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: priority.category === 'Red' ? '#991b1b' : priority.category === 'Orange' ? '#9a3412' : priority.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11 }}>{priority.category}</div>
+                {queueManagerEntries.map((patient, idx) => (
+                  <div key={`${patient.id}-modal-prio`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                    <div style={{ minWidth: 42, padding: '8px 5px', textAlign: 'center', borderRadius: 7, background: patient.category === 'Red' ? '#fee2e2' : patient.category === 'Orange' ? '#ffedd5' : patient.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: patient.category === 'Red' ? '#991b1b' : patient.category === 'Orange' ? '#9a3412' : patient.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11 }}>{patient.categoryEmoji} {patient.category}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.patient?.name || `#${p._id || p.id}`}</div>
-                      <div style={{ marginTop: 3, color: '#64748b', fontSize: 11 }}>{priority.label} • {waitMs ? formatWaitDetailed(waitMs) : 'N/A'}</div>
-                      {priority.queueSignals?.length > 0 && <div style={{ marginTop: 3, color: '#b45309', fontSize: 10 }}>{priority.queueSignals.join(' • ')}</div>}
+                      <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div>
+                      <div title={`${patient.type} • ${patient.waitLabel}`} style={{ marginTop: 3, color: '#64748b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type} • {patient.waitLabel}</div>
                     </div>
-                    <button type="button" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${p._id || p.id}`); }} style={{ padding: '7px 9px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View</button>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9', borderRadius: 999, padding: '5px 7px', whiteSpace: 'nowrap' }}>{patient.status}</span>
+                    <button type="button" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${patient.id}`); }} style={{ padding: '7px 9px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View</button>
                   </div>
                 ))}
               </div>
@@ -2095,13 +2203,13 @@ const NurseDashboard = ({
             <div style={{ padding: '20px', background: 'linear-gradient(135deg, #fef2f2 0%, #f0f9ff 100%)', borderBottom: '1px solid #e5e7eb' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>🎯 Priority Queue</h3>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', background: '#f1f5f9', padding: '4px 10px', borderRadius: 4 }}>{pendingWithMeta.length} waiting</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', background: '#f1f5f9', padding: '4px 10px', borderRadius: 4 }}>{queueManagerEntries.length} waiting</div>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sorted by severity & wait time</p>
             </div>
             <div style={{ padding: 16, overflowY: 'auto' }}>
               <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Provider Load</div>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
                 {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 3).map((provider) => (
                   <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 34px', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <div style={{ fontSize: 12, color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.name}</div>
@@ -2114,10 +2222,11 @@ const NurseDashboard = ({
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Patient Queue</div>
                 {queueManagerEntries.length === 0 ? <div style={{ padding: '18px 0', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No patients in queue</div> : queueManagerEntries.map((patient, index) => (
                   <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                    <span style={{ width: 9, height: 9, flexShrink: 0, borderRadius: '50%', background: patient.category === 'Red' ? '#ef4444' : patient.category === 'Orange' ? '#f59e0b' : patient.category === 'Purple' ? '#8b5cf6' : '#eab308' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div><div style={{ fontSize: 10, color: '#64748b' }}>{patient.type}</div></div>
+                    <span aria-hidden="true" style={{ width: 18, flexShrink: 0, fontSize: 14, lineHeight: 1 }}>{patient.categoryEmoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div><div title={patient.type} style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type}</div></div>
                     <span style={{ fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>{patient.waitLabel}</span>
                     <span style={{ fontSize: 9, fontWeight: 700, color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9', borderRadius: 999, padding: '5px 7px', whiteSpace: 'nowrap' }}>{patient.status}</span>
+                    <button type="button" aria-label={`View report for ${patient.name}`} onClick={() => navigate(`/report/triage/${patient.id}`)} style={{ padding: '5px 7px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>View</button>
                   </div>
                 ))}
               </div>

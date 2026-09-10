@@ -145,6 +145,7 @@ export default function PatientReport() {
   const [showClinicianSelector, setShowClinicianSelector] = useState(false);
   const [showPatientHistoryEvidence, setShowPatientHistoryEvidence] = useState(true);
   const [showEvidenceTrail, setShowEvidenceTrail] = useState(false);
+  const [historyEncounterMetadata, setHistoryEncounterMetadata] = useState({});
 
   // Ward and bed selection
   const [needsHospitalization, setNeedsHospitalization] = useState(null); // null = not decided, true = yes, false = no
@@ -346,12 +347,17 @@ export default function PatientReport() {
 
   // Open ward selector (after clinicians assigned)
   const handleOpenWardSelector = () => {
-    if (assignedClinicians.length === 0) {
+    const clinicianCount = assignedClinicians.length + manuallySelectedClinicians.length;
+    if (clinicianCount === 0) {
       alert("Please select at least one clinician first.");
-      return;
+      return false;
     }
+    setNeedsHospitalization(true);
+    setSelectedWard(null);
+    setSelectedBed(null);
     setShowWardSelector(true);
     fetchWards();
+    return true;
   };
 
   // Handle ward selection
@@ -501,7 +507,15 @@ export default function PatientReport() {
         setEditableWardOriginal(wardData);
         
         // Initialize SATS points and color
-        const satsPointsData = String(triageData?.SATS_reasoning?.tews_total ?? triageData?.tews_total ?? "");
+        const satsPointsValue = triageData?.SATS_reasoning?.tews_total ??
+          triageData?.SATS_reasoning?.sats_points ??
+          triageData?.sats_points ??
+          triageData?.satsPoints ??
+          triageData?.tews_total ??
+          triageData?.aiTriageReport?.sats_points ??
+          triageData?.aiTriageReport?.tews_total ??
+          "";
+        const satsPointsData = String(satsPointsValue);
         console.log("[PatientReport] DEBUG SATS Points Extraction:");
         console.log("[PatientReport]   - triageData.SATS_reasoning:", triageData?.SATS_reasoning);
         console.log("[PatientReport]   - tews_total from SATS_reasoning:", triageData?.SATS_reasoning?.tews_total);
@@ -512,22 +526,21 @@ export default function PatientReport() {
         
         // Priority code: convert text codes (RED/ORANGE/YELLOW/GREEN) to numeric (1/2/3/4)
         // priority_code can come as: numeric (1-4) OR text (RED, ORANGE, YELLOW, GREEN)
-        const priorityCodeRaw = triageData?.aiTriageReport?.priority_code ?? triageData?.priority_code ?? triageData?.priority ?? triageData?.esi_level ?? 4;
-        const priorityCodeMap = {
-          'RED': '1',
-          'ORANGE': '2',
-          'YELLOW': '3',
-          'GREEN': '4',
-          1: '1',
-          '1': '1',
-          2: '2',
-          '2': '2',
-          3: '3',
-          '3': '3',
-          4: '4',
-          '4': '4'
-        };
-        const satsColorCode = String(priorityCodeMap[priorityCodeRaw] ?? priorityCodeRaw ?? '4');
+        const priorityCodeRaw = triageData?.aiTriageReport?.priority_code ??
+          triageData?.aiTriageReport?.calculated_priority ??
+          triageData?.priority_code ??
+          triageData?.priority ??
+          triageData?.SATS_reasoning?.priority ??
+          triageData?.esi_level;
+        const priorityCodeMap = { red: '1', orange: '2', yellow: '3', green: '4' };
+        const normalizedPriority = String(priorityCodeRaw ?? '').trim().toLowerCase();
+        const numericPriority = Number(normalizedPriority.replace(/[^1-4]/g, '').slice(0, 1));
+        const tewsNumber = Number(satsPointsValue);
+        const derivedPriority = Number.isFinite(tewsNumber)
+          ? (tewsNumber >= 7 ? '1' : tewsNumber >= 5 ? '2' : tewsNumber >= 3 ? '3' : '4')
+          : '4';
+        const satsColorCode = priorityCodeMap[normalizedPriority] ??
+          (Number.isInteger(numericPriority) && numericPriority >= 1 && numericPriority <= 4 ? String(numericPriority) : derivedPriority);
         console.log("[PatientReport] DEBUG: priorityCodeRaw:", priorityCodeRaw, "→ satsColorCode:", satsColorCode);
         setEditableSATSColor(satsColorCode);
         setEditableSATSColorOriginal(satsColorCode);
@@ -546,6 +559,61 @@ export default function PatientReport() {
     fetchEncounter();
     return () => { mounted = false; };
   }, [id, location.state?.refetchEncounter]);
+
+  // Resolve referenced encounter IDs into a compact, readable clinical summary.
+  useEffect(() => {
+    const historyIds = [
+      ...(encounter?.patient?.referencedHistoricalEncounters ?? []),
+      ...(encounter?.patient?.ignoredHistoricalEncounters ?? []),
+      ...(encounter?.triage?.referenced_historical_encounters ?? []),
+      ...(encounter?.triage?.ignored_historical_encounters ?? []),
+      ...(encounter?.triage?.aiTriageReport?.referenced_historical_encounters ?? []),
+      ...(encounter?.triage?.aiTriageReport?.ignored_historical_encounters ?? [])
+    ].map((item) => typeof item === "object"
+      ? item.encounterId || item.encounter_id || item.id || item._id
+      : item
+    ).filter(Boolean).map(String);
+    const uniqueIds = [...new Set(historyIds)];
+    if (uniqueIds.length === 0) {
+      setHistoryEncounterMetadata({});
+      return undefined;
+    }
+
+    let mounted = true;
+    const loadHistoryMetadata = async () => {
+      const token = localStorage.getItem("token");
+      const results = await Promise.all(uniqueIds.map(async (encounterId) => {
+        try {
+          const response = await fetch(`${BACKEND_URL}/api/encounters/${encodeURIComponent(encounterId)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            cache: "no-store"
+          });
+          if (!response.ok) return [encounterId, null];
+          const payload = await response.json();
+          const historical = payload?.encounter ?? payload;
+          const historicalTriage = historical?.triage ?? {};
+          const historicalAI = historicalTriage?.aiTriageReport ?? {};
+          const priority = historicalAI.priority_code ?? historicalTriage.priority_code ?? historicalTriage.priority ?? historicalTriage.SATS_reasoning?.priority;
+          const tews = historicalTriage.SATS_reasoning?.tews_total ?? historicalTriage.SATS_reasoning?.sats_points ?? historicalTriage.sats_points ?? historicalTriage.tews_total;
+          const diagnosis = historicalAI.diagnosis ?? historicalAI.primary_diagnosis ?? historicalTriage.diagnosis ?? historical.patient?.diagnosis;
+          const summary = historicalAI.clinical_summary ?? historicalAI.pathophysiology ?? historicalTriage.ai_summary ?? historicalTriage.summary ?? historical.patient?.symptoms;
+          return [encounterId, {
+            date: historical.submittedAt ?? historical.createdAt ?? historical.arrival_time ?? historical.arrivalAt,
+            diagnosis: diagnosis || null,
+            summary: summary || null,
+            priority: priority || null,
+            tews: tews ?? null
+          }];
+        } catch {
+          return [encounterId, null];
+        }
+      }));
+      if (mounted) setHistoryEncounterMetadata(Object.fromEntries(results));
+    };
+
+    loadHistoryMetadata();
+    return () => { mounted = false; };
+  }, [encounter]);
 
   // ---------- NEW: fetch top 5 physician recommendations after encounter loads ----------
   useEffect(() => {
@@ -985,6 +1053,28 @@ export default function PatientReport() {
       navigate(`/ehr?${patientQuery}encounter=${encodeURIComponent(encounterId)}`);
     };
 
+    const renderHistoricalMetadata = (reference) => {
+      const metadata = historyEncounterMetadata[String(reference.encounterId)] ?? reference;
+      const date = metadata?.date || metadata?.timestamp;
+      const formattedDate = date ? new Date(date).toLocaleDateString(undefined, {
+        year: "numeric", month: "short", day: "numeric"
+      }) : null;
+      const priority = metadata?.priority ? String(metadata.priority).toUpperCase() : null;
+      const details = [
+        formattedDate,
+        metadata?.diagnosis ? `Diagnosis: ${metadata.diagnosis}` : null,
+        priority ? `SATS: ${priority}` : null,
+        metadata?.tews !== null && metadata?.tews !== undefined ? `TEWS: ${metadata.tews}` : null
+      ].filter(Boolean);
+      return details.length > 0 ? <div className="patient-history-metadata">{details.join(" · ")}</div> : null;
+    };
+
+    const renderHistoricalSummary = (reference) => {
+      const metadata = historyEncounterMetadata[String(reference.encounterId)] ?? reference;
+      const summary = metadata?.summary || metadata?.reason || metadata?.rationale;
+      return summary ? <div className="patient-history-summary">{String(summary)}</div> : null;
+    };
+
     return (
       <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: "#eff6ff", borderLeft: "4px solid #2563eb" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -1019,8 +1109,8 @@ export default function PatientReport() {
                       >
                         {reference.encounterId}
                       </button>
-                      {reference.timestamp ? ` - ${new Date(reference.timestamp).toLocaleString()}` : ""}
-                      {reference.reason ? `: ${reference.reason}` : reference.rationale ? `: ${reference.rationale}` : ""}
+                      {renderHistoricalMetadata(reference)}
+                      {renderHistoricalSummary(reference)}
                     </li>
                   ))}
                 </ul>
@@ -1040,7 +1130,8 @@ export default function PatientReport() {
                       >
                         {exclusion.encounterId}
                       </button>
-                      {exclusion.reason ? `: ${exclusion.reason}` : exclusion.rationale ? `: ${exclusion.rationale}` : ""}
+                      {renderHistoricalMetadata(exclusion)}
+                      {renderHistoricalSummary(exclusion)}
                     </li>
                   ))}
                 </ul>
@@ -1262,6 +1353,7 @@ export default function PatientReport() {
   const normalizedAI = normalizeClinicalAnalysis({
     aiTriageReport: aiReport,
     SATS_reasoning: triage.SATS_reasoning,
+    sats_points: triage.sats_points ?? triage.satsPoints ?? aiReport.sats_points,
     tews_total: triage.tews_total,
     priority_code: triage.priority_code,
     ai_summary: triage.ai_summary,
@@ -1276,7 +1368,29 @@ export default function PatientReport() {
 
   // Compute BP display using merged vitals (which now includes vitals_parsed fallback)
   const displayBP = computeDisplayBP(vitals, triage);
-  const priorityCode = normalizedAI.priority_code ?? triage.priority_code ?? triage.priority ?? null;
+  const priorityCodeRaw = normalizedAI.priority_code ??
+    triage.priority_code ??
+    triage.priority ??
+    triage.SATS_reasoning?.priority ??
+    triage.aiTriageReport?.calculated_priority ??
+    triage.esi_level;
+  const priorityText = String(priorityCodeRaw ?? '').trim().toLowerCase();
+  const priorityMap = { red: 1, orange: 2, yellow: 3, green: 4 };
+  const parsedPriority = priorityMap[priorityText] ?? Number(priorityText.replace(/[^1-4]/g, '').slice(0, 1));
+  const rawTewsTotal = normalizedAI.tews_total ??
+    triage?.SATS_reasoning?.tews_total ??
+    triage?.SATS_reasoning?.sats_points ??
+    triage?.sats_points ??
+    triage?.satsPoints ??
+    triage?.tews_total ??
+    aiReport?.sats_points ??
+    aiReport?.tews_total;
+  const numericTewsTotal = Number(rawTewsTotal);
+  const priorityCode = Number.isInteger(parsedPriority) && parsedPriority >= 1 && parsedPriority <= 4
+    ? parsedPriority
+    : Number.isFinite(numericTewsTotal)
+      ? (numericTewsTotal >= 7 ? 1 : numericTewsTotal >= 5 ? 2 : numericTewsTotal >= 3 ? 3 : 4)
+      : 4;
   
   // Use editable SATS color for display if it's been edited, otherwise use original
   const displayPriorityCode = satsColorEdited ? editableSATSColor : priorityCode;
@@ -1289,7 +1403,7 @@ export default function PatientReport() {
     ? normalizedAI.clinical_discriminators
     : triage?.SATS_reasoning?.discriminators_readable ?? triage?.SATS_reasoning?.discriminators_found ?? triage?.SATS_reasoning?.discriminators ?? triage?.discriminators ?? [];
   const tews = triage?.SATS_reasoning?.tews_components ?? triage?.tews_components ?? {};
-  const tewsTotal = normalizedAI.tews_total ?? triage?.SATS_reasoning?.tews_total ?? triage?.tews_total ?? null;
+  const tewsTotal = rawTewsTotal ?? null;
   const mobility = triage?.SATS_reasoning?.mobility ?? triage?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
   const traumaPresent = Boolean(triage?.SATS_reasoning?.traumaPresent ?? triage?.traumaPresent ?? encounter?.vitals?.traumaPresent);
   
@@ -1376,11 +1490,11 @@ export default function PatientReport() {
     <div className="patient-report-page" style={{ padding: 20 }}>
       <h2 style={{ marginBottom: 12 }}>Patient Report Preview</h2>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div className="patient-report-columns" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20 }}>
         <div>
           {/* -- main left column (patient, transcript, triage) -- */}
           <section className="block">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="patient-report-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h4 className="block-label" style={{ margin: 0 }}>Patient</h4>
               <div style={{
                 display: "flex",
@@ -1415,7 +1529,7 @@ export default function PatientReport() {
 
             <div className="content-area" style={{ marginTop: 12, textAlign: "left" }}>
               {/* Demographics Grid - 2 columns matching LeftColumn.jsx pattern */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px", marginBottom: 12 }}>
+              <div className="patient-report-demographics" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 16px", marginBottom: 12 }}>
                 <div>
                   <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginBottom: 2 }}>ID</div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: "#0f172a" }}>
@@ -1507,8 +1621,8 @@ export default function PatientReport() {
                 </button>
               )}
             </div>
-            <div style={{ marginTop: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ marginTop: 8 }}>
+              <div className="patient-report-priority-row" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontSize: 14, color: "#334155" }}><strong>Priority code</strong></div>
                   <div style={{
@@ -2372,17 +2486,14 @@ export default function PatientReport() {
           </section>
 
           {/* Hospitalization Choice Section - REQUIRED BEFORE WARD/BED SELECTION */}
-          <section style={{ marginTop: 16, padding: 12, background: "#f5f3ff", borderRadius: 8, border: "2px solid #a78bfa" }}>
+          <section className="hospitalization-panel" style={{ marginTop: 16, padding: 12, background: "#f5f3ff", borderRadius: 8, border: "2px solid #a78bfa" }}>
             <h4 style={{ margin: "0 0 12px 0", color: "#6d28d9", fontSize: 14, fontWeight: 700 }}>
               🏥 Hospitalization Status
             </h4>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div className="hospitalization-choice-grid" style={{ display: "flex", gap: 12, alignItems: "center" }}>
               {/* Need Hospitalization Button */}
-              <button
+              <button className="hospitalization-choice"
                 onClick={() => {
-                  setNeedsHospitalization(true);
-                  setSelectedWard(null);
-                  setSelectedBed(null);
                   handleOpenWardSelector();
                 }}
                 style={{
@@ -2408,7 +2519,7 @@ export default function PatientReport() {
               </button>
 
               {/* No Hospitalization Button */}
-              <button
+              <button className="hospitalization-choice"
                 onClick={() => {
                   setNeedsHospitalization(false);
                   setSelectedWard(null);
@@ -2447,7 +2558,7 @@ export default function PatientReport() {
 
           {/* Ward Selection Section - ONLY SHOW IF HOSPITALIZATION NEEDED */}
           {needsHospitalization === true && (
-            <section style={{ marginTop: 16, padding: 12, background: "#f0f9ff", borderRadius: 8, border: "1px solid #bae6fd" }}>
+            <section className="hospitalization-panel" style={{ marginTop: 16, padding: 12, background: "#f0f9ff", borderRadius: 8, border: "1px solid #bae6fd" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h4 style={{ margin: 0, color: "#0369a1" }}>
                   Ward Assignment{selectedWard ? " ✓" : ""}
@@ -2478,7 +2589,7 @@ export default function PatientReport() {
                 {availableWards.length === 0 ? (
                   <div style={{ fontSize: 12, color: "#64748b" }}>Loading wards...</div>
                 ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                  <div className="hospitalization-option-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
                     {availableWards.map((ward) => {
                       const wardName = ward.name || ward.wardName || ward.department || "Unnamed";
                       
@@ -2517,7 +2628,7 @@ export default function PatientReport() {
           )}
 
           {needsHospitalization === true && selectedWard && (
-            <section style={{ marginTop: 16, padding: 12, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+            <section className="hospitalization-panel" style={{ marginTop: 16, padding: 12, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h4 style={{ margin: 0, color: "#16a34a" }}>
                   Bed Assignment{selectedBed ? " ✓" : ""}
@@ -2550,7 +2661,7 @@ export default function PatientReport() {
                   {availableBeds.length === 0 ? (
                     <div style={{ fontSize: 12, color: "#64748b" }}>No available beds</div>
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+                    <div className="hospitalization-option-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
                       {availableBeds.map((bed) => {
                         const isSelected = selectedBed && (selectedBed._id === bed._id || selectedBed.id === bed.id);
                         const bedName = bed.bedId || bed.bedNumber || `Bed ${bed.roomNumber}` || "Unknown";

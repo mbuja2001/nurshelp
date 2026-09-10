@@ -61,6 +61,7 @@ export const protect = async (req, res, next) => {
     
     req.user = user;
     req.user.role = decoded.role;  // Ensure role from token is available
+    req.user.hospitalId = decoded.hospitalId;
     req.userRole = decoded.role;
     req.hospitalId = decoded.hospitalId;
     next();

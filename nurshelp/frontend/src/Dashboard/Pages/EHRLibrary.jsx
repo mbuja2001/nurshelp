@@ -17,6 +17,7 @@ import {
   buildInpatientTimeline,
   groupTimelineByDay,
 } from "../../PatientSummary/inpatientReportTimeline";
+import "./EHRLibrary.css";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
 
@@ -127,24 +128,42 @@ const HospitalEncounterDirectory = ({ encounters, onOpen }) => {
   }
 
   return (
-    <div className="ehr-hospital-directory" aria-label="Hospital encounter file explorer">
+    <div className="ehr-tree" aria-label="Hospital encounter file explorer">
       {directory.map((year) => (
-        <details className="ehr-directory-year" key={year.key} open>
-          <summary><FiCalendar /><strong>{year.key}</strong><span>{year.months.reduce((total, month) => total + month.days.reduce((days, day) => days + day.entries.length, 0), 0)} encounters</span></summary>
-          <div className="ehr-directory-months">
+        <details className="ehr-tree-year" key={year.key} open>
+          <summary className="ehr-tree-row ehr-tree-year-row">
+            <span className="ehr-tree-caret" aria-hidden="true">›</span>
+            <FiCalendar />
+            <strong>{year.key}</strong>
+            <span className="ehr-tree-count">{year.months.reduce((total, month) => total + month.days.reduce((days, day) => days + day.entries.length, 0), 0)} encounters</span>
+          </summary>
+          <div className="ehr-tree-months">
             {year.months.map((month) => (
-              <details className="ehr-directory-month" key={month.key}>
-                <summary><strong>{month.label}</strong><span>{month.days.reduce((total, day) => total + day.entries.length, 0)} encounters</span></summary>
-                <div className="ehr-directory-days">
+              <details className="ehr-tree-month" key={month.key}>
+                <summary className="ehr-tree-row ehr-tree-month-row">
+                  <span className="ehr-tree-caret" aria-hidden="true">›</span>
+                  <strong>{month.label}</strong>
+                  <span className="ehr-tree-count">{month.days.reduce((total, day) => total + day.entries.length, 0)} encounters</span>
+                </summary>
+                <div className="ehr-tree-days">
                   {month.days.map((day) => (
-                    <details className="ehr-directory-date" key={day.key}>
-                      <summary><FiCalendar /><strong>{day.label}</strong><span>{day.entries.length} encounter{day.entries.length === 1 ? "" : "s"}</span></summary>
-                      <div className="ehr-directory-files">
+                    <details className="ehr-tree-day" key={day.key}>
+                      <summary className="ehr-tree-row ehr-tree-day-row">
+                        <span className="ehr-tree-caret" aria-hidden="true">›</span>
+                        <FiCalendar />
+                        <strong>{day.label}</strong>
+                        <span className="ehr-tree-count">{day.entries.length} encounter{day.entries.length === 1 ? "" : "s"}</span>
+                      </summary>
+                      <div className="ehr-tree-files">
                         {day.entries.map((file) => (
-                          <button className="ehr-file" key={file.id} type="button" onClick={() => onOpen(file.patientMrn)} title={`Open ${file.title}`}>
+                          <button className="ehr-tree-file" key={file.id} type="button" onClick={() => onOpen(file.patientMrn)} title={`Open ${file.title}`}>
                             <FiFileText />
-                            <span className="ehr-file-name">{file.patientName} · {file.title}</span>
+                            <span className="ehr-tree-file-copy">
+                              <strong>{file.patientName}</strong>
+                              <span>{file.title} · {file.status}</span>
+                            </span>
                             <time>{file.displayTime}</time>
+                            <FiChevronRight className="ehr-tree-file-arrow" />
                           </button>
                         ))}
                       </div>
@@ -360,16 +379,23 @@ const EHRLibrary = () => {
     }
   };
 
-  const searchPatients = async (event) => {
-    event.preventDefault();
-    if (!query.trim()) return;
+  const doSearch = async (searchTerm, saveHistory = false) => {
+    const normalized = searchTerm.trim();
+    if (!normalized) {
+      setResults([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setRecord(null);
-    const searchTerm = query.trim();
-    await rememberSearch(searchTerm);
-    const searchUrl = `${BACKEND_URL}/api/patients/search?search=${encodeURIComponent(searchTerm)}`;
-    console.log("[EHR SEARCH] Starting patient search", { searchTerm, searchUrl });
+
+    if (saveHistory) await rememberSearch(normalized);
+
+    const searchUrl = `${BACKEND_URL}/api/patients/search?search=${encodeURIComponent(normalized)}`;
+    console.log("[EHR SEARCH] Starting patient search", { searchTerm: normalized, searchUrl });
     try {
       const response = await fetch(searchUrl, {
         headers: { Authorization: `Bearer ${token}` },
@@ -396,7 +422,7 @@ const EHRLibrary = () => {
         setError("No patient records matched that search.");
     } catch (err) {
       console.error("[EHR SEARCH] Request failed", {
-        searchTerm,
+        searchTerm: normalized,
         message: err.message,
       });
       setResults([]);
@@ -405,6 +431,26 @@ const EHRLibrary = () => {
       setLoading(false);
     }
   };
+
+  const searchPatients = async (event) => {
+    event.preventDefault();
+    await doSearch(query, true);
+  };
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setResults([]);
+      setError("");
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      doSearch(trimmed, false);
+    }, 220);
+
+    return () => clearTimeout(timer);
+  }, [query, token]);
 
   const openRecord = async (mrn, selectedEncounterId = null) => {
     if (!mrn) return;
@@ -471,6 +517,7 @@ const EHRLibrary = () => {
   }, [days, selectedDay, selectedEvent]);
 
   const patient = record?.encounters?.[0];
+  const hasActiveSearch = query.trim().length > 0;
   const activeDay = days.find((day) => day.key === selectedDay) || days[0];
   const activeEntry =
     activeDay?.entries?.find((entry) => entry.id === selectedEvent) ||
@@ -574,6 +621,14 @@ const EHRLibrary = () => {
         else navigate(`/report/inpatient/${encounterId}`);
         return;
       }
+      case "PRESCRIPTION": {
+        const prescriptionId = entry.meta?.prescription?._id;
+        if (prescriptionId) navigate(`/prescription/${prescriptionId}`);
+        return;
+      }
+      case "DIAGNOSIS":
+        navigate(`/report/doctor/${encounterId}`);
+        return;
       case "LAB_RESULT": {
         const request = entry.meta?.labRequest;
         navigate(`/report/lab/${encounterId}`, {
@@ -585,6 +640,12 @@ const EHRLibrary = () => {
         });
         return;
       }
+      case "SURGERY":
+        navigate(`/surgery/${encounterId}`);
+        return;
+      case "DISCHARGE":
+        navigate(`/discharge-report/${encounterId}`);
+        return;
       default:
         navigate(`/report/inpatient/${encounterId}`);
     }
@@ -627,22 +688,22 @@ const EHRLibrary = () => {
                 source encounter and recorded time.
               </p>
               <div className="ehr-tiles">
-                <div className="ehr-tile" style={{ borderTop: "3px solid #2563a6" }}>
+                <div className="ehr-tile">
                   <div className="ehr-tile-label">Patient index</div>
                   <div className="ehr-tile-value">Search</div>
                   <div className="ehr-tile-note">Find a patient by name or MRN</div>
                 </div>
-                <div className="ehr-tile" style={{ borderTop: "3px solid #0f766e" }}>
+                <div className="ehr-tile">
                   <div className="ehr-tile-label">Record model</div>
                   <div className="ehr-tile-value">Timeline</div>
                   <div className="ehr-tile-note">Follow clinical events in order</div>
                 </div>
-                <div className="ehr-tile" style={{ borderTop: "3px solid #c2410c" }}>
+                <div className="ehr-tile">
                   <div className="ehr-tile-label">Time precision</div>
                   <div className="ehr-tile-value">HH:MM:SS</div>
                   <div className="ehr-tile-note">Events retain their recorded timestamp</div>
                 </div>
-                <div className="ehr-tile" style={{ borderTop: "3px solid #7c3aed" }}>
+                <div className="ehr-tile">
                   <div className="ehr-tile-label">Library scope</div>
                   <div className="ehr-tile-value">Hospital</div>
                   <div className="ehr-tile-note">Scoped to your clinical workspace</div>
@@ -653,12 +714,19 @@ const EHRLibrary = () => {
                 <input
                   value={query}
                   onChange={(event) => {
-                    setQuery(event.target.value);
+                    const nextValue = event.target.value;
+                    setQuery(nextValue);
                     setError("");
+                    if (!nextValue.trim()) {
+                      setResults([]);
+                    }
                   }}
                   placeholder="Search by patient name or MRN"
                   aria-label="Search patients"
                 />
+                <button className="ehr-button" type="submit" disabled={loading}>
+                  {loading ? "Searching..." : "Search records"}
+                </button>
                 <button
                   type="button"
                   className="ehr-history-button"
@@ -666,29 +734,117 @@ const EHRLibrary = () => {
                 >
                   History
                 </button>
-                <button className="ehr-button" type="submit" disabled={loading}>
-                  {loading ? "Searching..." : "Search records"}
-                </button>
               </form>
               {!record && (
-                <div className="ehr-panel ehr-hospital-explorer">
-                  <div className="ehr-explorer-header">
-                    <div>
-                      <div className="ehr-label">Hospital encounter file explorer</div>
-                      <div className="ehr-explorer-subtitle">All encounters · Year / Month / Date / Time</div>
+                <>
+                  {!hasActiveSearch && (
+                    <div style={{ marginTop: 18 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                        <div className="ehr-label" style={{ marginBottom: 0 }}>Recent searches</div>
+                        {searchHistory.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearSearchHistory}
+                            style={{
+                              border: "1px solid #e2e8f0",
+                              background: "#fff",
+                              color: "#b91c1c",
+                              borderRadius: "8px",
+                              padding: "6px 8px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              fontSize: "11px"
+                            }}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      {searchHistory.length > 0 ? (
+                        <div className="ehr-recent-directory">
+                          {searchHistory.map((item) => (
+                            <button
+                              key={item}
+                              type="button"
+                              className="ehr-recent-folder"
+                              onClick={() => {
+                                setQuery(item);
+                                setTimeout(() => document.querySelector(".ehr-search")?.requestSubmit(), 0);
+                              }}
+                            >
+                              <span className="ehr-recent-folder-icon"><FiClock size={14} /></span>
+                              <span className="ehr-recent-folder-name">{item}</span>
+                              <span className="ehr-recent-folder-action">Open</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="ehr-recent-empty">No recent searches yet.</div>
+                      )}
                     </div>
-                    {hospitalEncounters.length > 0 && (
-                      <span className="ehr-explorer-count">{hospitalEncounters.length} loaded</span>
-                    )}
-                  </div>
-                  {hospitalDirectoryLoading ? (
-                    <div className="ehr-meta">Loading hospital encounters...</div>
-                  ) : hospitalDirectoryError ? (
-                    <div className="ehr-alert">{hospitalDirectoryError}</div>
-                  ) : (
-                    <HospitalEncounterDirectory encounters={hospitalEncounters} onOpen={openRecord} />
                   )}
-                </div>
+
+                  {hasActiveSearch ? (
+                    <div className="ehr-panel ehr-results">
+                      <div className="ehr-column">
+                        <div className="ehr-label">Matching patient encounters</div>
+                      </div>
+                      {loading ? (
+                        <div className="ehr-meta" style={{ padding: "0 18px 18px" }}>Searching records...</div>
+                      ) : results.length > 0 ? (
+                        results.map((encounter) => {
+                          const tone = getStatusTone(encounter.status);
+                          return (
+                            <div className="ehr-result" key={encounter._id}>
+                              <div>
+                                <h3>{getPatientName(encounter)}</h3>
+                                <div className="ehr-meta">
+                                  MRN: {encounter.patient?.id_number || "Not recorded"} · Encounter: {formatDate(encounter.date || encounter.createdAt)} · <span style={{ color: tone.color }}>{encounter.status || "ACTIVE"}</span>
+                                </div>
+                              </div>
+                              <button
+                                className="ehr-link"
+                                type="button"
+                                onClick={() => openRecord(encounter.patient?.id_number || encounter._id)}
+                              >
+                                Open longitudinal record
+                              </button>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="ehr-meta" style={{ padding: "0 18px 18px" }}>
+                          No patient records matched that search.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="ehr-panel ehr-hospital-explorer">
+                      <div className="ehr-explorer-header">
+                        <div>
+                          <h2 className="ehr-explorer-title">Encounter File Explorer</h2>
+                          <div className="ehr-explorer-subtitle">All encounters · Year / Month / Date / Time</div>
+                        </div>
+                        {hospitalEncounters.length > 0 && (
+                          <span className="ehr-explorer-count">{hospitalEncounters.length} loaded</span>
+                        )}
+                      </div>
+                      {hospitalDirectoryLoading ? (
+                        <div className="ehr-explorer-loading" role="status" aria-live="polite">
+                          <span className="ehr-loading-mark" aria-hidden="true" />
+                          <span>
+                            <strong>Loading hospital encounters</strong>
+                            <small>Preparing the year, month, date, and time directory.</small>
+                          </span>
+                        </div>
+                      ) : hospitalDirectoryError ? (
+                        <div className="ehr-alert">{hospitalDirectoryError}</div>
+                      ) : (
+                        <HospitalEncounterDirectory encounters={hospitalEncounters} onOpen={openRecord} />
+                      )}
+                    </div>
+                  )}
+                </>
               )}
               {query.trim().length >= 2 && !record && (
                 <div className="ehr-panel" style={{ marginTop: 8, padding: "8px 0" }}>
@@ -714,46 +870,6 @@ const EHRLibrary = () => {
                       <span className="ehr-meta">{suggestion.status}</span>
                     </button>
                   ))}
-                </div>
-              )}
-              {searchHistory.length > 0 && (
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-                    <div className="ehr-label" style={{ marginBottom: 0 }}>Recent searches</div>
-                    <button
-                      type="button"
-                      onClick={clearSearchHistory}
-                      style={{
-                        border: "1px solid #e2e8f0",
-                        background: "#fff",
-                        color: "#b91c1c",
-                        borderRadius: "8px",
-                        padding: "6px 8px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        fontSize: "11px"
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="ehr-recent-directory">
-                    {searchHistory.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        className="ehr-recent-folder"
-                        onClick={() => {
-                          setQuery(item);
-                          setTimeout(() => document.querySelector(".ehr-search")?.requestSubmit(), 0);
-                        }}
-                      >
-                        <span className="ehr-recent-folder-icon"><FiClock size={14} /></span>
-                        <span className="ehr-recent-folder-name">{item}</span>
-                        <span className="ehr-recent-folder-action">Open</span>
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
               {showSearchHistoryModal && (
@@ -860,40 +976,6 @@ const EHRLibrary = () => {
                 </div>
               )}
               {error && <div className="ehr-alert">{error}</div>}
-              {results.length > 0 && (
-                <div className="ehr-panel ehr-results">
-                  <div className="ehr-column">
-                    <div className="ehr-label">Matching patient encounters</div>
-                  </div>
-                  {results.map((encounter) => {
-                    const tone = getStatusTone(encounter.status);
-                    return (
-                      <div className="ehr-result" key={encounter._id}>
-                        <div>
-                          <h3>{getPatientName(encounter)}</h3>
-                          <div className="ehr-meta">
-                            MRN:{" "}
-                            {encounter.patient?.id_number || "Not recorded"} ·
-                            Encounter: {formatDate(encounter.date || encounter.createdAt)} ·{" "}
-                            <span style={{ color: tone.color }}>
-                              {encounter.status || "ACTIVE"}
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          className="ehr-link"
-                          type="button"
-                          onClick={() =>
-                            openRecord(encounter.patient?.id_number || encounter._id)
-                          }
-                        >
-                          Open longitudinal record
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </>
           ) : (
             <>

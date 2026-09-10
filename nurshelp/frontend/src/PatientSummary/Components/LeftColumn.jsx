@@ -127,7 +127,6 @@ export default function LeftColumn({
             </button>
             {selectedMrn && (
               <>
-                <span className="triage-shell-status-chip">Loaded • {selectedMrn}</span>
                 <button
                   
                   type="button"
@@ -145,8 +144,36 @@ export default function LeftColumn({
         </div>
 
         <div className="triage-shell-prompt">
-          Search by ID number, MRN, name, or surname to preload the patient's clinical story before moving to the dedicated manual triage report.
+          {selectedMrn
+            ? "Patient history is loaded and ready for clinical review. Confirm the identity and complete the current intake below."
+            : "Search by ID number, MRN, name, or surname to preload the patient's clinical story before moving to the dedicated manual triage report."}
         </div>
+
+        {selectedMrn && (
+          <div className="triage-loaded-patient" aria-live="polite">
+            <div className="triage-loaded-patient-status">
+              <span className="triage-loaded-patient-dot" aria-hidden="true" />
+              <span>Patient record loaded</span>
+            </div>
+            <div className="triage-loaded-patient-identity">
+              <div className="triage-loaded-patient-avatar" aria-hidden="true">
+                {(data?.name || "P").charAt(0).toUpperCase()}
+              </div>
+              <div className="triage-loaded-patient-copy">
+                <strong>{[data?.name, data?.surname].filter(Boolean).join(" ") || "Unnamed patient"}</strong>
+                <span>{selectedMrn}</span>
+              </div>
+              <div className="triage-loaded-patient-facts">
+                <span>{data?.age != null || data?.ageYears != null ? `${data?.ageYears ?? data?.age} years` : "Age not recorded"}</span>
+                <span>{data?.gender || "Gender not recorded"}</span>
+              </div>
+            </div>
+            <div className="triage-loaded-patient-note">
+              <span>Next step</span>
+              Review vitals, critical history, symptoms, and triage readiness before submitting.
+            </div>
+          </div>
+        )}
 
         {searchModalOpen && (
           <div className="triage-search-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>

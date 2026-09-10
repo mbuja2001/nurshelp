@@ -53,7 +53,7 @@ const DoctorTriageReport = () => {
           'Cache-Control': 'no-cache'
         };
 
-        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?t=${Date.now()}`, {
+        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?reportType=TRIAGE&t=${Date.now()}`, {
           headers,
           cache: 'no-store'
         });

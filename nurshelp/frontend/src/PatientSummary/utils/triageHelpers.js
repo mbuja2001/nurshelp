@@ -83,7 +83,9 @@ export const normalizeClinicalAnalysis = (manualReport = {}) => {
   const recommendedSpecialists = ca.recommendedSpecialists || ca.recommended_specialists || manualReport.recommendedSpecialists || manualReport.recommended_specialists || [];
 
   const satsReasoning = ca.SATS_reasoning || ca.sats_reasoning || manualReport.SATS_reasoning || manualReport.sats_reasoning || {};
-  const tews_total = ca.tews_total ?? ca.total ?? satsReasoning.tews_total ?? satsReasoning.total ?? manualReport.tews_total ?? manualReport.sats_points ?? manualReport.urgencyScore ?? null;
+  // urgencyScore is an acuity field in some AI payloads, not a reliable TEWS total.
+  // Only explicit TEWS fields may populate the displayed score.
+  const tews_total = ca.tews_total ?? satsReasoning.tews_total ?? manualReport.tews_total ?? manualReport.sats_points ?? null;
   const priority_raw = ca.priority_code ?? ca.selected_priority ?? ca.sats_level ?? ca.satsLevel ?? satsReasoning.priority ?? manualReport.selected_priority ?? manualReport.satsLevel ?? manualReport.sats_color ?? manualReport.priority ?? manualReport.priority_code ?? null;
   const priority_code = priority_raw ?? null;
   const sats_level = normalizeSatsLevel(priority_raw);

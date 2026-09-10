@@ -6,6 +6,7 @@
 
 import { Prescription } from '../models/pharmacy.model.js';
 import { Encounter } from '../models/encounter.model.js';
+import { canAccessReport, REPORT_TYPES } from '../utils/reportAccess.js';
 
 // ============ CREATE FORMAL PRESCRIPTION ============
 export const createPrescription = async (req, res) => {
@@ -26,6 +27,10 @@ export const createPrescription = async (req, res) => {
     const encounter = await Encounter.findOne({ _id: encounterId, hospitalId });
     if (!encounter) {
       return res.status(404).json({ success: false, message: 'Encounter not found' });
+    }
+
+    if (!canAccessReport({ user, encounter, reportType: REPORT_TYPES.PRESCRIPTION, action: 'edit' })) {
+      return res.status(403).json({ success: false, message: 'Prescription authoring is not permitted for this role or encounter' });
     }
 
     const prescriberData = req.body.prescriber || {};
@@ -148,6 +153,11 @@ export const getPrescription = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Prescription not found' });
     }
 
+    const encounter = await Encounter.findOne({ _id: prescription.encounterId, hospitalId });
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.PRESCRIPTION })) {
+      return res.status(403).json({ success: false, message: 'Prescription access denied' });
+    }
+
     res.status(200).json({ success: true, prescription });
   } catch (err) {
     console.error('[PRESCRIPTION GET ERROR]:', err);
@@ -163,6 +173,11 @@ export const getPrescriptionsByEncounter = async (req, res) => {
 
     if (!hospitalId) {
       return res.status(400).json({ success: false, message: 'Hospital ID not found' });
+    }
+
+    const encounter = await Encounter.findOne({ _id: encounterId, hospitalId });
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.PRESCRIPTION })) {
+      return res.status(403).json({ success: false, message: 'Prescription access denied' });
     }
 
     const prescriptions = await Prescription.find({ hospitalId, encounterId }).sort({ createdAt: -1 });
@@ -260,6 +275,11 @@ export const submitPrescriptionToPharmacy = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Prescription not found' });
     }
 
+    const encounter = await Encounter.findOne({ _id: prescription.encounterId, hospitalId });
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.PRESCRIPTION, action: 'edit' })) {
+      return res.status(403).json({ success: false, message: 'Prescription update denied' });
+    }
+
     prescription.status = 'SUBMITTED';
     prescription.submitted_at = new Date();
     prescription.submitted_to_pharmacy = true;
@@ -293,6 +313,11 @@ export const updatePrescriptionItemStatus = async (req, res) => {
     const prescription = await Prescription.findOne({ _id: prescriptionId, hospitalId });
     if (!prescription) {
       return res.status(404).json({ success: false, message: 'Prescription not found' });
+    }
+
+    const encounter = await Encounter.findOne({ _id: prescription.encounterId, hospitalId });
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.PRESCRIPTION, action: 'edit' })) {
+      return res.status(403).json({ success: false, message: 'Prescription item update denied' });
     }
 
     const item = prescription.items.id(itemId);
@@ -344,6 +369,11 @@ export const cancelPrescription = async (req, res) => {
     const prescription = await Prescription.findOne({ _id: prescriptionId, hospitalId });
     if (!prescription) {
       return res.status(404).json({ success: false, message: 'Prescription not found' });
+    }
+
+    const encounter = await Encounter.findOne({ _id: prescription.encounterId, hospitalId });
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.PRESCRIPTION, action: 'edit' })) {
+      return res.status(403).json({ success: false, message: 'Prescription cancellation denied' });
     }
 
     prescription.status = 'CANCELLED';

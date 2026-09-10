@@ -6,3 +6,6 @@ nurshelp_remote/
 nurshelp-fresh/
 nurshelp/.git
 
+# Local hospital credential exports
+nurshelp/backend/hospital-*-credentials.json
+

@@ -1,0 +1,947 @@
+/* EHR library layout overrides: preserve the clinical data model while making navigation readable at every width. */
+.ehr-library {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.ehr-library .ehr-shell {
+  min-width: 0;
+}
+
+.ehr-library .ehr-title,
+.ehr-library .ehr-subtitle,
+.ehr-library .ehr-tile-value,
+.ehr-library .ehr-tile-note,
+.ehr-library .ehr-meta,
+.ehr-library .ehr-result,
+.ehr-library .ehr-record-head,
+.ehr-library .ehr-event,
+.ehr-library .ehr-detail {
+  overflow-wrap: anywhere;
+}
+
+.ehr-library .ehr-tiles {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ehr-library .ehr-tile-value {
+  word-break: normal;
+}
+
+.ehr-library .ehr-tile {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  border-color: rgba(201, 216, 232, 0.78);
+  background: rgba(224, 238, 250, 0.2);
+  box-shadow: 0 10px 24px rgba(32, 59, 91, 0.1);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.ehr-library .ehr-search {
+  display: grid !important;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 22px !important;
+  margin-bottom: 18px !important;
+  padding: 8px 10px 8px 12px !important;
+  border: 1px solid #c3d4e7 !important;
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(16, 55, 91, 0.08) !important;
+  background: #ffffff;
+}
+
+.ehr-library .ehr-search > svg {
+  grid-column: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563a6 !important;
+  margin-left: 2px;
+}
+
+.ehr-library .ehr-search input {
+  grid-column: 2;
+  min-width: 0 !important;
+  width: 100%;
+  height: 42px;
+  padding: 0 6px 0 2px !important;
+  border: 0 !important;
+  outline: 0;
+  color: #102f52;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ehr-library .ehr-search input::placeholder {
+  color: #7890a8;
+  font-weight: 500;
+}
+
+.ehr-library .ehr-search .ehr-history-button,
+.ehr-library .ehr-search .ehr-button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  border-radius: 8px;
+  font-size: clamp(11px, 1.2vw, 12px);
+  line-height: 1.1;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ehr-library .ehr-recent-directory {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 2px 6px;
+  scrollbar-width: thin;
+}
+
+.ehr-library .ehr-recent-folder {
+  flex: 0 0 auto;
+  width: max-content !important;
+  max-width: min(240px, 78vw);
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-results {
+  margin-top: 18px;
+}
+
+.ehr-library .ehr-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.ehr-library .ehr-link {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .ehr-library .ehr-search {
+    grid-template-columns: 24px minmax(0, 1fr) max-content;
+    grid-template-rows: 40px 40px;
+    align-items: center;
+  }
+
+  .ehr-library .ehr-search > svg {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .ehr-library .ehr-search input {
+    grid-column: 2 / 4;
+    grid-row: 1;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .ehr-library .ehr-search .ehr-button {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .ehr-library .ehr-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 10px 10px 10px 12px !important;
+  }
+
+  .ehr-library .ehr-search > svg {
+    grid-column: 1;
+  }
+
+  .ehr-library .ehr-search input {
+    grid-column: 2;
+    height: 40px;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button,
+  .ehr-library .ehr-search .ehr-button {
+    grid-column: 1 / -1;
+    width: max-content;
+    min-height: 40px;
+    font-size: 11px;
+    padding: 0 14px;
+    box-sizing: border-box;
+  }
+
+  .ehr-library .ehr-result {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ehr-library .ehr-link {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .ehr-library .ehr-search {
+    grid-template-columns: 22px minmax(0, 1fr) max-content;
+    grid-template-rows: 40px 40px;
+    gap: 8px 8px;
+    padding: 9px 9px 9px 10px !important;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button,
+  .ehr-library .ehr-search .ehr-button {
+    font-size: 11px;
+    letter-spacing: 0.01em;
+  }
+
+  .ehr-library .ehr-recent-folder {
+    max-width: 220px;
+  }
+}
+
+.ehr-library .ehr-search .ehr-history-button {
+  grid-column: 4;
+  padding: 0 13px;
+  border: 1px solid #b8cce0;
+  background: #f4f8fc;
+  color: #174d7d;
+}
+
+.ehr-library .ehr-search .ehr-history-button:hover {
+  background: #e8f2fc;
+  border-color: #7fa5ca;
+}
+
+.ehr-library .ehr-search .ehr-button {
+  grid-column: 3;
+  padding: 0 16px;
+  border: 1px solid #0b3b70;
+  background: #0b3b70;
+  color: #ffffff;
+}
+
+.ehr-library .ehr-search .ehr-button:hover:not(:disabled) {
+  background: #082d55;
+}
+
+.ehr-library .ehr-search .ehr-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.ehr-library .ehr-hospital-explorer {
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 16px !important;
+  border-radius: 14px;
+}
+
+.ehr-library .ehr-encounter-directory {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ehr-library .ehr-directory-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d9e2ed;
+  background: #f8fbff;
+}
+
+.ehr-library .ehr-directory-intro > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ehr-library .ehr-directory-intro strong {
+  color: #173b63;
+  font-size: 14px;
+}
+
+.ehr-library .ehr-directory-intro span {
+  color: #63748a;
+  font-size: 12px;
+}
+
+.ehr-library .ehr-directory-total {
+  flex: 0 0 auto;
+  color: #0b3b70 !important;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Clean tree hierarchy: Year -> Month -> Date -> Time/encounter. */
+.ehr-library .ehr-tree {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ehr-library .ehr-recent-empty {
+  padding: 10px 12px;
+  border: 1px dashed #cbd8e6;
+  background: #f8fbff;
+  color: #718198;
+  font-size: 12px;
+}
+
+.ehr-library .ehr-tree details {
+  min-width: 0;
+}
+
+.ehr-library .ehr-tree summary {
+  list-style: none;
+}
+
+.ehr-library .ehr-tree summary::-webkit-details-marker {
+  display: none;
+}
+
+.ehr-library .ehr-tree-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.ehr-library .ehr-tree-caret {
+  display: inline-grid;
+  flex: 0 0 15px;
+  place-items: center;
+  color: #7190ad;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform .15s ease;
+}
+
+.ehr-library .ehr-tree details[open] > .ehr-tree-row .ehr-tree-caret {
+  transform: rotate(90deg);
+}
+
+.ehr-library .ehr-tree-row strong {
+  min-width: 0;
+  color: #173b63;
+  overflow-wrap: anywhere;
+}
+
+.ehr-library .ehr-tree-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #718198;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-tree-year {
+  padding: 9px 0;
+  border-bottom: 1px solid #e7edf4;
+}
+
+.ehr-library .ehr-tree-year-row {
+  padding: 4px 8px;
+  font-size: 15px;
+}
+
+.ehr-library .ehr-tree-months {
+  display: grid;
+  gap: 5px;
+  padding: 8px 0 0 24px;
+}
+
+.ehr-library .ehr-tree-month-row {
+  padding: 8px 10px;
+  background: #f5f8fc;
+  font-size: 13px;
+}
+
+.ehr-library .ehr-tree-days {
+  display: grid;
+  gap: 3px;
+  padding: 4px 0 2px 18px;
+}
+
+.ehr-library .ehr-tree-day-row {
+  padding: 8px 10px;
+  color: #173b63;
+  font-size: 12px;
+}
+
+.ehr-library .ehr-tree-day-row:hover,
+.ehr-library .ehr-tree-month-row:hover,
+.ehr-library .ehr-tree-year-row:hover {
+  background: #eef6ff;
+}
+
+.ehr-library .ehr-tree-files {
+  display: grid;
+  gap: 2px;
+  padding: 3px 0 5px 28px;
+}
+
+.ehr-library .ehr-tree-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #173b63;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ehr-library .ehr-tree-file:hover,
+.ehr-library .ehr-tree-file:focus-visible {
+  background: #dbeafe;
+  outline: none;
+}
+
+.ehr-library .ehr-tree-file > svg:first-child {
+  flex: 0 0 auto;
+  color: #2563a6;
+}
+
+.ehr-library .ehr-tree-file-copy {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ehr-library .ehr-tree-file-copy strong,
+.ehr-library .ehr-tree-file-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-tree-file-copy strong { font-size: 11px; }
+.ehr-library .ehr-tree-file-copy span { color: #718198; font-size: 10px; }
+.ehr-library .ehr-tree-file time { flex: 0 0 auto; color: #63748a; font-size: 10px; white-space: nowrap; }
+.ehr-library .ehr-tree-file-arrow { flex: 0 0 auto; color: #7190ad; }
+
+.ehr-library .ehr-date-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.ehr-library .ehr-date-group {
+  min-width: 0;
+  border: 1px solid #d9e2ed;
+  background: #ffffff;
+}
+
+.ehr-library .ehr-date-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 13px;
+  border-bottom: 1px solid #e7edf4;
+  background: #f8fbff;
+}
+
+.ehr-library .ehr-date-marker {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #dbeafe;
+  color: #2563a6;
+}
+
+.ehr-library .ehr-date-heading {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ehr-library .ehr-date-heading strong {
+  color: #173b63;
+  font-size: 13px;
+}
+
+.ehr-library .ehr-date-heading span,
+.ehr-library .ehr-date-count {
+  color: #718198;
+  font-size: 11px;
+}
+
+.ehr-library .ehr-date-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-date-entries {
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+}
+
+.ehr-library .ehr-encounter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #173b63;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ehr-library .ehr-encounter-row:hover,
+.ehr-library .ehr-encounter-row:focus-visible {
+  background: #eef6ff;
+  outline: none;
+}
+
+.ehr-library .ehr-encounter-icon {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #2563a6;
+}
+
+.ehr-library .ehr-encounter-copy {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 3px;
+}
+
+.ehr-library .ehr-encounter-copy strong,
+.ehr-library .ehr-encounter-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-encounter-copy strong { font-size: 12px; }
+.ehr-library .ehr-encounter-copy span { color: #718198; font-size: 11px; }
+.ehr-library .ehr-encounter-row time { flex: 0 0 auto; color: #63748a; font-size: 11px; white-space: nowrap; }
+.ehr-library .ehr-open-record { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 3px; color: #2563a6; font-size: 11px; font-weight: 800; white-space: nowrap; }
+
+.ehr-library .ehr-explorer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  margin-left: 10px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.ehr-library .ehr-explorer-subtitle {
+  margin: 4px 0 0 0;
+  color: #42617f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ehr-library .ehr-explorer-title {
+  margin: 0;
+  color: #102f52;
+  font-size: 18px;
+  font-weight: 850;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.ehr-library .ehr-explorer-count {
+  flex: 0 0 auto;
+  color: #0b3b70;
+  background: #e9f2fb;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-explorer-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid #cfe0f1;
+  border-radius: 10px;
+  background: #f4f9ff;
+  color: #173b63;
+}
+
+.ehr-library .ehr-explorer-loading > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.ehr-library .ehr-explorer-loading strong {
+  color: #123b66;
+  font-size: 13px;
+}
+
+.ehr-library .ehr-explorer-loading small {
+  color: #42617f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ehr-library .ehr-loading-mark {
+  display: block;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #bfdbfe;
+  border-top-color: #2563a6;
+  border-radius: 50%;
+  animation: ehr-loading-spin .8s linear infinite;
+}
+
+@keyframes ehr-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ehr-library .ehr-directory summary {
+  min-width: 0;
+  flex-wrap: wrap;
+  line-height: 1.35;
+}
+
+.ehr-library .ehr-directory summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ehr-library .ehr-directory summary span {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-file {
+  min-width: 0;
+}
+
+.ehr-library .ehr-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ehr-library .ehr-workspace {
+  min-width: 0;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.8fr) minmax(220px, 0.9fr);
+}
+
+.ehr-library .ehr-column {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ehr-library .ehr-record-head {
+  min-width: 0;
+}
+
+.ehr-library .ehr-record-head > div:first-child {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .ehr-library .ehr-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ehr-library .ehr-workspace {
+    grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.6fr);
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.1fr);
+    gap: 14px;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side > .ehr-calendar-head,
+  .ehr-library .ehr-workspace > .ehr-side > .ehr-weekdays,
+  .ehr-library .ehr-workspace > .ehr-side > .ehr-calendar {
+    grid-column: 1;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side > .ehr-detail {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .ehr-library {
+    padding: 18px 12px 32px !important;
+  }
+
+  .ehr-library .ehr-title {
+    font-size: 30px;
+    line-height: 1.08;
+  }
+
+  .ehr-library .ehr-subtitle {
+    font-size: 13px;
+  }
+
+  .ehr-library .ehr-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  .ehr-library .ehr-tile {
+    padding: 13px 12px;
+  }
+
+  .ehr-library .ehr-tile-label {
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  .ehr-library .ehr-tile-value {
+    font-size: 20px;
+    line-height: 1.12;
+  }
+
+  .ehr-library .ehr-search {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 8px;
+    margin-top: 16px !important;
+    padding: 9px !important;
+  }
+
+  .ehr-library .ehr-search input {
+    grid-column: 2;
+    min-width: 0;
+    padding: 0 4px !important;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button,
+  .ehr-library .ehr-search .ehr-button {
+    width: max-content;
+    flex-basis: auto;
+  }
+
+  .ehr-library .ehr-search > svg { grid-column: 1; justify-self: start; }
+  .ehr-library .ehr-search .ehr-history-button { grid-column: 1; justify-self: start; }
+  .ehr-library .ehr-search .ehr-button { grid-column: 2; justify-self: start; }
+
+  .ehr-library .ehr-explorer-header {
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .ehr-library .ehr-explorer-count {
+    align-self: flex-start;
+  }
+
+  .ehr-library .ehr-tree-months { padding-left: 12px; }
+  .ehr-library .ehr-tree-days { padding-left: 8px; }
+  .ehr-library .ehr-tree-files { padding-left: 12px; }
+  .ehr-library .ehr-tree-count { width: 100%; margin-left: 23px; }
+  .ehr-library .ehr-tree-row { flex-wrap: wrap; }
+  .ehr-library .ehr-tree-file { align-items: flex-start; flex-wrap: wrap; }
+  .ehr-library .ehr-tree-file-copy { flex-basis: calc(100% - 42px); }
+  .ehr-library .ehr-tree-file time { margin-left: 34px; }
+  .ehr-library .ehr-tree-file-arrow { margin-left: auto; }
+
+  .ehr-library .ehr-directory-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ehr-library .ehr-date-group-header {
+    padding: 10px;
+  }
+
+  .ehr-library .ehr-encounter-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ehr-library .ehr-encounter-copy {
+    flex-basis: calc(100% - 48px);
+  }
+
+  .ehr-library .ehr-encounter-row time {
+    margin-left: 38px;
+  }
+
+  .ehr-library .ehr-open-record {
+    margin-left: auto;
+  }
+
+  .ehr-library .ehr-directory-months,
+  .ehr-library .ehr-directory-days {
+    padding-left: 8px;
+  }
+
+  .ehr-library .ehr-directory summary span {
+    width: 100%;
+    margin-left: 26px;
+  }
+
+  .ehr-library .ehr-file {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 9px 6px;
+  }
+
+  .ehr-library .ehr-file-name {
+    flex: 1 1 calc(100% - 34px);
+    white-space: normal;
+    line-height: 1.35;
+  }
+
+  .ehr-library .ehr-file time {
+    margin-left: 28px;
+  }
+
+  .ehr-library .ehr-record-head {
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .ehr-library .ehr-record-head h2 {
+    font-size: 23px;
+    line-height: 1.15;
+  }
+
+  .ehr-library .ehr-back {
+    align-self: flex-start;
+  }
+
+  .ehr-library .ehr-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-column,
+  .ehr-library .ehr-workspace > .ehr-side {
+    width: 100%;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side {
+    display: block;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side > * {
+    margin-top: 14px;
+  }
+
+  .ehr-library .ehr-workspace > .ehr-side > .ehr-calendar-head {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .ehr-library .ehr-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ehr-library .ehr-tile-value {
+    font-size: 24px;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button,
+  .ehr-library .ehr-search .ehr-button {
+    flex-basis: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .ehr-library .ehr-search {
+    grid-template-columns: 22px minmax(0, 1fr) max-content max-content;
+    grid-template-rows: 40px;
+  }
+
+  .ehr-library .ehr-search > svg {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    margin-left: 0;
+  }
+
+  .ehr-library .ehr-search input {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ehr-library .ehr-search .ehr-button,
+  .ehr-library .ehr-search .ehr-history-button {
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .ehr-library .ehr-search .ehr-button {
+    grid-column: 3;
+    grid-row: 1;
+    width: max-content;
+    justify-self: start;
+  }
+
+  .ehr-library .ehr-search .ehr-history-button {
+    grid-column: 4;
+    grid-row: 1;
+    width: max-content;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .ehr-library .ehr-search {
+    grid-template-columns: 22px minmax(0, 1fr) max-content max-content;
+  }
+}

@@ -54,7 +54,7 @@ const ManualOfficialTriageReport = () => {
           'Cache-Control': 'no-cache'
         };
 
-        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?t=${Date.now()}`, {
+        const res = await fetch(`${BACKEND_URL}/api/encounters/${encounterId}?reportType=TRIAGE&t=${Date.now()}`, {
           headers,
           cache: 'no-store'
         });
@@ -90,18 +90,6 @@ const ManualOfficialTriageReport = () => {
       return allClinicians[0].specialty;
     }
     return encounter?.triage?.assigned_specialty || 'Unassigned';
-  };
-
-  // Get priority badge color and label
-  const getPriorityBadge = (priority) => {
-    const priMap = {
-      'ESI-1': { color: '#dc2626', bgColor: '#fee2e2', label: 'EMERGENT', border: '#991b1b' },
-      'ESI-2': { color: '#ea580c', bgColor: '#ffedd5', label: 'URGENT', border: '#9a3412' },
-      'ESI-3': { color: '#b45309', bgColor: '#fef3c7', label: 'MODERATE', border: '#92400e' },
-      'ESI-4': { color: '#059669', bgColor: '#d1fae5', label: 'STABLE', border: '#047857' },
-      'ESI-5': { color: '#0891b2', bgColor: '#cffafe', label: 'MINIMAL', border: '#164e63' }
-    };
-    return priMap[priority] || { color: '#475569', bgColor: '#f1f5f9', label: priority || 'N/A', border: '#94a3b8' };
   };
 
   // Determine vital sign color (abnormal = red/orange, normal = green)
@@ -262,13 +250,6 @@ const ManualOfficialTriageReport = () => {
     );
   const mobility = triageData?.SATS_reasoning?.mobility ?? triageData?.mobility ?? encounter?.vitals?.mobility ?? 'Walks';
   const traumaPresent = Boolean(triageData?.SATS_reasoning?.traumaPresent ?? triageData?.traumaPresent ?? encounter?.vitals?.traumaPresent);
-
-  const acuityScore = reportType === 'AI'
-    ? (aiReport?.urgencyScore ?? triageData?.urgencyScore ?? null)
-    : (
-      (normalizedManual?.urgencyScore !== null && normalizedManual?.urgencyScore !== undefined) ? normalizedManual.urgencyScore
-      : (manualReport?.urgencyScore ?? manualReport?.urgency_score ?? triageData?.urgencyScore ?? triageData?.urgency_score ?? null)
-    );
 
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '20px' }}>
@@ -466,7 +447,7 @@ const ManualOfficialTriageReport = () => {
           {(reportType === 'AI' ? aiReport : manualReport) && (
             <div style={{ marginBottom: '7px' }}>
               <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 800, color: '#000000', borderBottom: '2px solid #1e293b', paddingBottom: '3px' }}>TRIAGE ASSESSMENT</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '7px', fontSize: '10px' }}>
                 <div>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>SATS CLASSIFICATION:</span>
                   <div style={{ marginTop: '4px' }}>
@@ -489,25 +470,13 @@ const ManualOfficialTriageReport = () => {
                     )}
                   </div>
                 </div>
-                <div>
-                  <span style={{ color: '#1e293b', fontWeight: 600 }}>ESI LEVEL:</span>
-                  <div style={{ marginTop: '4px', fontWeight: 600, color: '#000000', fontSize: '11px' }}>
-                    {reportType === 'AI' ? (aiReport?.esi_level || triageData?.esi_level || 'N/A') : (manualReport?.esi_level || 'N/A')}
-                  </div>
-                </div>
               </div>
 
-              <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px', fontSize: '10px' }}>
+              <div style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '7px', fontSize: '10px' }}>
                 <div>
                   <span style={{ color: '#1e293b', fontWeight: 600 }}>TEWS SCORE:</span>
                   <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
                     {tewsTotal !== null ? `${tewsTotal} points` : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <span style={{ color: '#1e293b', fontWeight: 600 }}>ACUITY / URGENCY SCORE:</span>
-                  <div style={{ marginTop: '4px', fontWeight: 700, color: '#0f172a' }}>
-                    {acuityScore !== null ? `${acuityScore}` : 'N/A'}
                   </div>
                 </div>
                 <div>
@@ -754,7 +723,8 @@ const ManualOfficialTriageReport = () => {
           display: 'flex',
           gap: 12,
           marginTop: 24,
-          justifyContent: 'center'
+          justifyContent: 'center',
+          flexWrap: 'wrap'
         }}>
           <button
             onClick={() => navigate('/dashboard')}

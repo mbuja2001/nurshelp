@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { Notification } from '../models/notification.model.js';
+import { buildNotificationOwnershipFilter } from '../utils/notificationOwnership.js';
 
 const router = express.Router();
 
@@ -95,8 +96,8 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { id: clinicianId } = req.user;
 
-    const notification = await Notification.findByIdAndUpdate(
-      id,
+    const notification = await Notification.findOneAndUpdate(
+      buildNotificationOwnershipFilter({ notificationId: id, clinicianId, hospitalId: req.user.hospitalId }),
       {
         $set: {
           status: 'READ',
@@ -136,12 +137,14 @@ router.put('/:id/acknowledge', authenticateToken, async (req, res) => {
     const { notes } = req.body;
     const { id: clinicianId } = req.user;
 
-    const notification = await Notification.findByIdAndUpdate(
-      id,
+    const notification = await Notification.findOneAndUpdate(
+      buildNotificationOwnershipFilter({ notificationId: id, clinicianId, hospitalId: req.user.hospitalId }),
       {
         $set: {
           status: 'ACKNOWLEDGED',
           acknowledged_at: new Date(),
+          acknowledgedBy: clinicianId,
+          acknowledgedAt: new Date(),
           acknowledged_notes: notes || '',
           engagement_level: 'IMMEDIATE'  // Flag as engaged
         },
@@ -180,8 +183,8 @@ router.put('/:id/dismiss', authenticateToken, async (req, res) => {
     const { reason } = req.body;
     const { id: clinicianId } = req.user;
 
-    const notification = await Notification.findByIdAndUpdate(
-      id,
+    const notification = await Notification.findOneAndUpdate(
+      buildNotificationOwnershipFilter({ notificationId: id, clinicianId, hospitalId: req.user.hospitalId }),
       {
         $set: {
           status: 'DISMISSED',

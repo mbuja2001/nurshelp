@@ -980,7 +980,9 @@ export const requestTriageWithHospitalShifts = async (req, res) => {
       bp_left_diastolic: vitals?.bp_left_diastolic || null,
       bp_right_systolic: vitals?.bp_right_systolic || null,
       bp_right_diastolic: vitals?.bp_right_diastolic || null,
-      avpu: vitals?.avpu || null
+      avpu: vitals?.avpu || null,
+      mobility: vitalsNormalized.mobility,
+      traumaPresent: vitalsNormalized.traumaPresent
     };
     
     // DEBUG: Log what's about to be stored in aiTriageReport

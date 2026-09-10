@@ -1,0 +1,72 @@
+lets make sure physician views, nurse triage views, and clinical nurses views of reports are correctly configured,  surgery reports are correctly configured, prescription view reports are correctly configured
+
+introduce call icon for bookings and schedules
+
+lets make sure our EHR system application is adaptable to all ehr protocols
+
+now we have defined role-based view renders of reports, we can view ordered prescriptions and requested labs from the full hospital
+
+lets make sure when we select the encounter to view, we can see exactly the encounter details it used
+
+lets make sure the messaging for live alerts is perfect and the priority queue is rendering accurate info and the priority queue algorithm is perfect:
+
+lets make sure the top icons on sidebarlayout are extremely responsive meaning the title labels for the icons should disappear as the data icons are getting clustered in certain views
+
+
+
+
+Perfect analytics
+
+perfect all dashboards
+
+perfect toolbar capabilities
+
+Perfect staff messages
+
+Lets perfect system performance
+
+Perfect profile and settings setup
+
+Perfect EHR Library ui file explorer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+make sure triage summary is elipsed as you can click view to view the full triage
+
+🎯 Priority Queue
+1 waiting
+Sorted by severity & wait time
+
+Provider Load
+Amanda Wright
+100%
+Patient Queue
+🟡
+Synthetic10
+Sudden shaking chills (rigors), high fever, severe productive cough with rusty sputum, and localized chest pain when breathing in (pleuritic chest pain). Mild cold symptoms for 2 days. Woke up this morning with extreme exhaustion, confusion, and shivering. Patient explicitly states she has been taking both her Warfarin and Apixaban regularly as prescribed.

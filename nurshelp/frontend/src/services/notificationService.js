@@ -14,6 +14,23 @@ const getAuthHeaders = () => {
 };
 
 export const notificationService = {
+  getOperationsFeed: async (limit = 50, since = '') => {
+    try {
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (since) query.set('since', since);
+      const res = await fetch(`${BACKEND_URL}/api/operations/feed?${query.toString()}`, {
+        headers: getAuthHeaders(),
+        cache: 'no-store'
+      });
+
+      if (!res.ok) throw new Error(`Error: ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.error('[NotificationService] getOperationsFeed error:', error);
+      return { success: false, feed: null, error: error.message };
+    }
+  },
+
   /**
    * Get all unread notifications for current user
    */

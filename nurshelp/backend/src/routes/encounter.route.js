@@ -85,6 +85,10 @@ router.get("/:id/discharge-report", protect, async (req, res) => {
   try {
     const encounter = await (await import('../models/encounter.model.js')).Encounter.findById(req.params.id);
     if (!encounter) return res.status(404).json({ message: 'Encounter not found' });
+    const { canAccessReport, REPORT_TYPES } = await import('../utils/reportAccess.js');
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.DISCHARGE })) {
+      return res.status(403).json({ message: 'Discharge report access denied' });
+    }
     return res.json({ dischargeReport: encounter.discharge_report || null });
   } catch (error) {
     return res.status(500).json({ message: 'Unable to fetch discharge report', error: error.message });
@@ -95,6 +99,10 @@ router.post("/:id/discharge-report", protect, async (req, res) => {
   try {
     const encounter = await (await import('../models/encounter.model.js')).Encounter.findById(req.params.id);
     if (!encounter) return res.status(404).json({ message: 'Encounter not found' });
+    const { canAccessReport, REPORT_TYPES } = await import('../utils/reportAccess.js');
+    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.DISCHARGE, action: 'edit' })) {
+      return res.status(403).json({ message: 'Discharge report authoring denied' });
+    }
     
     // Fetch full clinician record with credentials for signature
     let signingClinician = null;
