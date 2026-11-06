@@ -6,6 +6,8 @@
  *   router.post('/create', protect, authorize('MANAGER', 'ADMIN'), controllerFunc)
  */
 
+import { AuditLog } from '../models/auditLog.model.js';
+
 export const authorize = (...allowedRoles) => {
   return (req, res, next) => {
     // Check if user is authenticated (protect middleware should run first)
@@ -228,6 +230,33 @@ export const auditLog = (actionType) => {
       method: req.method,
       path: req.path,
       body: req.body
+    };
+
+    const originalJson = res.json.bind(res);
+    res.json = (payload) => {
+      if (res.statusCode >= 200 && res.statusCode < 400 && !req.auditInfo.persisted) {
+        req.auditInfo.persisted = true;
+        const hospitalId = req.hospitalId || req.user.hospitalId;
+        if (hospitalId) {
+          AuditLog.create({
+            action: actionType,
+            actorId: req.user._id,
+            hospitalId,
+            resourceId: req.auditInfo.resourceId,
+            resourceType: 'HOSPITAL_OPERATION',
+            authorized: true,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+            changeDetails: {
+              ...(req.auditInfo.details || { method: req.method, path: req.path }),
+              actor: req.user.email || req.user._id,
+              actorRole: req.user.role || 'STAFF'
+            },
+            description: `${req.user.role || 'Staff'} ${actionType.toLowerCase().replace(/_/g, ' ')} by ${req.user.email || req.user._id}`
+          }).catch((error) => console.error('[AUDIT LOG] Failed to persist staff action:', error));
+        }
+      }
+      return originalJson(payload);
     };
 
     next();

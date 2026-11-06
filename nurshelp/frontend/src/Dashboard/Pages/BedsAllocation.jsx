@@ -4,9 +4,11 @@ import SidebarLayout from '../SidebarLayout';
 import { useUserFromToken } from '../../hooks/useUserFromToken';
 import { decodeJwt } from '../../utils/jwt';
 
-const BedsAllocation = () => {
+const BedsAllocation = ({ embedded = false }) => {
   const { userName } = useUserFromToken();
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+  const currentUser = decodeJwt(localStorage.getItem('token')) || {};
+  const canEditBedConfiguration = embedded && ['ADMIN', 'MANAGER'].includes(String(currentUser.role || '').toUpperCase());
 
   // ============ STATE ============
   const [beds, setBeds] = useState([]);
@@ -26,7 +28,7 @@ const BedsAllocation = () => {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('view'); // 'view', 'edit', 'add', 'assign'
   const [selectedBed, setSelectedBed] = useState(null);
-  const [editForm, setEditForm] = useState({ bedNumber: '', bedType: 'Standard', status: 'available' });
+  const [editForm, setEditForm] = useState({ bedNumber: '', bedType: 'Standard', status: 'available', wardUnit: 'ICU', roomNumber: '', equipment: '' });
   const [assignForm, setAssignForm] = useState({ encounterId: '', patientName: '', notes: '' });
   const [filter, setFilter] = useState({ status: 'all', bedType: 'all' });
   const [successMessage, setSuccessMessage] = useState('');
@@ -248,6 +250,7 @@ const BedsAllocation = () => {
             wardId: bed.wardId || hospitalId,
             // Preserve all raw fields for reference
             rawBed: {
+              wardUnit: bed.department || bed.ward || bed.wardUnit || '',
               canIsolate: bed.canIsolate,
               hasMonitor: bed.hasMonitor,
               hasVentilator: bed.hasVentilator,
@@ -294,21 +297,29 @@ const BedsAllocation = () => {
 
   // ============ MODAL HANDLERS ============
   const openAddModal = () => {
+    if (!canEditBedConfiguration) return;
     setEditForm({
       bedNumber: '',
       bedType: BED_TYPES[0],
-      status: 'available'
+      status: 'available',
+      wardUnit: 'ICU',
+      roomNumber: '',
+      equipment: ''
     });
     setModalMode('add');
     setShowModal(true);
   };
 
   const openEditModal = (bed) => {
+    if (!canEditBedConfiguration) return;
     setSelectedBed(bed);
     setEditForm({
       bedNumber: bed.bedNumber || '',
       bedType: bed.bedType || BED_TYPES[0],
-      status: bed.status || 'available'
+      status: bed.status || 'available',
+      wardUnit: bed.rawBed?.wardUnit || bed.ward || 'ICU',
+      roomNumber: bed.roomNumber || '',
+      equipment: (bed.equipment || []).join(', ')
     });
     setModalMode('edit');
     setShowModal(true);
@@ -333,6 +344,7 @@ const BedsAllocation = () => {
 
   // ============ SAVE BED ============
   const saveBed = async () => {
+    if (!canEditBedConfiguration) return;
     if (!editForm.bedNumber.trim()) {
       setErrorMessage('Bed number is required');
       return;
@@ -345,33 +357,26 @@ const BedsAllocation = () => {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
 
-      let res;
-      if (modalMode === 'add') {
-        res = await fetch(`${BACKEND_URL}/api/beds`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            bedNumber: editForm.bedNumber,
-            bedType: editForm.bedType,
-            status: editForm.status,
-          }),
-        });
-      } else if (modalMode === 'edit') {
-        res = await fetch(`${BACKEND_URL}/api/beds/${selectedBed._id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({
-            bedNumber: editForm.bedNumber,
-            bedType: editForm.bedType,
-            status: editForm.status,
-          }),
-        });
-      }
+      const isEditing = modalMode === 'edit';
+      const res = await fetch(`${BACKEND_URL}/api/beds/configuration${isEditing ? `/${encodeURIComponent(selectedBed.bedId)}` : ''}`, {
+        method: isEditing ? 'PATCH' : 'POST',
+        headers,
+        body: JSON.stringify({
+          bed_id: editForm.bedNumber,
+          ward_unit: editForm.wardUnit,
+          room_number: editForm.roomNumber,
+          equipment_baseline: editForm.equipment.split(',').map((item) => item.trim()).filter(Boolean)
+        })
+      });
 
-      if (!res || !res.ok) throw new Error('Failed to save bed');
+      const responseData = await res.json();
+      if (!res.ok || responseData.success === false) {
+        throw new Error(responseData.message || `Failed to save bed (${res.status})`);
+      }
       setSuccessMessage(modalMode === 'add' ? 'Bed added successfully' : 'Bed updated successfully');
       closeModal();
-      await fetchBeds();
+      await fetchWards();
+      await fetchBeds(selectedWard);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       setErrorMessage(err.message);
@@ -433,6 +438,7 @@ const BedsAllocation = () => {
 
   // ============ DELETE BED ============
   const deleteBed = async () => {
+    if (!canEditBedConfiguration) return;
     if (!deleteTarget) return;
     try {
       const token = localStorage.getItem('token');
@@ -487,8 +493,8 @@ const BedsAllocation = () => {
   };
 
   // ============ RENDER ============
-  return (
-    <SidebarLayout username={userName} handleLogout={() => {}}>
+  const bedManagementContent = (
+    <>
       <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', padding: '32px' }}>
         
         {/* Professional Header */}
@@ -612,7 +618,7 @@ const BedsAllocation = () => {
               </select>
             </div>
 
-            <button 
+            {canEditBedConfiguration && <button
               onClick={openAddModal} 
               style={{ 
                 display: 'flex', 
@@ -632,7 +638,7 @@ const BedsAllocation = () => {
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
             >
               <FiPlus size={16} /> Add Bed
-            </button>
+            </button>}
 
             <div style={{ flex: 1 }} />
 
@@ -1036,7 +1042,7 @@ const BedsAllocation = () => {
                     marginTop: 'auto',
                     flexWrap: 'wrap'
                   }}>
-                    {bed.status === 'Available' ? (
+                    {canEditBedConfiguration && (false && bed.status === 'Available' ? (
                       <>
                         <button 
                           onClick={() => {
@@ -1141,8 +1147,8 @@ const BedsAllocation = () => {
                           🏥 Discharge
                         </button>
                       </>
-                    ) : null}
-                    <button 
+                    ) : null)}
+                    {canEditBedConfiguration && <button
                       onClick={() => {
                         console.log('✏️  Editing bed:', bed.bedNumber);
                         openEditModal(bed);
@@ -1171,8 +1177,8 @@ const BedsAllocation = () => {
                       }}
                     >
                       <span>✏️</span> Edit
-                    </button>
-                    <button 
+                    </button>}
+                    {canEditBedConfiguration && <button
                       onClick={() => {
                         console.log('🗑️  Deleting bed:', bed.bedNumber);
                         setDeleteTarget(bed); 
@@ -1202,7 +1208,7 @@ const BedsAllocation = () => {
                       }}
                     >
                       <span>🗑️</span>
-                    </button>
+                    </button>}
                   </div>
                 </div>
               );
@@ -1210,6 +1216,30 @@ const BedsAllocation = () => {
           )}
         </div>
       </div>
+
+      {showModal && canEditBedConfiguration && (modalMode === 'add' || modalMode === 'edit') && (
+        <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div><div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase' }}>Administrative configuration</div><h2 style={{ margin: '6px 0 0', color: '#0f172a' }}>{modalMode === 'edit' ? `Edit ${editForm.bedNumber}` : 'Add bed'}</h2></div>
+              <button type="button" onClick={closeModal} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#475569' }}><FiX size={20} /></button>
+            </div>
+            <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Bed ID<input value={editForm.bedNumber} disabled={modalMode === 'edit'} onChange={(event) => setEditForm((current) => ({ ...current, bedNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Ward<input value={editForm.wardUnit} onChange={(event) => setEditForm((current) => ({ ...current, wardUnit: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Room<input value={editForm.roomNumber} onChange={(event) => setEditForm((current) => ({ ...current, roomNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155', gridColumn: '1 / -1' }}>Equipment, comma separated<input value={editForm.equipment} onChange={(event) => setEditForm((current) => ({ ...current, equipment: event.target.value }))} placeholder="Cardiac Monitor, Oxygen Delivery, Infusion Pump" style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+            </div>
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" onClick={closeModal} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancel</button><button type="button" onClick={saveBed} style={{ padding: '9px 14px', border: 'none', borderRadius: 6, background: '#0f766e', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Save configuration</button></div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  return embedded ? bedManagementContent : (
+    <SidebarLayout username={userName} handleLogout={() => {}}>
+      {bedManagementContent}
     </SidebarLayout>
   );
 };

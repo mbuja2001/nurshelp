@@ -16,6 +16,11 @@ const getAuthHeaders = () => {
 export const notificationService = {
   getOperationsFeed: async (limit = 50, since = '') => {
     try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return { success: false, feed: { alerts: [], messages: [] }, error: 'No auth token' };
+      }
+
       const query = new URLSearchParams({ limit: String(limit) });
       if (since) query.set('since', since);
       const res = await fetch(`${BACKEND_URL}/api/operations/feed?${query.toString()}`, {
@@ -27,7 +32,7 @@ export const notificationService = {
       return await res.json();
     } catch (error) {
       console.error('[NotificationService] getOperationsFeed error:', error);
-      return { success: false, feed: null, error: error.message };
+      return { success: false, feed: { alerts: [], messages: [] }, error: error.message };
     }
   },
 

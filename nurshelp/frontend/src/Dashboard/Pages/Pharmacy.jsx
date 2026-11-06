@@ -5,7 +5,7 @@ import { FaPills } from 'react-icons/fa';
 import SidebarLayout from '../SidebarLayout';
 import { decodeJwt } from '../../utils/jwt';
 
-const Pharmacy = () => {
+const Pharmacy = ({ embedded = false, mode = 'specialist' }) => {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
   const navigate = useNavigate();
   
@@ -813,8 +813,53 @@ const Pharmacy = () => {
     }
   };
 
-  return (
-    <SidebarLayout>
+  if (mode === 'admin') {
+    return (
+      <div style={{ display: 'grid', gap: 18, maxWidth: 1320, margin: '0 auto', padding: 24 }}>
+        <div style={{ padding: 22, borderRadius: 14, background: '#f8fbff', border: '1px solid #dbeafe' }}>
+          <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, color: '#0f766e' }}>Pharmacy reporting</div>
+          <h2 style={{ margin: '8px 0 6px', color: '#0f172a' }}>Admin pharmacy configuration</h2>
+          <p style={{ margin: 0, color: '#475569', fontSize: 14 }}>
+            This view is limited to hospital-level pharmacy reporting and configuration. Medication ordering and specialist dispensing workflows remain restricted to pharmacist-facing dashboards.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          {[
+            ['Inventory alerts', loading ? '...' : inventory.filter((item) => item.quantity < item.minStock).length, 'low stock threshold watch'],
+            ['Medication types', loading ? '...' : inventory.length, 'reporting coverage'],
+            ['Current hospital', userInfo?.hospitalId || 'hospital scoped', 'server-side scoping active'],
+            ['Access model', 'Admin reporting only', 'specialist workflow gated'],
+          ].map(([label, value, meta]) => (
+            <div key={label} style={{ padding: 18, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b' }}>{label}</div>
+              <div style={{ marginTop: 10, fontSize: 20, fontWeight: 700, color: '#0f172a' }}>{value}</div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>{meta}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
+          <h3 style={{ margin: '0 0 12px', color: '#0f172a' }}>Configurable pharmacy reporting elements</h3>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {[
+              'Medication availability and stock thresholds at hospital level.',
+              'Dispense reporting categories and operational readiness by setting.',
+              'Which pharmacy indicators are visible in the admin reporting hub.',
+              'Role-based access gating so patient and dispensing detail remains specialist-only.'
+            ].map((item) => (
+              <div key={item} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <span style={{ color: '#0f766e', fontWeight: 800 }}>✓</span>
+                <span style={{ color: '#334155', fontSize: 13 }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pharmacyContent = (
       <div style={{ padding: '32px', backgroundColor: '#f0f4f8', minHeight: '100vh' }}>
         
         {/* HEADER SECTION */}
@@ -863,7 +908,7 @@ const Pharmacy = () => {
                   Total Items
                 </div>
                 <div style={{ fontSize: '24px', fontWeight: '700', color: '#059669' }}>
-                  {inventory.length}
+                  {loading ? '...' : inventory.length}
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
@@ -871,7 +916,7 @@ const Pharmacy = () => {
                   Low Stock
                 </div>
                 <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>
-                  {inventory.filter(m => m.quantity < m.minStock).length}
+                  {loading ? '...' : inventory.filter(m => m.quantity < m.minStock).length}
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
@@ -879,7 +924,7 @@ const Pharmacy = () => {
                   Total Value
                 </div>
                 <div style={{ fontSize: '24px', fontWeight: '700', color: '#0284c7' }}>
-                  R {(inventory.reduce((sum, m) => sum + (m.quantity * (m.unitPrice || 0)), 0)).toLocaleString('en-ZA', {maximumFractionDigits: 2})}
+                  {loading ? '...' : `R ${(inventory.reduce((sum, m) => sum + (m.quantity * (m.unitPrice || 0)), 0)).toLocaleString('en-ZA', {maximumFractionDigits: 2})}`}
                 </div>
               </div>
             </div>
@@ -3330,6 +3375,11 @@ const Pharmacy = () => {
           </div>
         )}
       </div>
+  );
+
+  return embedded ? pharmacyContent : (
+    <SidebarLayout>
+      {pharmacyContent}
     </SidebarLayout>
   );
 };

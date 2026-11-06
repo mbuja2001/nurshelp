@@ -30,6 +30,10 @@ import { protect } from "../middleware/authmiddleware.js";
 import { authorize, auditLog } from "../middleware/rbac.js";
 
 const router = express.Router();
+const STAFF_ATTENDANCE_ROLES = [
+  'NURSE', 'PHYSICIAN', 'PHARMACIST', 'PHARMACY_TECHNICIAN',
+  'RADIOLOGIST', 'RADIOLOGY_TECHNICIAN', 'PATHOLOGIST', 'PATHOLOGY_TECHNICIAN', 'TECHNICIAN'
+];
 
 // ============================================
 // NOTE: Staff login moved to unified /api/auth/login
@@ -44,7 +48,7 @@ const router = express.Router();
 /**
  * Clock In
  * POST /api/staff/clock-in
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * 
  * Body: {
  *   "location": "ED",
@@ -55,7 +59,7 @@ const router = express.Router();
 router.post(
   "/clock-in",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   auditLog('CLOCK_IN'),
   clockIn
 );
@@ -63,7 +67,7 @@ router.post(
 /**
  * Clock Out
  * POST /api/staff/clock-out
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * 
  * Body: {
  *   "notes": "Shift completed"
@@ -72,7 +76,7 @@ router.post(
 router.post(
   "/clock-out",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   auditLog('CLOCK_OUT'),
   clockOut
 );
@@ -80,7 +84,7 @@ router.post(
 /**
  * Break Start
  * POST /api/staff/break-start
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * 
  * Body: {
  *   "reason": "Lunch break"
@@ -89,7 +93,7 @@ router.post(
 router.post(
   "/break-start",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   auditLog('BREAK_START'),
   breakStart
 );
@@ -97,12 +101,12 @@ router.post(
 /**
  * Break End
  * POST /api/staff/break-end
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  */
 router.post(
   "/break-end",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   auditLog('BREAK_END'),
   breakEnd
 );
@@ -114,52 +118,52 @@ router.post(
 /**
  * Get current clock status
  * GET /api/staff/clock-status
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  */
 router.get(
   "/clock-status",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getClockStatus
 );
 
 /**
  * Get today's record
  * GET /api/staff/today-record
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * 
  * Returns today's clock record if it exists, otherwise returns null
  */
 router.get(
   "/today-record",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getTodayRecord
 );
 
 /**
  * Debug: List all today's records
  * GET /api/staff/debug/today-records
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * Returns all clock records for today (useful for debugging)
  */
 router.get(
   "/debug/today-records",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   debugTodayRecords
 );
 
 /**
  * Get clock history
  * GET /api/staff/clock-history
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * Query: ?startDate=...&endDate=...&limit=50
  */
 router.get(
   "/clock-history",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getClockHistory
 );
 
@@ -170,38 +174,38 @@ router.get(
 /**
  * Get available shifts
  * GET /api/staff/available-shifts
- * Protected: NURSE, PHYSICIAN only
+ * Protected: authenticated clinical staff with a supported workforce role
  * 
  * Returns shifts that are assigned to the staff member
  */
 router.get(
   "/available-shifts",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getAvailableShifts
 );
 
 /**
  * Get staff profile
  * GET /api/staff/profile
- * Protected: NURSE, PHYSICIAN only
+ * Protected: clinical staff roles
  */
 router.get(
   "/profile",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getStaffProfile
 );
 
 /**
  * Update staff profile
  * PATCH /api/staff/profile
- * Protected: NURSE, PHYSICIAN only
+ * Protected: clinical staff roles
  */
 router.patch(
   "/profile",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   updateStaffProfile
 );
 
@@ -280,7 +284,7 @@ router.post(
 router.get(
   "/attendance-history",
   protect,
-  authorize('NURSE', 'PHYSICIAN'),
+  authorize(...STAFF_ATTENDANCE_ROLES),
   getAttendanceHistory
 );
 

@@ -46,8 +46,15 @@ const practitionerSchema = new Schema({
 
   // 5. Professional credentials
   credentials: {
-    title: { type: String, enum: ['MD', 'DO', 'RN', 'NP', 'PA', 'PhD'], required: true },
-    licenseNumber: { type: String, required: true },
+    title: {
+      type: String,
+      enum: ['MD', 'DO', 'RN', 'NP', 'PA', 'PhD'],
+      required: function () { return this.systemRole !== 'TECHNICIAN'; }
+    },
+    licenseNumber: {
+      type: String,
+      required: function () { return this.systemRole !== 'TECHNICIAN'; }
+    },
     npiNumber: { type: String, sparse: true },
   },
 
@@ -59,6 +66,13 @@ const practitionerSchema = new Schema({
       required: true,
     },
     isOnCall: { type: Boolean, default: false },
+  },
+
+  // Optional individual workload override. Falls back to department/hospital policy.
+  workloadCapacity: {
+    type: Number,
+    min: 1,
+    default: null,
   },
 
   // 6.1 Circle of Care: Active zone assignments (granular location tracking)

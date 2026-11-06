@@ -111,7 +111,14 @@ const bedScheduleSchema = new mongoose.Schema({
   // Metadata
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-}, { timestamps: true });
+}, { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } });
+
+bedScheduleSchema.virtual('fhirStatus').get(function() {
+  if (this.status === 'OCCUPIED') return 'occupied';
+  if (this.status === 'AVAILABLE') return 'available';
+  if (this.status === 'RESERVED') return 'reserved';
+  return 'unusable';
+});
 
 // Index for efficient queries
 bedScheduleSchema.index({ status: 1, department: 1 });

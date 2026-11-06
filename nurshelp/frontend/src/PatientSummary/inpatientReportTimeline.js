@@ -40,6 +40,26 @@ const summarizeReport = (report = {}) => (
   'Clinical report recorded'
 );
 
+const hasManualTriageDecision = (report = {}) => {
+  const decisionFields = [
+    'satsLevel',
+    'sats_color',
+    'sats_points',
+    'urgencyScore',
+    'reasoning',
+    'SATS_reasoning',
+    'tewsTotal',
+    'tews_total',
+    'clinicalAnalysis'
+  ];
+  return decisionFields.some((field) => {
+    const value = report[field];
+    return value !== null && value !== undefined && value !== '' && (
+      typeof value !== 'object' || Object.keys(value).length > 0
+    );
+  });
+};
+
 export const buildInpatientTimeline = (encounter = {}) => {
   const entries = [];
 
@@ -92,7 +112,7 @@ export const buildInpatientTimeline = (encounter = {}) => {
     });
   }
 
-  if (encounter.manual_triage_report && Object.keys(encounter.manual_triage_report).length) {
+  if (hasManualTriageDecision(encounter.manual_triage_report)) {
     pushEntry('MANUAL_TRIAGE', 'Manual triage report', summarizeReport(encounter.manual_triage_report), encounter.manual_triage_report.confirmed_at || encounter.manual_triage_report.recorded_at || encounter.updatedAt || encounterTimestamp, {
       source: 'manual_triage_report',
       report: encounter.manual_triage_report

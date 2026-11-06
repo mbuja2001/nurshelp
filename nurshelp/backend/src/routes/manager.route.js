@@ -4,6 +4,7 @@
  */
 
 import express from "express";
+import bcrypt from "bcrypt";
 import {
   getStaffStatus,
   getPendingApprovals,
@@ -193,15 +194,14 @@ router.post(
       const roleCredentialsMap = {
         'PHYSICIAN': 'MD',
         'NURSE': 'RN',
-        'TECHNICIAN': 'NP',        // General tech roles
         'PHARMACIST': 'PA',
         'RADIOLOGIST': 'MD',
         'PATHOLOGIST': 'MD',
         'ADMINISTRATIVE': 'PA',    // Department Head, Assistant
         'SUPERUSER': 'PhD'         // Super admin roles
       };
-      const credTitle = title || roleCredentialsMap[normalizedRole] || 'NP';
-      const credLicense = licenseNumber || `LIC-${Date.now()}`;
+      const credTitle = title || roleCredentialsMap[normalizedRole] || (normalizedRole === 'TECHNICIAN' ? undefined : 'NP');
+      const credLicense = licenseNumber || (normalizedRole === 'TECHNICIAN' ? undefined : `LIC-${Date.now()}`);
 
       const newStaffData = {
         hospitalId: hospitalIdForQuery,
@@ -213,8 +213,8 @@ router.post(
         clinicalSpecialtyId: specialtyDoc?._id || null,
         clinicalSpecialty: specialtyDoc?.name || (specialty || 'General Practice'),
         credentials: {
-          title: credTitle,
-          licenseNumber: credLicense,
+          ...(credTitle ? { title: credTitle } : {}),
+          ...(credLicense ? { licenseNumber: credLicense } : {}),
           npiNumber: npiNumber || null
         },
         assignment: {
@@ -293,8 +293,9 @@ router.get(
   restrictByDepartment(),
   async (req, res) => {
     try {
-      const { role, isActive, search } = req.query;
+      const { role, isActive, search, includePassword } = req.query;
       const { ClinicalStaff } = await import("../models/clinicalstaff.model.js");
+      const allowPasswordRead = String(includePassword || '').toLowerCase() === 'true' && ['ADMIN', 'MANAGER'].includes(String(req.user?.role || '').toUpperCase());
 
       // DIAGNOSTIC LOGGING
       console.log('\n[STAFF LIST] Request received');
@@ -363,7 +364,9 @@ router.get(
 
       console.log('[STAFF LIST] Final query:', JSON.stringify(query));
 
-      const staff = await ClinicalStaff.find(query).select('-password').sort({ firstName: 1 });
+      const staff = await ClinicalStaff.find(query)
+        .select(allowPasswordRead ? '+password' : '-password')
+        .sort({ firstName: 1 });
 
       console.log('[STAFF LIST] Query Results:');
       console.log('  Total found:', staff.length);
@@ -414,10 +417,20 @@ router.put(
   async (req, res) => {
     try {
       const { staffID } = req.params;
-      const updateData = req.body;
+      const updateData = { ...req.body };
 
-      // Prevent password updates through this endpoint
-      delete updateData.password;
+      if (typeof updateData.password === 'string' && updateData.password.trim()) {
+        if (updateData.password.trim().length < 8) {
+          return res.status(400).json({
+            success: false,
+            message: 'Password must be at least 8 characters long'
+          });
+        }
+
+        updateData.password = await bcrypt.hash(updateData.password.trim(), 12);
+      } else {
+        delete updateData.password;
+      }
 
       const { ClinicalStaff } = await import("../models/clinicalstaff.model.js");
 

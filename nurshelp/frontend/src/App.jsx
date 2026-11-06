@@ -1,6 +1,6 @@
 // src/App.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import Dashboard from "./Dashboard/Dashboard.jsx";  // ensure exact filename
 import PS from "./PatientSummary/PS.jsx";          // ensure exact filename
@@ -33,7 +33,8 @@ import StaffStatusPage from "./Dashboard/Pages/StaffStatusPage.jsx";
 import StaffTeamPage from "./Dashboard/Pages/StaffTeamPage.jsx";
 import Pharmacy from "./Dashboard/Pages/Pharmacy.jsx";
 import PharmacyPublic from "./Dashboard/Pages/PharmacyPublic.jsx";
-import { getUserFromToken } from './utils/jwt';
+import { decodeJwt, getUserFromToken, normalizeRoleLabel } from './utils/jwt';
+import { apiFetch } from './utils/apiFetch';
 import RadiologyDashboard from "./components/dashboards/RadiologyDashboard.jsx";
 import PathologyDashboard from "./components/dashboards/PathologyDashboard.jsx";
 import DashboardTools from "./Dashboard/Pages/DashboardTools.jsx";
@@ -64,6 +65,7 @@ import WhatWeDo from "./LandingPages/WhatWeDo.jsx";
 import EthicsResponsibility from "./LandingPages/EthicsResponsibility.jsx";
 import ClinicalValidation from "./LandingPages/ClinicalValidation.jsx";
 import SecurityCompliance from "./LandingPages/SecurityCompliance.jsx";
+import ChartSessionBoundary from "./components/clinical/ChartSessionBoundary.jsx";
 
 // Shift-based Conditional Dashboards (Full Day Simulation)
 import DashboardRouter from "./components/dashboards/DashboardRouter.jsx";
@@ -88,11 +90,113 @@ function VoiceIntakeRoute() {
   return <VoiceIntake setView={setView} />;
 }
 
+function TrackedChartRoute({ encounterParam = 'encounterId', children }) {
+  const params = useParams();
+  return <ChartSessionBoundary encounterId={params[encounterParam]}>{children}</ChartSessionBoundary>;
+}
+
+const routesAvailableBeforeClockIn = new Set([
+  '/',
+  '/dashboard',
+  '/shift-dashboard',
+  '/clock-in-out',
+  '/clock-history',
+  '/shift-management',
+  '/staff-schedule',
+  '/integrated-schedule',
+  '/team',
+  '/what-we-do',
+  '/ethics',
+  '/validation',
+  '/security'
+]);
+
+function ShiftAccessBoundary({ children }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+  const user = token ? decodeJwt(token) : null;
+  const identityType = String(user?.identityType || '').toUpperCase();
+  const role = normalizeRoleLabel(user?.role, user?.specialty || user?.clinicalSpecialty || user?.department);
+  const isExemptIdentity = identityType === 'ACCOUNT' || role === 'ADMIN' || role === 'MANAGER';
+  const isExemptRoute = routesAvailableBeforeClockIn.has(location.pathname);
+  const requiresClockIn = !isExemptIdentity && !isExemptRoute;
+  const isAuthenticated = Boolean(token && user);
+  const verificationKey = `${location.key}:${location.pathname}:${token || ''}`;
+  const [verification, setVerification] = React.useState({ key: '', status: 'checking', error: '' });
+  const [retryCount, setRetryCount] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    if (!requiresClockIn) return undefined;
+
+    if (!isAuthenticated) {
+      setVerification({ key: verificationKey, status: 'unauthenticated', error: '' });
+      return undefined;
+    }
+
+    setVerification({ key: verificationKey, status: 'checking', error: '' });
+    apiFetch('/api/staff/today-record', { cache: 'no-store' })
+      .then((data) => {
+        if (cancelled) return;
+        if (!data.success) throw new Error("Unable to verify today's shift attendance.");
+
+        const record = data.record;
+        const isClockedIn = ['CLOCKED_IN', 'ON_BREAK'].includes(record?.status) && !record.clockOutTime;
+        setVerification({ key: verificationKey, status: isClockedIn ? 'allowed' : 'blocked', error: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setVerification({
+            key: verificationKey,
+            status: 'error',
+            error: error.message || 'Unable to verify your shift attendance.'
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, location.key, location.pathname, requiresClockIn, retryCount, token, verificationKey]);
+
+  if (!requiresClockIn) return children;
+  if (!isAuthenticated) return <Navigate to="/dashboard?login=1" replace state={{ from: location }} />;
+
+  if (verification.key !== verificationKey || verification.status === 'checking') {
+    return <main role="status" aria-live="polite" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#475569', fontWeight: 700 }}>Verifying your shift and clock-in status...</main>;
+  }
+
+  if (verification.status === 'unauthenticated') {
+    return <Navigate to="/dashboard?login=1" replace state={{ from: location }} />;
+  }
+
+  if (verification.status === 'blocked') {
+    return <Navigate to="/dashboard" replace state={{ from: location }} />;
+  }
+
+  if (verification.status === 'error') {
+    return (
+      <main role="alert" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, color: '#334155' }}>
+        <section>
+          <p>Access is blocked because shift attendance could not be verified: {verification.error}</p>
+          <button type="button" onClick={() => setRetryCount((count) => count + 1)}>Retry verification</button>
+          <button type="button" onClick={() => navigate('/clock-in-out')}>Go to clock-in</button>
+        </section>
+      </main>
+    );
+  }
+
+  return children;
+}
+
 function App() {
   return (
     <Router>
       <div className="app-container">
-        <Routes>
+        <ShiftAccessBoundary>
+          <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/dashboard" element={<Dashboard />} />
           
@@ -104,12 +208,12 @@ function App() {
           <Route path="/manual-triage-report" element={<ManualTriageReport />} />
 
           {/* DIAGNOSIS WORKFLOW */}
-          <Route path="/diagnose/:id" element={<DiagnosePage />} />
-          <Route path="/surgery/:id" element={<SurgeryPage />} />
-          <Route path="/assign-ward-bed/:encounterId" element={<AssignPatientaWardAndBed />} />
+          <Route path="/diagnose/:id" element={<TrackedChartRoute encounterParam="id"><DiagnosePage /></TrackedChartRoute>} />
+          <Route path="/surgery/:id" element={<TrackedChartRoute encounterParam="id"><SurgeryPage /></TrackedChartRoute>} />
+          <Route path="/assign-ward-bed/:encounterId" element={<TrackedChartRoute><AssignPatientaWardAndBed /></TrackedChartRoute>} />
 
           {/* AI SUGGESTED REPORT (editable working draft) ✅ */}
-          <Route path="/summary/:id" element={<PatientReport />} />
+          <Route path="/summary/:id" element={<TrackedChartRoute encounterParam="id"><PatientReport /></TrackedChartRoute>} />
 
           {/* CLINICIAN SCHEDULER (manually pick staff for encounter) */}
           <Route path="/scheduler" element={<ClinicianScheduler />} />
@@ -127,18 +231,18 @@ function App() {
           />
 
           {/* CLINICAL HANDOVER CONFIRMATIONS */}
-          <Route path="/handover/ai/:encounterId" element={<ConfirmingAIClinicalHandover />} />
-          <Route path="/handover/confirm/:encounterId" element={<ConfirmingAIClinicalHandover />} />
-          <Route path="/handover/manual/:encounterId" element={<ConfirmingManualClinicalHandover />} />
+          <Route path="/handover/ai/:encounterId" element={<TrackedChartRoute><ConfirmingAIClinicalHandover /></TrackedChartRoute>} />
+          <Route path="/handover/confirm/:encounterId" element={<TrackedChartRoute><ConfirmingAIClinicalHandover /></TrackedChartRoute>} />
+          <Route path="/handover/manual/:encounterId" element={<TrackedChartRoute><ConfirmingManualClinicalHandover /></TrackedChartRoute>} />
 
           {/* OFFICIAL TRIAGE REPORTS */}
-          <Route path="/report/triage/:encounterId" element={<OfficialTriageReport />} />
-          <Route path="/report/manual-triage/:encounterId" element={<ManualOfficialTriageReport />} />
+          <Route path="/report/triage/:encounterId" element={<TrackedChartRoute><OfficialTriageReport /></TrackedChartRoute>} />
+          <Route path="/report/manual-triage/:encounterId" element={<TrackedChartRoute><ManualOfficialTriageReport /></TrackedChartRoute>} />
           <Route path="/report/doctor/:encounterId" element={<DoctorTriageReport />} />
           <Route path="/report/inpatient/:encounterId" element={<InpatientReport />} />
-          <Route path="/order-medication/:encounterId" element={<OrderMedicationPage />} />
-          <Route path="/request-lab/:encounterId" element={<RequestLabPage />} />
-          <Route path="/request-lab/:encounterId/:specialty" element={<RequestLabPage />} />
+          <Route path="/order-medication/:encounterId" element={<TrackedChartRoute><OrderMedicationPage /></TrackedChartRoute>} />
+          <Route path="/request-lab/:encounterId" element={<TrackedChartRoute><RequestLabPage /></TrackedChartRoute>} />
+          <Route path="/request-lab/:encounterId/:specialty" element={<TrackedChartRoute><RequestLabPage /></TrackedChartRoute>} />
           <Route path="/report/lab/:encounterId" element={<LabRequestReport />} />
 
           {/* NURSE CONFIRMED REPORT (read-only final) ✅ */}
@@ -215,6 +319,7 @@ function App() {
 
           <Route path="*" element={<LandingPage />} />
           </Routes>
+        </ShiftAccessBoundary>
       </div>
     </Router>
   );

@@ -78,7 +78,15 @@ const OfficialTriageReport = () => {
 
   // Determine report type - matches backend logic
   const getReportType = () => {
-    if (encounter?.manual_triage_report?.selected_priority) {
+    const manualReport = encounter?.manual_triage_report || encounter?.triage?.manualTriageReport;
+    if (manualReport && [
+      manualReport.selected_priority,
+      manualReport.satsLevel,
+      manualReport.satsCategory,
+      manualReport.sats_color,
+      manualReport.priority_code,
+      manualReport.triageCategory
+    ].some((value) => value !== undefined && value !== null && value !== '')) {
       return 'MANUAL';
     }
     if (encounter?.ai_triage_report?.calculated_priority || encounter?.triage?.calculated_priority) {

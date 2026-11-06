@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Encounter } from "../models/encounter.model.js";
 import { EquipmentUsage } from "../models/equipmentUsage.model.js";
+import { buildDiagnosticEhrContext } from "../utils/diagnosticEhrContext.js";
 
 export const canAccessLabEncounter = (encounter, req) => {
   if (!encounter || !req?.user) return false;
@@ -41,6 +42,11 @@ export const canAccessLabEncounter = (encounter, req) => {
   }
 
   return false;
+};
+
+export const canManageSpecialtyRequest = (req, specialty) => {
+  const expectedRole = specialty === 'RADIOLOGY' ? 'RADIOLOGIST' : 'PATHOLOGIST';
+  return String(req.user?.role || req.userRole || '').toUpperCase() === expectedRole;
 };
 
 /**
@@ -100,6 +106,26 @@ export const createLabRequest = async (req, res) => {
       encounter.lab_requests = [];
     }
 
+    const capturedAt = new Date();
+    const patientId = encounter.patient?.id_number;
+    const historicalEncounters = encounter.hospitalId && patientId
+      ? await Encounter.find({
+        hospitalId: encounter.hospitalId,
+        _id: { $ne: encounter._id },
+        'patient.id_number': patientId,
+        status: 'DISCHARGED',
+        date: { $lt: encounter.date || capturedAt }
+      })
+        .select('_id date status diagnosis patient.id_number patient.name patient.surname patient.age patient.gender patient.symptoms patient.history patient.criticalHistoryStatus patient.criticalHistory vitals triage SATS_reasoning')
+        .sort({ date: -1 })
+        .lean()
+      : [];
+    const ehrContext = buildDiagnosticEhrContext({
+      encounter,
+      historicalEncounters,
+      capturedAt
+    });
+
     // Fetch full clinician record with credentials for signature
     let signingClinician = null;
     if (req.user?._id) {
@@ -122,6 +148,7 @@ export const createLabRequest = async (req, res) => {
       description: description || '',
       priority: priority || 'MEDIUM',
       requested_by: requested_by || req.user.name || 'Unknown',
+      ehrContext,
       requested_at: new Date(),
       status: 'PENDING',
       created_at: new Date(),
@@ -244,6 +271,17 @@ export const getLabRequestsForSpecialty = async (req, res) => {
           requested_at: labReq.requested_at,
           assigned_technician: labReq.assigned_technician,
           assigned_at: labReq.assigned_at,
+          started_at: labReq.started_at,
+          started_by: labReq.started_by,
+          report_content: labReq.report_content,
+          clinical_impression: labReq.clinical_impression,
+          recommendations: labReq.recommendations || [],
+          submitted_at: labReq.submitted_at,
+          submitted_by: labReq.submitted_by,
+          reviewed_at: labReq.reviewed_at,
+          reviewed_by: labReq.reviewed_by,
+          review_notes: labReq.review_notes,
+          clinicianSignature: labReq.clinicianSignature || null,
           
           // Encounter context for specialist
           patientName: encounter.patient?.name || encounter.patientName || 'Unknown',
@@ -251,7 +289,8 @@ export const getLabRequestsForSpecialty = async (req, res) => {
           patientId: encounter.patient?.id_number || 'N/A',
           vitals: encounter.vitals || {},
           diagnosis: encounter.diagnosis || '',
-          assignedPhysicianName: encounter.assignedPhysicianName || encounter.assigned_physician?.name || 'N/A'
+          assignedPhysicianName: encounter.assignedPhysicianName || encounter.assigned_physician?.name || 'N/A',
+          ehrContext: labReq.ehrContext || null
         });
       });
     });
@@ -286,7 +325,6 @@ export const acknowledgeLabRequest = async (req, res) => {
   try {
     const encounterId = req.params.encounterId || req.params.id;
     const { requestId } = req.params;
-    const { assigned_technician } = req.body;
 
     const encounter = await Encounter.findById(encounterId);
     if (!encounter) {
@@ -297,19 +335,23 @@ export const acknowledgeLabRequest = async (req, res) => {
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
-    }
 
     // Find the specific lab request
     const labRequest = encounter.lab_requests?.find(req => req.request_id.toString() === requestId);
     if (!labRequest) {
       return res.status(404).json({ message: 'Lab request not found' });
     }
+    if (!canManageSpecialtyRequest(req, labRequest.specialty)) {
+      return res.status(403).json({ message: 'Only the assigned specialty can accept this request' });
+    }
+    if (labRequest.status !== 'PENDING') {
+      return res.status(409).json({ message: `Request cannot be accepted from status ${labRequest.status}` });
+    }
 
     // Update lab request status
     labRequest.status = 'ACKNOWLEDGED';
-    labRequest.assigned_technician = assigned_technician || req.user.name;
+    labRequest.assigned_technician = req.user.name;
+    labRequest.assigned_technician_id = req.user._id || req.user.id;
     labRequest.assigned_at = new Date();
     labRequest.updated_at = new Date();
 
@@ -338,6 +380,56 @@ export const acknowledgeLabRequest = async (req, res) => {
   }
 };
 
+export const startLabRequest = async (req, res) => {
+  try {
+    const { encounterId, requestId } = req.params;
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+
+    if (!canAccessLabEncounter(encounter, req)) {
+      return res.status(403).json({ message: 'Access denied to this encounter' });
+    }
+
+    const labRequest = encounter.lab_requests?.find((request) => request.request_id.toString() === requestId);
+    if (!labRequest) {
+      return res.status(404).json({ message: 'Lab request not found' });
+    }
+    if (!canManageSpecialtyRequest(req, labRequest.specialty)) {
+      return res.status(403).json({ message: 'Only the assigned specialty can start this request' });
+    }
+    if (labRequest.status !== 'ACKNOWLEDGED') {
+      return res.status(409).json({ message: `Request cannot be started from status ${labRequest.status}` });
+    }
+
+    const startedAt = new Date();
+    labRequest.status = 'IN_PROGRESS';
+    labRequest.started_at = startedAt;
+    labRequest.started_by = req.user.name;
+    labRequest.started_by_id = req.user._id || req.user.id;
+    labRequest.updated_at = startedAt;
+    encounter.status_history ||= [];
+    encounter.status_history.push({
+      status: `LAB_REQUEST_STARTED_${labRequest.specialty}`,
+      changed_by: req.user.id,
+      changed_at: startedAt,
+      notes: `${labRequest.lab_type} started by ${req.user.name}`
+    });
+
+    await encounter.save();
+    return res.status(200).json({
+      message: 'Request work started',
+      status: labRequest.status,
+      started_at: labRequest.started_at,
+      started_by: labRequest.started_by
+    });
+  } catch (err) {
+    console.error('[LAB CONTROLLER] startLabRequest error:', err);
+    return res.status(500).json({ message: 'Error starting lab request', error: err.message });
+  }
+};
+
 /**
  * PATCH /api/encounters/:id/lab-request/:requestId/submit-report
  * Specialist submits completed lab report
@@ -350,8 +442,7 @@ export const submitLabReport = async (req, res) => {
       report_content,
       report_images,
       clinical_impression,
-      recommendations,
-      submitted_by
+      recommendations
     } = req.body;
 
     const encounter = await Encounter.findById(encounterId);
@@ -363,14 +454,23 @@ export const submitLabReport = async (req, res) => {
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
-    }
 
     // Find the specific lab request
     const labRequest = encounter.lab_requests?.find(req => req.request_id.toString() === requestId);
     if (!labRequest) {
       return res.status(404).json({ message: 'Lab request not found' });
+    }
+    if (!canManageSpecialtyRequest(req, labRequest.specialty)) {
+      return res.status(403).json({ message: 'Only the assigned specialty can submit this report' });
+    }
+    if (labRequest.status !== 'IN_PROGRESS') {
+      return res.status(409).json({ message: `Report cannot be submitted from status ${labRequest.status}` });
+    }
+    if (!String(report_content || '').trim() || !String(clinical_impression || '').trim()) {
+      return res.status(400).json({ message: 'Findings and clinical impression are required' });
+    }
+    if (labRequest.specialty === 'RADIOLOGY' && Array.isArray(report_images) && report_images.length > 0) {
+      return res.status(400).json({ message: 'Radiology image data must remain in the configured imaging archive' });
     }
 
     // Fetch full clinician record with credentials for signature
@@ -388,13 +488,16 @@ export const submitLabReport = async (req, res) => {
     const { generateClinicianSignature } = await import('../utils/clinicianSignature.js');
 
     // Update lab request with report
-    labRequest.report_content = report_content || '';
-    labRequest.report_images = report_images || [];
-    labRequest.clinical_impression = clinical_impression || '';
-    labRequest.recommendations = recommendations || [];
+    labRequest.report_content = String(report_content).trim();
+    labRequest.report_images = labRequest.specialty === 'RADIOLOGY' ? [] : report_images || [];
+    labRequest.clinical_impression = String(clinical_impression).trim();
+    labRequest.recommendations = Array.isArray(recommendations)
+      ? recommendations.filter((recommendation) => typeof recommendation === 'string').map((recommendation) => recommendation.trim()).filter(Boolean)
+      : [];
     labRequest.status = 'COMPLETED';
     labRequest.submitted_at = new Date();
-    labRequest.submitted_by = submitted_by || req.user.name;
+    labRequest.submitted_by = req.user.name;
+    labRequest.submitted_by_id = req.user._id || req.user.id;
     labRequest.updated_at = new Date();
 
     // Attach clinician signature metadata if clinician provided
@@ -478,12 +581,22 @@ export const declineLabRequest = async (req, res) => {
     if (!labRequest) {
       return res.status(404).json({ message: 'Lab request not found' });
     }
+    if (!canManageSpecialtyRequest(req, labRequest.specialty)) {
+      return res.status(403).json({ message: 'Only the assigned specialty can decline this request' });
+    }
+    if (!['PENDING', 'ACKNOWLEDGED'].includes(labRequest.status)) {
+      return res.status(409).json({ message: `Request cannot be declined from status ${labRequest.status}` });
+    }
+    if (!String(reason || '').trim()) {
+      return res.status(400).json({ message: 'A reason is required to decline a request' });
+    }
 
     // Update lab request
     labRequest.status = 'DECLINED';
-    labRequest.review_notes = reason || 'Declined by specialist';
+    labRequest.review_notes = String(reason).trim();
     labRequest.reviewed_at = new Date();
     labRequest.reviewed_by = req.user.name;
+    labRequest.reviewed_by_id = req.user._id || req.user.id;
     labRequest.updated_at = new Date();
 
     // Update status history
@@ -531,8 +644,8 @@ export const reviewLabReport = async (req, res) => {
     if (!canAccess) {
       return res.status(403).json({ message: 'Access denied to this encounter' });
     }
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
+    if (!['PHYSICIAN', 'DOCTOR'].includes(String(req.user?.role || req.userRole || '').toUpperCase())) {
+      return res.status(403).json({ message: 'Only the ordering physician may acknowledge a report' });
     }
 
     // Find the specific lab request
@@ -540,11 +653,15 @@ export const reviewLabReport = async (req, res) => {
     if (!labRequest) {
       return res.status(404).json({ message: 'Lab request not found' });
     }
+    if (labRequest.status !== 'COMPLETED') {
+      return res.status(409).json({ message: `Report cannot be acknowledged from status ${labRequest.status}` });
+    }
 
     // Update with physician review
     labRequest.status = 'REVIEWED';
     labRequest.reviewed_at = new Date();
     labRequest.reviewed_by = req.user.name;
+    labRequest.reviewed_by_id = req.user._id || req.user.id;
     labRequest.review_notes = review_notes || '';
     labRequest.updated_at = new Date();
 

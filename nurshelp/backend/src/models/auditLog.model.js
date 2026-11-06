@@ -11,6 +11,44 @@ const auditLogSchema = new mongoose.Schema(
         'BREAK_GLASS_ACCESS', // Staff accessed patient outside their department
         'DISPOSITION_MADE', // Physician made a disposition decision
         'ESCALATION', // Patient escalated to higher acuity
+        'CAPACITY_CHANGED', // Clinician/department/hospital workload capacity changed
+        'HOSPITAL_CREATED',
+        'HOSPITAL_TRIAL_MODE_CHANGED',
+        'CLINICAL_TRIAL_COUNT_MISMATCH',
+        'EHR_CONFIG_CHANGED',
+        'EHR_INTEGRATION_ACCESS_CHANGED',
+        'HOSPITAL_STRUCTURE_UPDATED',
+        'HOSPITAL_CREDENTIALS_UPDATED',
+        'HOSPITAL_STAFF_ONBOARDED',
+        'HOSPITAL_SHIFTS_PROVISIONED',
+        'HOSPITAL_ENCOUNTERS_PROVISIONED',
+        'STAFF_REGISTERED',
+        'STAFF_UPDATED',
+        'STAFF_DEACTIVATED',
+        'APPROVALS_PROCESSED',
+        'SHIFT_CREATED',
+        'SHIFT_UPDATED',
+        'SHIFT_DELETED',
+        'SHIFT_PUBLISHED',
+        'SHIFT_CANCELLED',
+        'STAFF_ASSIGNED',
+        'STAFF_REMOVED',
+        'CLINICAL_TEAM_ASSIGNED',
+        'CLOCK_IN',
+        'CLOCK_OUT',
+        'BREAK_START',
+        'BREAK_END',
+        'BREAK_REQUESTED',
+        'LATE_ARRIVAL_APPROVED',
+        'BREAK_APPROVED',
+        'AUTO_CLOCKOUT',
+        'HOSPITAL_SHIFT_STARTED',
+        'HOSPITAL_SHIFT_ENDED',
+        'HOSPITAL_SHIFT_AUTO_ENDED',
+        'CLINICAL_CHART_SESSION_OPENED',
+        'CLINICAL_CHART_SESSION_UPDATED',
+        'CLINICAL_CHART_SESSION_TRANSFERRED',
+        'CLINICAL_CHART_SESSION_CLOSED',
       ],
       required: true,
       index: true,
@@ -23,14 +61,21 @@ const auditLogSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    actorIdentityType: {
+      type: String,
+      enum: ['PRACTITIONER', 'MANAGER', 'ACCOUNT_OWNER'],
+      default: 'PRACTITIONER',
+    },
 
     // What resource was accessed
     resourceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'PatientEHRRecord',
-      required: true,
+      required: false,
       index: true,
     },
+
+    resourceType: { type: String, default: null },
 
     // Hospital context
     hospitalId: {

@@ -15,35 +15,59 @@ export function decodeJwt(token) {
   }
 }
 
+const TECHNICIAN_ROLES = new Set([
+  "TECHNICIAN",
+  "PHARMACY_TECHNICIAN",
+  "RADIOLOGY_TECHNICIAN",
+  "PATHOLOGY_TECHNICIAN",
+  "LAB_TECHNICIAN",
+  "LABORATORY_TECHNICIAN"
+]);
+
+export function resolveTechnicianSpecialty(role, specialty = "") {
+  const normalizedRole = String(role || "").toUpperCase().trim();
+  if (!TECHNICIAN_ROLES.has(normalizedRole)) return null;
+
+  if (normalizedRole === "PHARMACY_TECHNICIAN") return "PHARMACY";
+  if (normalizedRole === "RADIOLOGY_TECHNICIAN") return "RADIOLOGY";
+  if (normalizedRole === "PATHOLOGY_TECHNICIAN") return "PATHOLOGY";
+
+  const normalizedSpecialty = String(specialty || "").toUpperCase().trim();
+  if (/\bPHARMACY\b|\bPHARMACIST\b/.test(normalizedSpecialty)) return "PHARMACY";
+  if (/\bRADIOLOGY\b|\bRADIOLOGIST\b/.test(normalizedSpecialty)) return "RADIOLOGY";
+  if (/\bPATHOLOGY\b|\bPATHOLOGIST\b/.test(normalizedSpecialty)) return "PATHOLOGY";
+  return null;
+}
+
 /**
- * Normalize role labels from JWT payloads so specialist accounts from the
- * schema's technician role still route to the right dashboard.
+ * Normalize identity roles without upgrading technicians to specialist roles.
  */
 export function normalizeRoleLabel(role, specialty = "") {
   const normalizedRole = String(role || "").toUpperCase().trim();
   const normalizedSpecialty = String(specialty || "").toUpperCase().trim();
 
-  if (["PHARMACIST", "PHARMACY_TECHNICIAN", "PHARMACY"].includes(normalizedRole) || normalizedSpecialty.includes("PHARM")) {
+  if (["PHARMACIST", "PHARMACY"].includes(normalizedRole)) {
     return "PHARMACIST";
   }
 
-  if (["RADIOLOGIST", "RADIOLOGY_TECHNICIAN", "RADIOLOGY"].includes(normalizedRole) || normalizedSpecialty.includes("RAD")) {
+  if (["RADIOLOGIST", "RADIOLOGY"].includes(normalizedRole)) {
     return "RADIOLOGIST";
   }
 
-  if (["PATHOLOGIST", "PATHOLOGY_TECHNICIAN", "PATHOLOGY"].includes(normalizedRole) || normalizedSpecialty.includes("PATH")) {
+  if (["PATHOLOGIST", "PATHOLOGY"].includes(normalizedRole)) {
     return "PATHOLOGIST";
   }
 
-  if (["ADMINISTRATIVE", "ADMIN", "MANAGER", "SHIFT_MANAGER", "DEPARTMENT_MANAGER"].includes(normalizedRole)) {
+  if (["ADMINISTRATIVE", "ADMIN", "MANAGER", "SHIFT_MANAGER", "DEPARTMENT_MANAGER", "SUPERUSER"].includes(normalizedRole)) {
     return "ADMIN";
   }
 
-  if (normalizedRole === "TECHNICIAN") {
-    if (normalizedSpecialty.includes("PHARM")) return "PHARMACIST";
-    if (normalizedSpecialty.includes("RAD")) return "RADIOLOGIST";
-    if (normalizedSpecialty.includes("PATH")) return "PATHOLOGIST";
-    return "TECHNICIAN";
+  if (TECHNICIAN_ROLES.has(normalizedRole)) return "TECHNICIAN";
+
+  if (normalizedRole === "SPECIALIST") {
+    if (/\bPHARMACY\b|\bPHARMACIST\b/.test(normalizedSpecialty)) return "PHARMACIST";
+    if (/\bRADIOLOGY\b|\bRADIOLOGIST\b/.test(normalizedSpecialty)) return "RADIOLOGIST";
+    if (/\bPATHOLOGY\b|\bPATHOLOGIST\b/.test(normalizedSpecialty)) return "PATHOLOGIST";
   }
 
   return normalizedRole || "NURSE";
@@ -71,6 +95,11 @@ export function getUserFromToken(token) {
 
 export function getDashboardRoute(role, specialty = "") {
   const normalizedRole = normalizeRoleLabel(role, specialty);
+  if (normalizedRole === "TECHNICIAN") {
+    return resolveTechnicianSpecialty(role, specialty)
+      ? "TECHNICIAN"
+      : "TECHNICIAN_UNCONFIGURED";
+  }
 
   if (normalizedRole === 'PHARMACIST') return 'PHARMACY';
   if (normalizedRole === 'RADIOLOGIST') return 'RADIOLOGY';
@@ -82,6 +111,13 @@ export function getDashboardRoute(role, specialty = "") {
 export function getRoleDisplayDepartment(role, specialty = "") {
   const normalizedRole = normalizeRoleLabel(role, specialty);
   const normalizedSpecialty = String(specialty || '').trim();
+  const technicianSpecialty = resolveTechnicianSpecialty(role, specialty);
+
+  if (normalizedRole === 'TECHNICIAN') {
+    return technicianSpecialty
+      ? `${technicianSpecialty.charAt(0)}${technicianSpecialty.slice(1).toLowerCase()} Technician Department`
+      : 'Technician Department';
+  }
 
   if (normalizedRole === 'PHARMACIST') {
     return normalizedSpecialty ? `${normalizedSpecialty} Department` : 'Pharmacy Department';

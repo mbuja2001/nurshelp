@@ -2,30 +2,69 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { Manager } from '../models/manager.model.js';
 import { ClinicalStaff, Practitioner } from '../models/clinicalstaff.model.js';
+import { SandboxAccount } from '../models/sandboxAccount.model.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
-export const deriveTokenRole = (role, specialty) => {
+export const deriveTokenRole = (role) => {
   const rawRole = (role || '').toString().toUpperCase().trim();
-  const rawSpecialty = (specialty || '').toString().toUpperCase();
 
   if (rawRole === 'ADMINISTRATIVE' || rawRole === 'ADMIN' || rawRole === 'MANAGER' || rawRole === 'SHIFT_MANAGER' || rawRole === 'DEPARTMENT_MANAGER') {
     return 'ADMIN';
   }
 
-  if (rawRole === 'TECHNICIAN' && rawSpecialty.includes('PHARM')) {
-    return 'PHARMACIST';
-  }
-
-  if (rawRole === 'TECHNICIAN' && rawSpecialty.includes('RAD')) {
-    return 'RADIOLOGIST';
-  }
-
-  if (rawRole === 'TECHNICIAN' && rawSpecialty.includes('PATH')) {
-    return 'PATHOLOGIST';
-  }
-
   return rawRole;
+};
+
+export const registerSandboxAccount = async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+    }
+
+    const emailRegex = new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const [existingAccount, existingManager, existingStaff] = await Promise.all([
+      SandboxAccount.findOne({ email: emailRegex }).select('_id').lean(),
+      Manager.findOne({ email: emailRegex }).select('_id').lean(),
+      ClinicalStaff.findOne({ email: emailRegex }).select('_id').lean()
+    ]);
+    if (existingAccount || existingManager || existingStaff) {
+      return res.status(409).json({ success: false, message: 'An account already uses this email address' });
+    }
+
+    const account = await SandboxAccount.create({
+      name,
+      email,
+      password: await bcrypt.hash(password, 12)
+    });
+    const token = jwt.sign({
+      id: account._id,
+      email: account.email,
+      name: account.name,
+      role: 'ACCOUNT_OWNER',
+      identityType: 'ACCOUNT'
+    }, JWT_SECRET, { expiresIn: '24h' });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Sandbox account created',
+      token,
+      user: { id: account._id, name: account.name, email: account.email, role: 'ACCOUNT_OWNER', identityType: 'ACCOUNT' }
+    });
+  } catch (error) {
+    console.error('[ACCOUNT REGISTER] Error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to create account' });
+  }
 };
 
 // ----------------------
@@ -47,6 +86,31 @@ export const login = async (req, res) => {
     // Helper: case-insensitive exact match for email
     const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const emailRegex = new RegExp(`^${escapeRegex(email)}$`, 'i');
+
+    const account = await SandboxAccount.findOne({ email: emailRegex }).select('+password');
+    if (account) {
+      const passwordValid = await bcrypt.compare(password, account.password);
+      if (!passwordValid || !account.isActive) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      account.lastLogin = new Date();
+      await account.save();
+      const token = jwt.sign({
+        id: account._id,
+        email: account.email,
+        name: account.name,
+        role: 'ACCOUNT_OWNER',
+        identityType: 'ACCOUNT'
+      }, JWT_SECRET, { expiresIn: '24h' });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        token,
+        user: { id: account._id, name: account.name, email: account.email, role: 'ACCOUNT_OWNER', identityType: 'ACCOUNT' }
+      });
+    }
 
     // Try Manager collection first (case-insensitive)
     let user = await Manager.findOne({ email: emailRegex }).populate('hospitalId');
@@ -149,7 +213,8 @@ export const login = async (req, res) => {
 
     // Normalize fields for token
     const tokenName = user.name || (user.firstName ? `${user.firstName} ${user.lastName}` : undefined);
-    const tokenRole = deriveTokenRole(user.role || user.systemRole, user.specialty || user.clinicalSpecialty || user.assignment?.department || user.department || 'General');
+    const systemRole = user.role || user.systemRole || '';
+    const tokenRole = deriveTokenRole(systemRole);
     const tokenDept = user.department || user.assignment?.department;
     const tokenSpecialty = user.specialty || user.clinicalSpecialty || 'General';
     const tokenNsgRole = user.nsgRole || null;
@@ -161,6 +226,7 @@ export const login = async (req, res) => {
         email: user.email,
         name: tokenName,
         role: tokenRole,
+        systemRole: String(systemRole).toUpperCase().trim(),
         department: tokenDept,
         specialty: tokenSpecialty,
         nsgRole: tokenNsgRole,
@@ -179,6 +245,7 @@ export const login = async (req, res) => {
       name: tokenName,
       email: user.email,
       role: tokenRole,
+      systemRole: String(systemRole).toUpperCase().trim(),
       department: tokenDept,
       specialty: tokenSpecialty,
       nsgRole: tokenNsgRole,

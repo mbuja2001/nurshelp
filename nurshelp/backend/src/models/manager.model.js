@@ -9,6 +9,11 @@ const managerSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    managedHospitalIds: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Hospital',
+      index: true,
+    }],
     managerID: {
       type: String,
       required: true,

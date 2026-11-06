@@ -478,7 +478,6 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
 
       // Build manual triage request (NO computeMode)
       const triagePayload = {
-        triageNurseId: localStorage.getItem('currentNurseId') || localStorage.getItem('currentStaffId') || 'nurse-001',
         // NO computeMode - signals MANUAL workflow
         
         // Clinical data from patient intake
@@ -942,12 +941,16 @@ function ManualTriageForm({ patientData = {}, vitalsData = {}, ehrSummary = null
               )}
 
               {showStaffModal && (
-                <div className="modal-overlay" role="dialog" aria-modal="true">
-                  <div className="modal-content tews-modal-content">
+                <div className="modal-overlay staff-assignment-overlay" role="dialog" aria-modal="true">
+                  <div className="modal-content tews-modal-content staff-assignment-modal">
                     <button className="modal-close" onClick={()=>setShowStaffModal(false)}>✕</button>
-                    <h3>Select Staff / Bed</h3>
+                    <div className="staff-assignment-header">
+                      <span>Care team & placement</span>
+                      <h3>Select staff and bed</h3>
+                      <p>Review each clinician’s current workload and choose available downstream coverage.</p>
+                    </div>
                     <StaffScheduleDisplay onStaffSelect={handleStaffSelect} />
-                    <div className="step-buttons" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+                    <div className="step-buttons staff-assignment-footer" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
                       <button className="submit-button" type="button" onClick={()=>setShowStaffModal(false)}>
                         Save and Close
                       </button>

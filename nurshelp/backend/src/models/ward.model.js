@@ -28,6 +28,9 @@ const wardSchema = new mongoose.Schema({
       "PEDIATRICS",
       "PSYCH",
       "GENERAL",
+      "Medical-Surgical",
+      "General",
+      "Psychiatry",
       "CARDIO",
       "CICU",
       "NEURO",
@@ -39,6 +42,20 @@ const wardSchema = new mongoose.Schema({
     ],
     required: true,
     index: true
+  },
+
+  departmentId: { type: String, default: null, index: true },
+  departmentName: { type: String, default: null, index: true },
+  fhirLocationType: { type: String, default: "wa" },
+  careTier: {
+    type: String,
+    enum: ["CRITICAL_CARE", "STEP_DOWN", "GENERAL_INPATIENT", "ISOLATION"],
+    default: "GENERAL_INPATIENT",
+    index: true
+  },
+  acuityLevelAllowed: {
+    type: [{ type: String, enum: ["Red", "Orange", "Yellow", "Green", "Blue"] }],
+    default: ["Yellow", "Green", "Blue"]
   },
   
   // Hospital reference

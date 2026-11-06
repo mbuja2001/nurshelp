@@ -70,7 +70,8 @@ const SURGERY_TYPE_OPTIONS = ['ELECTIVE', 'EMERGENCY', 'URGENT'];
  * Design Inspiration: Triage dashboard themes
  */
 
-const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
+const PhysicianDashboard = ({ config = {}, context = 'ER', features = {}, dashboardTitle, staffRoleLabel, acknowledgementActor = 'physician', handoverActionLabel = '✓ Acknowledge' }) => {
+  const can = (feature) => features[feature] !== false;
   // ============ STATE ============
   const [assignedPatients, setAssignedPatients] = useState([]);
   const [beds, setBeds] = useState([]);
@@ -800,7 +801,7 @@ const PhysicianDashboard = ({ config = {}, context = 'ER' }) => {
       console.log('[PHYSICIAN ACKNOWLEDGE] Clinician Name:', decoded?.name);
 
       const body = {
-        acknowledgedNotes: 'Patient acknowledged by physician'
+        acknowledgedNotes: `Patient acknowledged by ${acknowledgementActor}`
       };
 
       console.log('[PHYSICIAN ACKNOWLEDGE] Request body:', body);
@@ -1591,14 +1592,14 @@ Update medications, procedures, or notes there.`);
             fontWeight: 700,
             color: '#1e293b'
           }}>
-            {getRoleDisplayDepartment(userInfo.role, userInfo.specialty || context)}
+            {dashboardTitle || getRoleDisplayDepartment(userInfo.role, userInfo.specialty || context)}
           </h1>
           <p style={{ 
             margin: 0,
             fontSize: '14px',
             color: '#64748b'
           }}>
-            {config?.staffName || userInfo.name} • {userInfo.role || 'PHYSICIAN'}
+            {config?.staffName || userInfo.name} • {staffRoleLabel || userInfo.role || 'PHYSICIAN'}
           </p>
         </div>
         <div style={{
@@ -1642,13 +1643,18 @@ Update medications, procedures, or notes there.`);
             flexWrap: 'wrap',
             justifyContent: 'flex-end'
           }}>
-            {[
+                      {[
                 { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => navigate('/calendar') },
                 { icon: <FaHistory />, label: 'History Actions', action: () => navigate('/history-actions'), badge: unreadNotificationsCount },
                 { icon: <FaFlask />, label: 'Lab Requests', action: () => navigate('/lab-requests') },
                 { icon: <FaCapsules />, label: 'Ordered Meds', action: () => navigate('/ordered-meds'), badge: orderedMedsCount },
                 { icon: <FaProcedures />, label: 'Scheduled Surgeries', action: () => navigate('/scheduled-surgeries') }
-            ].map((item) => (
+                      ].filter((item) => {
+                        if (item.label === 'Lab Requests') return can('requestLabs');
+                        if (item.label === 'Ordered Meds') return can('orderMedication');
+                        if (item.label === 'Scheduled Surgeries') return can('manageSurgery');
+                        return true;
+                      }).map((item) => (
               <button
                 key={item.label}
                 onClick={item.action}
@@ -1710,7 +1716,7 @@ Update medications, procedures, or notes there.`);
         }}>
           <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#000000', fontWeight: 750 }}>Total Beds</p>
           <h2 style={{ margin: 0, fontSize: '32px', color: '#10b981', fontWeight: 800 }}>
-            {bedMetrics.total}
+            {loading ? '—' : bedMetrics.total}
           </h2>
         </div>
         <div style={{
@@ -1722,7 +1728,7 @@ Update medications, procedures, or notes there.`);
         }}>
           <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#000000', fontWeight: 750 }}>Hospitalized Patients</p>
           <h2 style={{ margin: 0, fontSize: '32px', color: '#ef4444', fontWeight: 800 }}>
-            {bedMetrics.occupied}
+            {loading ? '—' : bedMetrics.occupied}
           </h2>
         </div>
         <div style={{
@@ -1734,7 +1740,7 @@ Update medications, procedures, or notes there.`);
         }}>
           <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#000000', fontWeight: 750 }}>Pending Triaged Patients</p>
           <h2 style={{ margin: 0, fontSize: '32px', color: '#facc15', fontWeight: 800 }}>
-            {bedMetrics.pendingTriage}
+            {loading ? '—' : bedMetrics.pendingTriage}
           </h2>
         </div>
       </div>
@@ -2495,7 +2501,7 @@ Update medications, procedures, or notes there.`);
               padding: '6px 12px',
               borderRadius: '20px'
             }}>
-              {assignedPatients.length} total
+              {loading ? 'Loading...' : `${assignedPatients.length} total`}
             </span>
           </div>
 
@@ -2536,6 +2542,8 @@ Update medications, procedures, or notes there.`);
                 const statusConfig = getStatusConfig(handoverStatus);
                 const waitTime = formatWaitTime(patient.createdAt, currentTime);
                 const specialty = patient.triage?.specialty || 'General';
+                const nurseAssignment = patient.triageNurseName || patient.triage_nurse_name || patient.assignedNurseName || patient.nurseName || patient.assignedNurse || '';
+                const bedAssignment = patient.bed_display_info?.bedNumber || patient.bed_display_info?.bedId || patient.assigned_bed || '';
 
                 return (
                   <div
@@ -2601,6 +2609,8 @@ Update medications, procedures, or notes there.`);
                         <span>{specialty}</span>
                         <span>•</span>
                         <span>Wait: {waitTime}</span>
+                        {nurseAssignment && <><span>•</span><span>Nurse: {nurseAssignment}</span></>}
+                        {bedAssignment && <><span>•</span><span>Bed: {bedAssignment}</span></>}
                         <span style={{
                           padding: '2px 8px',
                           background: `${statusConfig.color}20`,
@@ -2639,7 +2649,7 @@ Update medications, procedures, or notes there.`);
                         }}
                         onMouseLeave={(e) => e.target.style.background = isPatientAcknowledged(patient) ? '#94a3b8' : '#10b981'}
                       >
-                        {acknowledging[patient._id] ? '⏳ Acknowledging' : isPatientAcknowledged(patient) ? '✓ Acknowledged' : '✓ Acknowledge'}
+                        {acknowledging[patient._id] ? '⏳ Acknowledging' : isPatientAcknowledged(patient) ? '✓ Acknowledged' : handoverActionLabel}
                       </button>
 
                       <button
@@ -2664,7 +2674,7 @@ Update medications, procedures, or notes there.`);
                         📄 Triage Report
                       </button>
 
-                      <button
+                      {can('admit') && <button
                         onClick={() => handleHospitalize(patient, patientName)}
                         disabled={isEncounterHospitalized(patient) || hospitalizing[patient._id]}
                         title={isEncounterHospitalized(patient) ? 'Already hospitalized' : 'Hospitalize patient'}
@@ -2684,9 +2694,9 @@ Update medications, procedures, or notes there.`);
                         }}
                       >
                         🏥 Hospitalize
-                      </button>
+                      </button>}
 
-                      {userInfo.role === 'PHYSICIAN' ? (
+                      {can('diagnose') ? (
                         <button
                           onClick={() => handleDiagnose(patient._id, patient)}
                           disabled={diagnosing[patient._id] || !isPatientAcknowledged(patient)}
@@ -2712,7 +2722,7 @@ Update medications, procedures, or notes there.`);
                         >
                           {isPatientAcknowledged(patient) ? '🩺 Diagnose' : '🔒 Diagnose'}
                         </button>
-                      ) : (
+                      ) : can('recordCare') ? (
                         <button
                           onClick={() => handleCareFor(patient._id, patientName)}
                           disabled={diagnosing[patient._id]}
@@ -2738,7 +2748,7 @@ Update medications, procedures, or notes there.`);
                         >
                           💊 Record Care
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -3039,51 +3049,64 @@ Update medications, procedures, or notes there.`);
                           </p>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end', alignSelf: 'flex-start', marginLeft: 'auto' }}>
-                          <div style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            letterSpacing: '0.12em',
-                            textTransform: 'uppercase',
-                            color: '#93c5fd',
-                            padding: '0 2px'
-                          }}>
-                            Click to adjust severity
-                          </div>
-                          <div style={{
-                            width: 'fit-content',
+                          {can('adjustSeverity') && <>
+                            <div style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              letterSpacing: '0.12em',
+                              textTransform: 'uppercase',
+                              color: '#93c5fd',
+                              padding: '0 2px'
+                            }}>
+                              Click to adjust severity
+                            </div>
+                            <div style={{
+                              width: 'fit-content',
+                              minWidth: '148px',
+                              padding: '9px 11px',
+                              borderRadius: '999px',
+                              background: 'rgba(255,255,255,0.04)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}>
+                              <select
+                                value={severitySelection ?? (bedModalData?.severity || bedModalData?.triage?.aiTriageReport?.esi_level || 4)}
+                                onChange={(e) => handleSeveritySelectionChange(Number(e.target.value))}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '999px',
+                                  border: '1px solid rgba(148,163,184,0.35)',
+                                  background: 'rgba(15,23,42,0.92)',
+                                  color: '#f8fafc',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  appearance: 'none',
+                                  textAlign: 'center'
+                                }}
+                              >
+                                {severityOptions.map((value) => {
+                                  const severityConfig = getSeverityConfig(value);
+                                  return <option key={value} value={value}>{`${severityConfig.icon} ${severityConfig.label}`}</option>;
+                                })}
+                              </select>
+                            </div>
+                          </>}
+                          {!can('adjustSeverity') && <div style={{
                             minWidth: '148px',
                             padding: '9px 11px',
                             borderRadius: '999px',
                             background: 'rgba(255,255,255,0.04)',
                             border: '1px solid rgba(255,255,255,0.08)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
+                            color: '#f8fafc',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            textAlign: 'center'
                           }}>
-                            <select
-                              value={severitySelection ?? (bedModalData?.severity || bedModalData?.triage?.aiTriageReport?.esi_level || 4)}
-                              onChange={(e) => handleSeveritySelectionChange(Number(e.target.value))}
-                              style={{
-                                width: '100%',
-                                padding: '6px 8px',
-                                borderRadius: '999px',
-                                border: '1px solid rgba(148,163,184,0.35)',
-                                background: 'rgba(15,23,42,0.92)',
-                                color: '#f8fafc',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                appearance: 'none',
-                                textAlign: 'center'
-                              }}
-                            >
-                              {severityOptions.map((value) => {
-                                const config = getSeverityConfig(value);
-                                return (
-                                  <option key={value} value={value}>{`${config.icon} ${config.label}`}</option>
-                                );
-                              })}
-                            </select>
-                          </div>
+                            {getSeverityConfig(bedModalData?.severity || bedModalData?.triage?.aiTriageReport?.esi_level || 4).label}
+                          </div>}
                           <div style={{
                             minWidth: '180px',
                             padding: '16px',
@@ -3295,13 +3318,13 @@ Update medications, procedures, or notes there.`);
                           {[
                             { label: 'View Triage Review', icon: '📋', handler: () => handleViewTriageReport(bedModalData), disabled: !bedModalData },
                             { label: 'View Inpatient Report', icon: '📄', handler: () => handleViewInpatientReport(bedModalData), disabled: !bedModalData || !isEncounterHospitalized(bedModalData) },
-                            { label: 'Open Diagnosis Workflow', icon: '🩺', handler: () => handleDiagnose(bedModalData?._id, bedModalData), disabled: !bedModalData },
-                            { label: 'Order Medication', icon: '💊', handler: () => handleOrderMedication(), disabled: !bedModalData },
-                            { label: 'Request Labs', icon: '🧪', handler: () => handleRequestLabs(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData },
-                            { label: 'Administer medication', icon: '💉', handler: () => handleOpenMedicationRequest(), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' },
-                            { label: 'Administer Surgery', icon: '🏥', handler: () => handleAdministerSurgery(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' },
-                            { label: 'Discharge Patient', icon: '🚪', handler: () => handleDischarge(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' },
-                            { label: 'Transfer Specialty Care', icon: '🩺', handler: () => handleTransferSpecialtyCare(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }
+                            ...(can('diagnose') ? [{ label: 'Open Diagnosis Workflow', icon: '🩺', handler: () => handleDiagnose(bedModalData?._id, bedModalData), disabled: !bedModalData }] : []),
+                            ...(can('orderMedication') ? [{ label: 'Order Medication', icon: '💊', handler: () => handleOrderMedication(), disabled: !bedModalData }] : []),
+                            ...(can('requestLabs') ? [{ label: 'Request Labs', icon: '🧪', handler: () => handleRequestLabs(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }] : []),
+                            ...(can('administerMedication') ? [{ label: 'Administer medication', icon: '💉', handler: () => handleOpenMedicationRequest(), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
+                            ...(can('manageSurgery') ? [{ label: 'Administer Surgery', icon: '🏥', handler: () => handleAdministerSurgery(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
+                            ...(can('discharge') ? [{ label: 'Discharge Patient', icon: '🚪', handler: () => handleDischarge(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
+                            ...(can('transferCare') ? [{ label: 'Transfer Specialty Care', icon: '🩺', handler: () => handleTransferSpecialtyCare(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }] : [])
                           ].map((item, idx) => (
                             <button
                               key={idx}

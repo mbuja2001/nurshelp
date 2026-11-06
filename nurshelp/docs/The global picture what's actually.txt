@@ -1,0 +1,5 @@
+The global picture: what's actually solved vs. what's still hard everywhere
+
+Solved/commodity globally: voice-to-text intake, symptom-checking chatbots, outpatient self-triage advice. This is the crowded layer you were reacting to — legitimately saturated, and rightly not where your differentiation should live.
+
+Still genuinely hard, even at Stanford/Silicon Valley/EU-regulated levels: getting an LLM to reason safely over a patient's actual longitudinal history without truncating or hallucinating it (the EHR-RAG papers from a few turns ago exist because this is unsolved), proving real-world safety with prospective trial evidence rather than benchmark accuracy (the Kenya cluster-RCT is one of very few that's actually done this), and getting regulatory clearance for AI that influences a real clinical decision rather than just summarizing text. Nobody, anywhere, has this fully solved. That's the part of your work that actually matters, and it's the part with real global peers, not real global saturation.

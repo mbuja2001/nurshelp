@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { normalizeClinicalAnalysis } from "./utils/triageHelpers";
+import { canAssignSelfAsDownstreamNurse, fetchCurrentAssignmentIdentity } from "../utils/assignmentValidation";
+import { decodeJwt } from "../utils/jwt";
 
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -142,6 +144,14 @@ export default function PatientReport() {
   const [assignedClinicians, setAssignedClinicians] = useState([]);
   const [manuallySelectedClinicians, setManuallySelectedClinicians] = useState([]);
   const [recommendedClinicians, setRecommendedClinicians] = useState([]);
+  const [clinicianWorkload, setClinicianWorkload] = useState([]);
+  const [clinicianWorkloadError, setClinicianWorkloadError] = useState(null);
+  const [assignmentIdentity, setAssignmentIdentity] = useState(() => {
+    const userId = decodeJwt(localStorage.getItem('token'))?.id;
+    return userId ? { userId: String(userId), dutyRole: null } : null;
+  });
+  const [assignmentIdentityError, setAssignmentIdentityError] = useState(null);
+  const [assignmentValidationError, setAssignmentValidationError] = useState(null);
   const [showClinicianSelector, setShowClinicianSelector] = useState(false);
   const [showPatientHistoryEvidence, setShowPatientHistoryEvidence] = useState(true);
   const [showEvidenceTrail, setShowEvidenceTrail] = useState(false);
@@ -155,6 +165,45 @@ export default function PatientReport() {
   const [availableBeds, setAvailableBeds] = useState([]);
   const [showWardSelector, setShowWardSelector] = useState(false);
   const [showBedSelector, setShowBedSelector] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const token = localStorage.getItem('token');
+    const userId = decodeJwt(token)?.id;
+    if (!token || !userId) {
+      setAssignmentIdentityError('Unable to verify the authenticated staff member and shift duty.');
+      return () => { active = false; };
+    }
+
+    fetchCurrentAssignmentIdentity(BACKEND_URL, token)
+      .then((identity) => {
+        if (active) setAssignmentIdentity(identity);
+      })
+      .catch((error) => {
+        if (active) {
+          setAssignmentIdentity({ userId: String(userId), dutyRole: null });
+          setAssignmentIdentityError(error.message || 'Shift duty could not be verified.');
+        }
+      });
+
+    return () => { active = false; };
+  }, []);
+
+  const getNurseAssignmentError = (clinicians) => {
+    const currentUserNurse = clinicians.find((clinician) => {
+      const clinicianId = clinician?.id || clinician?._id;
+      const role = String(clinician?.role || '').toUpperCase();
+      return String(clinicianId || '') === String(assignmentIdentity?.userId || '')
+        && ['NURSE', 'CLINICAL_NURSE', 'TRIAGE_NURSE'].includes(role);
+    });
+    return currentUserNurse && !canAssignSelfAsDownstreamNurse(
+      assignmentIdentity?.userId,
+      currentUserNurse.id || currentUserNurse._id,
+      assignmentIdentity?.dutyRole
+    )
+      ? 'A triage nurse cannot be assigned as the downstream clinical nurse. Assign another nurse or update the verified shift duty role first.'
+      : null;
+  };
 
   const getEncounterId = (enc) => enc?._id ?? enc?.id ?? null;
 
@@ -193,6 +242,14 @@ export default function PatientReport() {
       alert("Cannot save: encounter ID missing");
       return;
     }
+
+    const assignmentError = getNurseAssignmentError([...assignedClinicians, ...manuallySelectedClinicians]);
+    if (assignmentError) {
+      setAssignmentValidationError(assignmentError);
+      alert(assignmentError);
+      return;
+    }
+    setAssignmentValidationError(null);
 
     setSaving(true);
     try {
@@ -625,6 +682,7 @@ export default function PatientReport() {
 
     const fetchRecommendations = async () => {
       setLoadingDocs(true);
+      setClinicianWorkloadError(null);
       try {
         const encId = getEncounterId(encounter);
         if (!encId) return;
@@ -665,10 +723,10 @@ export default function PatientReport() {
 
         // Fetch both physicians and nurses (no role filter)
         const cacheBreaker = `&t=${Date.now()}`;
-        const res = await fetch(`${BACKEND_URL}/api/clinical/staff/clocked-in?encounterId=${encId}${cacheBreaker}`, { 
-          headers,
-          cache: "no-store"
-        });
+        const [res, workloadRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/clinical/staff/clocked-in?encounterId=${encId}${cacheBreaker}`, { headers, cache: "no-store" }),
+          fetch(`${BACKEND_URL}/api/operations/clinician-workload${cacheBreaker.replace('&', '?')}`, { headers, cache: "no-store" })
+        ]);
         if (!res.ok) {
           // not fatal: fallback
           console.warn("Failed to fetch clinician recommendations, status:", res.status);
@@ -678,6 +736,20 @@ export default function PatientReport() {
         }
 
         const data = await res.json().catch(() => null);
+        let workloadData = null;
+        if (workloadRes.ok) {
+          try {
+            workloadData = await workloadRes.json();
+            if (!Array.isArray(workloadData?.clinicians)) throw new Error('Malformed clinician workload data.');
+          } catch {
+            workloadData = null;
+            setClinicianWorkloadError('Workload policy response was invalid. Capacity is unavailable until it can be loaded.');
+          }
+        } else {
+          setClinicianWorkloadError(`Workload policy is unavailable (request failed: ${workloadRes.status}).`);
+        }
+        const workloadById = new Map((workloadData?.clinicians || []).map((item) => [String(item.clinicianId || item.id), item]));
+        setClinicianWorkload(workloadData?.clinicians || []);
         
         // Get combined clinician list (physicians + nurses)
         const allClinicians = data?.clinicians ?? [];
@@ -691,7 +763,12 @@ export default function PatientReport() {
           role: d.role ?? 'PHYSICIAN',
           specialty: d.specialty ?? d.department ?? "General",
           score: typeof d.score === "number" ? d.score : (d.match ?? d.weight ?? 0),
-          reason: d.reason ?? d.note ?? d.rationale ?? ""
+          reason: d.reason ?? d.note ?? d.rationale ?? "",
+          activeCases: workloadById.get(String(d.id ?? d._id ?? d.name))?.activeCases || 0,
+          activeWorkload: workloadById.get(String(d.id ?? d._id ?? d.name))?.activeWorkload ?? 0,
+          workloadPercent: workloadById.get(String(d.id ?? d._id ?? d.name))?.workloadPercent ?? null,
+          workloadStatus: workloadById.get(String(d.id ?? d._id ?? d.name))?.workloadStatus || (workloadData ? 'Unconfigured' : 'Unavailable'),
+          capacitySource: workloadById.get(String(d.id ?? d._id ?? d.name))?.capacitySource || (workloadData ? 'Unconfigured' : 'Unavailable')
         }));
 
         // Keep separate lists for physicians
@@ -701,7 +778,12 @@ export default function PatientReport() {
           role: 'PHYSICIAN',
           specialty: d.specialty ?? d.department ?? "General",
           score: typeof d.score === "number" ? d.score : (d.match ?? d.weight ?? 0),
-          reason: d.reason ?? d.note ?? d.rationale ?? ""
+          reason: d.reason ?? d.note ?? d.rationale ?? "",
+          activeCases: workloadById.get(String(d.id ?? d._id ?? d.name))?.activeCases || 0,
+          activeWorkload: workloadById.get(String(d.id ?? d._id ?? d.name))?.activeWorkload ?? 0,
+          workloadPercent: workloadById.get(String(d.id ?? d._id ?? d.name))?.workloadPercent ?? null,
+          workloadStatus: workloadById.get(String(d.id ?? d._id ?? d.name))?.workloadStatus || (workloadData ? 'Unconfigured' : 'Unavailable'),
+          capacitySource: workloadById.get(String(d.id ?? d._id ?? d.name))?.capacitySource || (workloadData ? 'Unconfigured' : 'Unavailable')
         }));
 
         if (!mounted) return;
@@ -2265,6 +2347,9 @@ export default function PatientReport() {
               </button>
             </div>
 
+            {assignmentIdentityError && <div role="status" style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: 10, marginBottom: 10 }}>{assignmentIdentityError} Self-assignment will remain blocked unless a Clinical Nurse duty is verified.</div>}
+            {assignmentValidationError && <div role="alert" style={{ color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 10, marginBottom: 10 }}>{assignmentValidationError}</div>}
+            {clinicianWorkloadError && <div role="alert" style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: 10, marginBottom: 10 }}>{clinicianWorkloadError}</div>}
             {loadingDocs && <div>Loading recommendations...</div>}
 
             {!loadingDocs && recommendedClinicians.length === 0 && (
@@ -2307,6 +2392,11 @@ export default function PatientReport() {
                                 if (isAssigned) {
                                   setAssignedClinicians(assignedClinicians.filter(a => String(a.id) !== String(clinician.id)));
                                 } else {
+                                  if (String(clinician.role).toUpperCase() === 'NURSE' && !canAssignSelfAsDownstreamNurse(assignmentIdentity?.userId, clinician.id, assignmentIdentity?.dutyRole)) {
+                                    setAssignmentValidationError('A triage nurse cannot be assigned as the downstream clinical nurse. Assign another nurse or update the verified shift duty role first.');
+                                    return;
+                                  }
+                                  setAssignmentValidationError(null);
                                   setAssignedClinicians([...assignedClinicians, clinician]);
                                 }
                               }}
@@ -2325,6 +2415,9 @@ export default function PatientReport() {
                               </div>
                               <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
                                 🕒 {formatAvailabilityHours(clinician)}
+                              </div>
+                              <div title={`Capacity source: ${clinician.capacitySource}`} style={{ fontSize: 11, color: clinician.workloadPercent >= 100 ? "#b91c1c" : "#475569", marginTop: 3, fontWeight: 700 }}>
+                                Clinician Workload: {clinician.activeCases} cases · {clinician.activeWorkload} load · {clinician.workloadPercent === null ? 'Unconfigured' : `${clinician.workloadPercent}%`}
                               </div>
                             </div>
                           </div>
@@ -2384,6 +2477,11 @@ export default function PatientReport() {
                                 if (isAssigned) {
                                   setAssignedClinicians(assignedClinicians.filter(a => String(a.id) !== String(clinician.id)));
                                 } else {
+                                  if (String(clinician.role).toUpperCase() === 'NURSE' && !canAssignSelfAsDownstreamNurse(assignmentIdentity?.userId, clinician.id, assignmentIdentity?.dutyRole)) {
+                                    setAssignmentValidationError('A triage nurse cannot be assigned as the downstream clinical nurse. Assign another nurse or update the verified shift duty role first.');
+                                    return;
+                                  }
+                                  setAssignmentValidationError(null);
                                   setAssignedClinicians([...assignedClinicians, clinician]);
                                 }
                               }}
@@ -2402,6 +2500,9 @@ export default function PatientReport() {
                               </div>
                               <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
                                 🕒 {formatAvailabilityHours(clinician)}
+                              </div>
+                              <div title={`Capacity source: ${clinician.capacitySource}`} style={{ fontSize: 11, color: clinician.workloadPercent >= 100 ? "#b91c1c" : "#475569", marginTop: 3, fontWeight: 700 }}>
+                                Clinician Workload: {clinician.activeCases} cases · {clinician.activeWorkload} load · {clinician.workloadPercent === null ? 'Unconfigured' : `${clinician.workloadPercent}%`}
                               </div>
                             </div>
                           </div>
@@ -2789,6 +2890,14 @@ export default function PatientReport() {
                   alert("Please select at least one clinician before applying changes");
                   return;
                 }
+
+                const assignmentError = getNurseAssignmentError([...assignedClinicians, ...manuallySelectedClinicians]);
+                if (assignmentError) {
+                  setAssignmentValidationError(assignmentError);
+                  alert(assignmentError);
+                  return;
+                }
+                setAssignmentValidationError(null);
 
                 // Save the encounter with all selected fields
                 setSaving(true);

@@ -20,9 +20,18 @@ const shiftSchema = new mongoose.Schema(
     },
     department: {
       type: String,
-      enum: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'Nursing'],
+      enum: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General', 'Nursing'],
       required: true,
       index: true,
+    },
+    specialty: {
+      type: String,
+      trim: true,
+    },
+    wardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Ward',
+      default: null,
     },
     shiftStart: {
       type: String, // HH:MM format
@@ -66,11 +75,16 @@ const shiftSchema = new mongoose.Schema(
         },
         type: {
           type: String,
-          enum: ['MANAGER', 'NURSE', 'PHYSICIAN', 'SPECIALIST', 'SUPPORT'],
+          enum: ['MANAGER', 'NURSE', 'PHYSICIAN', 'SPECIALIST', 'SUPPORT', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST', 'ADMINISTRATIVE', 'TECHNICIAN', 'SUPERUSER'],
+        },
+        assignmentRole: {
+          type: String,
+          enum: ['TRIAGE_NURSE', 'CLINICAL_NURSE', 'PHYSICIAN', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST', 'SPECIALIST', 'SUPPORT'],
         },
         name: String,
         surname: String,
         specialty: String,
+        serviceCoverage: { type: String, trim: true, default: null },
         status: {
           type: String,
           enum: ['ASSIGNED', 'CONFIRMED', 'ABSENT', 'PENDING'],
@@ -80,10 +94,20 @@ const shiftSchema = new mongoose.Schema(
     ],
     status: {
       type: String,
-      enum: ['DRAFT', 'PUBLISHED', 'CANCELLED', 'COMPLETED'],
+      enum: ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'CANCELLED', 'COMPLETED'],
       default: 'DRAFT',
       index: true,
     },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', default: null },
+    approvedAt: { type: Date, default: null },
+    startedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', default: null },
+    startedAt: { type: Date, default: null },
+    cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', default: null },
+    cancelledAt: { type: Date, default: null },
+    cancellationReason: { type: String, trim: true, default: null },
+    completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', default: null },
+    completedAt: { type: Date, default: null },
+    completedSource: { type: String, enum: ['ADMIN_SCHEDULED', 'AUTO_SCHEDULED'], default: null },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Manager',

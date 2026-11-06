@@ -20,7 +20,8 @@ import {
   getAvailableStaff,
   getAssignedShiftsForUser,
   getTodayAssignedShift,
-  assignClinicalTeam
+  assignClinicalTeam,
+  cancelShift
 } from '../controllers/shift.controller.js';
 
 const router = express.Router();
@@ -87,8 +88,17 @@ router.delete(
   protect,
   authorize('MANAGER', 'ADMIN'),
   restrictByDepartment(),
-  auditLog('SHIFT_DELETED'),
-  deleteShift
+  auditLog('SHIFT_CANCELLED'),
+  cancelShift
+);
+
+router.post(
+  '/:shiftID/cancel',
+  protect,
+  authorize('MANAGER', 'ADMIN'),
+  restrictByDepartment(),
+  auditLog('SHIFT_CANCELLED'),
+  cancelShift
 );
 
 router.post(

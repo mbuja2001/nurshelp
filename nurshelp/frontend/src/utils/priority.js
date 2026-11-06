@@ -11,13 +11,47 @@ export const formatWaitDetailed = (ms) => {
 
 export const severityFromReport = (p) => {
   if (!p) return 1;
-  const rpt = p.report ?? p.patientReport ?? null;
-  const sev = rpt?.severity ?? p.severity ?? p.triage?.severity ?? 1;
-  return Math.max(1, Math.min(3, Number(sev) || 1));
+  const rpt = p.manual_triage_report ?? p.triage?.manualTriageReport ?? p.report ?? p.patientReport ?? p.triage?.aiTriageReport ?? p.ai_triage_report ?? null;
+  const sev = rpt?.severity ?? rpt?.esi_level ?? rpt?.esiLevel ?? p.severity ?? p.triage?.severity ?? 1;
+  return Math.max(1, Math.min(4, Number(sev) || 1));
+};
+
+const normalizePriorityCategory = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const mapping = {
+    red: 'Red',
+    orange: 'Orange',
+    yellow: 'Yellow',
+    green: 'Green',
+    blue: 'Green',
+    critical: 'Red',
+    urgent: 'Red',
+    moderate: 'Yellow',
+    low: 'Green'
+  };
+
+  const direct = mapping[raw.toLowerCase()];
+  if (direct) return direct;
+
+  const upper = raw.toUpperCase();
+  if (['RED', 'ORANGE', 'YELLOW', 'GREEN', 'BLUE', 'CRITICAL', 'URGENT', 'MODERATE', 'LOW'].includes(upper)) {
+    return normalizePriorityCategory(upper);
+  }
+
+  const digits = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10);
+  if ([1, 2, 3, 4].includes(digits)) {
+    return ['Red', 'Orange', 'Yellow', 'Green'][digits - 1];
+  }
+  if (digits === 5) return 'Green';
+
+  return null;
 };
 
 export const waitStartFor = (p) => {
-  return p.waitStartedAt ?? p.arrivalAt ?? p.createdAt ?? p.admittedAt ?? null;
+  return p.waitStartedAt ?? p.wait_started_at ?? p.arrivalAt ?? p.arrival_at ?? p.createdAt ?? p.created_at ?? p.admittedAt ?? p.admitted_at ?? p.date ?? null;
 };
 
 export const normalizePatient = (p) => {
@@ -132,13 +166,25 @@ export const formatTimestamp = (ts) => {
 };
 
 export const computePriority = (p, nowMs) => {
-  const rpt = p.report ?? p.patientReport ?? {};
+  const rpt = p.manual_triage_report ?? p.triage?.manualTriageReport ?? p.report ?? p.patientReport ?? p.triage?.aiTriageReport ?? p.ai_triage_report ?? p.triage ?? {};
   const satsCat = firstValue(
+    rpt.priority_code,
+    rpt.priorityCode,
+    rpt.triageCategory,
     rpt.satsCategory,
+    rpt.satsLevel,
+    rpt.selected_priority,
+    rpt.sats_color,
     rpt.sats,
+    p.priority_code,
+    p.priorityCode,
     p.triageCategory,
     p.triage?.triageCategory,
+    p.triage?.priority_code,
+    p.triage?.priorityCode,
     p.triage?.satsLevel,
+    p.triage?.sats_level,
+    p.ai_triage_report?.priority_code,
     p.satsLevel
   );
   const sev = severityFromReport(p);
@@ -151,11 +197,13 @@ export const computePriority = (p, nowMs) => {
   };
 
   let category = 'Green';
-  if (typeof satsCat === 'string') {
-    if (['Red','Orange','Yellow','Green'].includes(satsCat)) category = satsCat;
+  const normalizedCategory = normalizePriorityCategory(satsCat);
+  if (normalizedCategory) {
+    category = normalizedCategory;
   } else {
     if (sev === 3) category = 'Red';
     else if (sev === 2) category = 'Orange';
+    else if (sev === 4) category = 'Green';
     else category = 'Green';
   }
 

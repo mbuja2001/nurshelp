@@ -11,7 +11,7 @@ const LandingPage = () => {
   };
 
   const handleGetStarted = () => {
-    navigate("/dashboard");
+    navigate("/dashboard?register=account");
   };
 
   const handleLogin = () => {
@@ -106,7 +106,7 @@ const LandingPage = () => {
               e.target.style.backgroundColor = "#10b981";
             }}
           >
-            Get Started
+            Create Account
           </button>
         </div>
       </nav>
@@ -158,7 +158,7 @@ const LandingPage = () => {
               e.currentTarget.style.boxShadow = "none";
             }}
           >
-            Launch Dashboard
+            Create Account
             <FiArrowRight size={20} />
           </button>
           <button

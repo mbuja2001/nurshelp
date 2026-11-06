@@ -2,6 +2,7 @@ import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { NurseClockRecord } from "../models/staffClockRecord.model.js";
 import { NurseSchedule } from "../models/nurseSchedule.model.js";
 import { Shift } from "../models/shift.model.js";
+import { isShiftApprovedForClockIn, isStaffAssignedToShift } from "../utils/staffShiftAccess.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
@@ -130,6 +131,19 @@ export const clockIn = async (req, res) => {
     if (!shift) {
       console.log('  ❌ LOOKUP ERROR: Shift not found with ID:', shiftId);
       return res.status(404).json({ success: false, message: "Shift not found" });
+    }
+
+    if (!isStaffAssignedToShift(shift, staffId, req.hospitalId)) {
+      return res.status(403).json({ success: false, message: "You are not assigned to this shift" });
+    }
+
+    if (!isShiftApprovedForClockIn(shift)) {
+      return res.status(409).json({
+        success: false,
+        message: shift.status === "CANCELLED"
+          ? "This shift was cancelled and cannot be clocked into"
+          : "Clock-in is unavailable until an administrator starts this shift"
+      });
     }
 
     console.log('  ✓ Shift found:', shift.shiftName);
@@ -778,10 +792,13 @@ const computeExpectedHours = (shiftStart, shiftEnd) => {
 const buildStaffProfile = (staff, schedule) => ({
   firstName: staff.firstName || staff.name || '',
   lastName: staff.lastName || staff.surname || '',
+  email: staff.email || '',
+  specialty: staff.clinicalSpecialty || staff.specialty || '',
+  credentialTitle: staff.credentials?.title || '',
   idNumber: staff.credentials?.licenseNumber || staff.licenseNumber || staff._id?.toString(),
   employeeId: staff.credentials?.npiNumber || staff.npiNumber || staff._id?.toString(),
   role: staff.systemRole || staff.role || 'NURSE',
-  department: staff.assignment?.department || staff.department || 'Nursing',
+  department: staff.assignment?.department || staff.department || '',
   shift: {
     expectedHours: schedule?.expectedHours || computeExpectedHours(schedule?.shiftStart, schedule?.shiftEnd),
     signIn: schedule?.shiftStart || '',
@@ -884,13 +901,13 @@ export const updateStaffProfile = async (req, res) => {
     if (lastName !== undefined) update.lastName = lastName;
     if (idNumber !== undefined) {
       update.credentials = {
-        ...(req.user.credentials || {}),
+        ...(req.user.credentials?.toObject?.() || req.user.credentials || {}),
         licenseNumber: idNumber
       };
     }
     if (employeeId !== undefined) {
       update.credentials = {
-        ...(update.credentials || req.user.credentials || {}),
+        ...(update.credentials || req.user.credentials?.toObject?.() || req.user.credentials || {}),
         npiNumber: employeeId
       };
     }
@@ -1181,9 +1198,15 @@ export const  getAttendanceHistory = async (req, res) => {
       .lean()
       .exec();
 
-    // Get all assigned shifts for this nurse
+    // Include both rostered shifts and explicit triage/clinical team assignments.
     const assignedShifts = await Shift.find({
-      'assignedStaff.staffID': userId
+      hospitalId: req.hospitalId,
+      $or: [
+        { 'assignedStaff.staffID': userId },
+        { 'teamAssignment.triageNurseId': userId },
+        { 'teamAssignment.clinicalNurseId': userId },
+        { 'teamAssignment.physicianId': userId }
+      ]
     }).lean().exec();
 
     const now = new Date();
@@ -1223,6 +1246,7 @@ export const  getAttendanceHistory = async (req, res) => {
           workDuration: workDuration ? `${workDuration} min` : (record.clockOutTime ? 'Complete' : 'In progress'),
           shiftId: record.shiftId,
           shiftName: shiftDetails.shiftName || 'Unknown Shift',
+          shiftDate: record.date,
           department: shiftDetails.department || 'N/A',
           shiftTime: shiftDetails.shiftStart && shiftDetails.shiftEnd 
             ? `${shiftDetails.shiftStart}–${shiftDetails.shiftEnd}` 
@@ -1266,6 +1290,7 @@ export const  getAttendanceHistory = async (req, res) => {
                 flags: ['ABSENT'],
                 workDuration: '0 min',
                 shiftId: shift._id,
+                shiftDate: shift.date,
                 shiftName: shift.shiftName || 'Unknown Shift',
                 department: shift.department || 'N/A',
                 shiftTime: `${shift.shiftStart}–${shift.shiftEnd}`,

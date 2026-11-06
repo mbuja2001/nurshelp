@@ -10,6 +10,7 @@ import { buildDischargeReportData } from "../utils/dischargeReportBuilder.js";
 import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHistory.js";
 import { Prescription } from "../models/pharmacy.model.js";
 import { canAccessReport, REPORT_TYPES } from "../utils/reportAccess.js";
+import { getTodayShiftAssignmentRole, isSelfAssignmentAllowed } from "../utils/assignmentDutyRole.js";
 
 /** Safe transcript parser used across functions */
 const parseTranscript = (transcript) => {
@@ -793,6 +794,28 @@ export const updateAIFields = async (req, res) => {
       return res.status(404).json({ message: "Encounter not found or not authorized" });
     }
 
+    const actorId = nurseId.toString();
+    const clinicianChanges = [
+      changedFields?.assigned_clinicians,
+      changedFields?.manually_selected_clinicians
+    ].filter(Array.isArray).flat();
+    const actorIsAssigned = req.user.systemRole === 'NURSE' && clinicianChanges.some((clinician) => {
+      const clinicianId = clinician?.id || clinician?._id;
+      return String(clinicianId || '') === actorId;
+    });
+
+    if (actorIsAssigned) {
+      const dutyRole = await getTodayShiftAssignmentRole({
+        hospitalId: encounter.hospitalId || req.user.hospitalId,
+        staffId: actorId
+      });
+      if (!isSelfAssignmentAllowed(actorId, actorId, dutyRole)) {
+        return res.status(422).json({
+          message: 'A triage nurse cannot be assigned as the downstream clinical nurse. Assign a different nurse or update the shift duty role first.'
+        });
+      }
+    }
+
     // Build field changes tracking object
     const fieldChanges = {};
     const updatesToApply = {};
@@ -882,15 +905,31 @@ export const updateAIFields = async (req, res) => {
       };
     }
 
-    // Update manual triage report with overrides
-    encounter.manual_triage_report = {
-      ...encounter.manual_triage_report,
-      ...updatesToApply,
-      field_changes: fieldChanges,
-      overridden_at: new Date(),
-      overridden_by: nurseId,
-      notes: nurseNotes || encounter.manual_triage_report?.notes || ""
-    };
+    // Only create a manual triage report when a genuine triage decision was
+    // overridden. Assignments, wards, beds, and nurse notes belong to the AI
+    // workflow and must not create a second triage in the EHR timeline.
+    const manualTriageFields = new Set([
+      'sats_points',
+      'sats_color',
+      'satsLevel',
+      'urgencyScore',
+      'reasoning',
+      'SATS_reasoning',
+      'tewsTotal',
+      'tews_total',
+      'clinicalAnalysis'
+    ]);
+    const hasManualTriageOverride = Object.keys(updatesToApply).some((field) => manualTriageFields.has(field));
+    if (hasManualTriageOverride || Object.keys(encounter.manual_triage_report || {}).length > 0) {
+      encounter.manual_triage_report = {
+        ...encounter.manual_triage_report,
+        ...(hasManualTriageOverride ? updatesToApply : {}),
+        field_changes: fieldChanges,
+        overridden_at: new Date(),
+        overridden_by: nurseId,
+        notes: nurseNotes || encounter.manual_triage_report?.notes || ""
+      };
+    }
 
     // Store display info for confirmation pages (not in schema, just in memory before save)
     if (ward_display_info) {

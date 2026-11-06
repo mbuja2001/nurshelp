@@ -1,10 +1,13 @@
 // src/Dashboard/Pages/ClockInOutBoard.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FaClock, FaPlay, FaStop, FaCoffee, FaSignOutAlt, FaHistory } from 'react-icons/fa';
+import { clearAuthSession } from '../../utils/authSession';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
 
-export default function ClockInOutBoard({ token, user, onLogout, activeTab: propActiveTab }) {
+export default function ClockInOutBoard({ token, user, onLogout, activeTab: propActiveTab, onClockStatusChange }) {
+  const navigate = useNavigate();
   const [currentRecord, setCurrentRecord] = useState(null);
   // activeTab is controlled by parent (StaffScheduleManager). Fallback to 'clock'.
   const activeTab = propActiveTab || 'clock';
@@ -107,7 +110,6 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       setShiftsLoading(false);
     }
   };
-
   const fetchTodayShift = async () => {
     if (!token) return;
     try {
@@ -133,13 +135,18 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       const res = await fetch(`${BACKEND_URL}/api/staff/attendance-history`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (!res.headers.get('content-type')?.includes('application/json')) {
+        throw new Error(`Attendance history returned an unexpected response (HTTP ${res.status})`);
+      }
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || `Unable to load attendance history (HTTP ${res.status})`);
       if (data.success) {
         setAttendanceHistory(data.records || []);
       } else {
-        setAttendanceHistory([]);
+        throw new Error(data.message || 'Unable to load attendance history');
       }
     } catch (err) {
+      setError(err.message);
       console.error('Failed to fetch attendance history', err);
       setAttendanceHistory([]);
     } finally {
@@ -169,10 +176,9 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("currentStaffId");
-    localStorage.removeItem("userRole");
+    clearAuthSession();
     if (onLogout) onLogout();
+    navigate('/dashboard?login=1', { replace: true });
   };
 
   // Check if staff can clock in to a shift
@@ -232,19 +238,23 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       });
       const data = await res.json();
       if (data.success) {
-        setCurrentRecord(data.record);
+        const record = data.record || null;
+        setCurrentRecord(record);
         // Set onBreak based on status field, not onBreak property
-        setOnBreak(data.record?.status === 'ON_BREAK');
+        setOnBreak(record?.status === 'ON_BREAK');
+        onClockStatusChange?.(record);
         console.log('[fetchTodayRecord] Record updated:', {
-          status: data.record?.status,
-          onBreak: data.record?.status === 'ON_BREAK',
-          clockInTime: data.record?.clockInTime,
-          breakStartTime: data.record?.breakStartTime
+          status: record?.status,
+          onBreak: record?.status === 'ON_BREAK',
+          clockInTime: record?.clockInTime,
+          breakStartTime: record?.breakStartTime
         });
+        return record;
       }
     } catch (err) {
       console.error('Error fetching today record:', err);
     }
+    return null;
   };
 
   const checkAndRefreshAutoClockOut = async () => {
@@ -332,7 +342,7 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       console.log('  📥 Parsed Response:', data);
       
       if (data.success) {
-        await fetchTodayRecord(); // Fetch full record from DB instead of using partial response
+        await fetchTodayRecord();
         showSuccess('✓ Clocked in successfully');
       } else {
         setError(data.message || 'Clock-in failed');
@@ -500,7 +510,7 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
             boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             marginBottom: 24,
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
             gap: 40,
             alignItems: 'center'
           }}>
@@ -967,5 +977,3 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
     </div>
   );
 };
-
-

@@ -24,9 +24,12 @@ export default function AdminSettingsPage({ token }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [errors, setErrors] = useState({});
+  const [trialMode, setTrialMode] = useState(null);
+  const [trialModeError, setTrialModeError] = useState('');
 
   useEffect(() => {
     fetchSettings();
+    fetchTrialMode();
   }, [token]);
 
   const fetchSettings = async () => {
@@ -43,6 +46,22 @@ export default function AdminSettingsPage({ token }) {
       setMessage({ type: 'error', text: 'Failed to load settings' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTrialMode = async () => {
+    setTrialModeError('');
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/hospital/clinical-trial-mode`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Unable to load hospital trial settings');
+      }
+      setTrialMode(data.settings);
+    } catch (error) {
+      setTrialModeError(error.message || 'Unable to load hospital trial settings');
     }
   };
 
@@ -143,6 +162,25 @@ export default function AdminSettingsPage({ token }) {
           {message.text}
         </div>
       )}
+
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Clinical trial readiness</h2>
+        {trialModeError ? (
+          <div role="alert" style={styles.trialModeError}>{trialModeError}</div>
+        ) : trialMode ? (
+          <dl style={styles.trialModeDetails}>
+            <div><dt>Hospital</dt><dd>{trialMode.hospitalName}</dd></div>
+            <div><dt>Environment</dt><dd>{trialMode.environment}</dd></div>
+            <div><dt>Clinical trial mode</dt><dd>{trialMode.clinicalTrialMode ? 'On' : 'Off'}</dd></div>
+            <div><dt>Last changed by</dt><dd>{trialMode.updatedBy || 'Not changed'}</dd></div>
+            <div><dt>Last changed</dt><dd>{trialMode.updatedAt ? new Date(trialMode.updatedAt).toLocaleString() : 'Not changed'}</dd></div>
+            <div><dt>Reason</dt><dd>{trialMode.reason || 'Not provided'}</dd></div>
+          </dl>
+        ) : (
+          <p style={styles.subtitle}>Loading hospital trial settings...</p>
+        )}
+        <p style={styles.trialModeNote}>This is read-only for hospital administrators. Trial mode does not create trials or authorize trial tasks.</p>
+      </div>
 
       {/* Timing Settings Section */}
       <div style={styles.section}>
@@ -386,6 +424,25 @@ const styles = {
     color: '#1f2937',
     marginBottom: '20px',
     marginTop: 0
+  },
+  trialModeDetails: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+    gap: '14px',
+    margin: 0
+  },
+  trialModeError: {
+    padding: '12px',
+    border: '1px solid #fca5a5',
+    borderRadius: '6px',
+    background: '#fef2f2',
+    color: '#991b1b',
+    fontSize: '13px'
+  },
+  trialModeNote: {
+    margin: '16px 0 0',
+    color: '#6b7280',
+    fontSize: '12px'
   },
   settingsGrid: {
     display: 'grid',

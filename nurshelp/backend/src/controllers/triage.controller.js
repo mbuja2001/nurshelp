@@ -6,6 +6,7 @@ import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { Shift } from "../models/shift.model.js";
 import { Hospital } from "../models/hospital.model.js";
 import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHistory.js";
+import { getTodayShiftAssignmentRole, isSelfAssignmentAllowed } from "../utils/assignmentDutyRole.js";
 
 const normalizeMobility = (value) => {
   const key = String(value ?? '').trim().toLowerCase();
@@ -1498,7 +1499,6 @@ export const getStaffForTriage = async (req, res) => {
 export const submitManualTriage = async (req, res) => {
   try {
     const {
-      triageNurseId,
       patientId,
       encounterId,
       selectedBed,
@@ -1575,7 +1575,7 @@ export const submitManualTriage = async (req, res) => {
 
     // Use authenticated nurse from middleware details
     const authUser = req.user || {};
-    const nursId = authUser._id?.toString() || triageNurseId;
+    const nursId = authUser._id?.toString();
     const triageNurseName = authUser.name || `${authUser.firstName || ''} ${authUser.lastName || ''}`.trim() || 'Unknown Nurse';
     const triageNurseSurname = authUser.lastName || authUser.surname || '';
     const triageNurseRole = authUser.role || authUser.systemRole || 'NURSE';
@@ -1588,7 +1588,7 @@ export const submitManualTriage = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Missing required fields",
-        required: ["nurse_id (from auth)", "manualSatsLevel", "triageReasoningNotes", "assignedNurseId", "assignedPhysicianId"]
+        required: ["authenticated nurse", "manualSatsLevel", "triageReasoningNotes", "assignedNurseId", "assignedPhysicianId"]
       });
     }
 
@@ -1610,23 +1610,6 @@ export const submitManualTriage = async (req, res) => {
       });
     }
 
-    const assignedPhysician = assignedPhysicianId
-      ? await ClinicalStaff.findById(assignedPhysicianId).select('firstName lastName name specialty role').lean()
-      : null;
-    const assignedNurse = assignedNurseId
-      ? await ClinicalStaff.findById(assignedNurseId).select('firstName lastName name specialty role').lean()
-      : null;
-
-    const getClinicianDisplayName = (clinician) => {
-      if (!clinician) return null;
-      return clinician.name || `${clinician.firstName || ''} ${clinician.lastName || ''}`.trim() || null;
-    };
-
-    const assignedPhysicianDisplayName = assignedPhysicianName || getClinicianDisplayName(assignedPhysician) || 'Not Assigned';
-    const assignedNurseDisplayName = assignedNurseName || getClinicianDisplayName(assignedNurse) || 'Assigned Nurse';
-    const assignedPhysicianSpecialty = assignedPhysician?.specialty || 'General';
-    const assignedNurseSpecialty = assignedNurse?.specialty || 'Nursing';
-    
     const hospitalId = triageNurse.hospitalId || triageHospitalId;
     if (!hospitalId) {
       return res.status(400).json({
@@ -1634,6 +1617,40 @@ export const submitManualTriage = async (req, res) => {
         error: "Nurse not associated with a hospital"
       });
     }
+    if (!mongoose.isValidObjectId(assignedPhysicianId) || !mongoose.isValidObjectId(assignedNurseId)) {
+      return res.status(422).json({ success: false, error: 'Choose valid staff members from the available assignment list.' });
+    }
+
+    const [assignedPhysician, assignedNurse] = await Promise.all([
+      ClinicalStaff.findOne({ _id: assignedPhysicianId, hospitalId })
+        .select('firstName lastName name clinicalSpecialty systemRole')
+        .lean(),
+      ClinicalStaff.findOne({ _id: assignedNurseId, hospitalId })
+        .select('firstName lastName name clinicalSpecialty systemRole')
+        .lean()
+    ]);
+    if (!assignedPhysician || assignedPhysician.systemRole !== 'PHYSICIAN') {
+      return res.status(422).json({ success: false, error: 'Select a physician from this hospital.' });
+    }
+    if (!assignedNurse || assignedNurse.systemRole !== 'NURSE') {
+      return res.status(422).json({ success: false, error: 'Select a nurse from this hospital.' });
+    }
+
+    if (String(assignedNurseId) === String(nursId)) {
+      const dutyRole = await getTodayShiftAssignmentRole({ hospitalId, staffId: nursId });
+      if (!isSelfAssignmentAllowed(nursId, assignedNurseId, dutyRole)) {
+        return res.status(422).json({
+          success: false,
+          error: 'A triage nurse cannot be assigned as the downstream clinical nurse. Assign a different nurse or update the shift duty role first.'
+        });
+      }
+    }
+
+    const getClinicianDisplayName = (clinician) => clinician.name || `${clinician.firstName || ''} ${clinician.lastName || ''}`.trim() || null;
+    const assignedPhysicianDisplayName = assignedPhysicianName || getClinicianDisplayName(assignedPhysician) || 'Not Assigned';
+    const assignedNurseDisplayName = assignedNurseName || getClinicianDisplayName(assignedNurse) || 'Assigned Nurse';
+    const assignedPhysicianSpecialty = assignedPhysician.clinicalSpecialty || 'General';
+    const assignedNurseSpecialty = assignedNurse.clinicalSpecialty || 'Nursing';
     
     console.log(`[TRIAGE] Hospital: ${hospitalId}, Nurse: ${triageNurse.firstName} ${triageNurse.lastName}`);
 

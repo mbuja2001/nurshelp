@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { decodeJwt } from '../../utils/jwt';
+import SidebarLayout from '../../Dashboard/SidebarLayout';
+import EhrContextPanel from '../diagnostics/EhrContextPanel';
+import SpecialistDashboardContext from './SpecialistDashboardContext';
 import './PathologyDashboard.css';
 
 /**
@@ -16,7 +19,7 @@ import './PathologyDashboard.css';
  *   - Track result acknowledgment by physician
  */
 
-const BACKEND_URL = 'http://localhost:5001';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 const PathologyDashboard = ({ config }) => {
   const navigate = useNavigate();
@@ -27,7 +30,8 @@ const PathologyDashboard = ({ config }) => {
   const [labQueue, setLabQueue] = useState([]);
   const [selectedLabRequest, setSelectedLabRequest] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [filterPriority, setFilterPriority] = useState('ALL');
 
   const [reportForm, setReportForm] = useState({
@@ -39,11 +43,12 @@ const PathologyDashboard = ({ config }) => {
   const [newRecommendation, setNewRecommendation] = useState('');
 
   // ============ FETCH LAB REQUESTS ============
-  const fetchLabRequests = async (status = 'PENDING') => {
+  const fetchLabRequests = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${BACKEND_URL}/api/lab-requests/queue/requests?specialty=PATHOLOGY&status=${status}`, {
+      const response = await fetch(`${BACKEND_URL}/api/lab-requests/queue/requests?specialty=PATHOLOGY`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -57,10 +62,10 @@ const PathologyDashboard = ({ config }) => {
 
       const data = await response.json();
       setLabQueue(data.lab_requests || []);
-      console.log(`[PATHOLOGY] Fetched ${data.lab_requests?.length || 0} ${status} lab requests`);
+      console.log(`[PATHOLOGY] Fetched ${data.lab_requests?.length || 0} lab requests`);
     } catch (err) {
       console.error('[PATHOLOGY] Fetch error:', err);
-      alert(`Error fetching lab requests: ${err.message}`);
+      setLoadError(err.message || 'Unable to load pathology requests');
     } finally {
       setLoading(false);
     }
@@ -68,7 +73,9 @@ const PathologyDashboard = ({ config }) => {
 
   useEffect(() => {
     console.log('[PATHOLOGY] Dashboard loaded');
-    fetchLabRequests('PENDING');
+    fetchLabRequests();
+    const interval = setInterval(fetchLabRequests, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   // ============ TAB SWITCHING ============
@@ -76,16 +83,6 @@ const PathologyDashboard = ({ config }) => {
     setActiveTab(tab);
     setSelectedLabRequest(null);
 
-    const statusMap = {
-      'pending': 'PENDING',
-      'in-progress': 'ACKNOWLEDGED',
-      'completed': 'COMPLETED',
-      'submitted': 'REVIEWED'
-    };
-
-    if (statusMap[tab]) {
-      fetchLabRequests(statusMap[tab]);
-    }
   };
 
   // ============ ACCEPT LAB REQUEST ============
@@ -117,8 +114,7 @@ const PathologyDashboard = ({ config }) => {
 
       alert(`✓ Lab request accepted: ${labRequest.lab_type}`);
       setSelectedLabRequest(null);
-      fetchLabRequests('PENDING');
-      fetchLabRequests('ACKNOWLEDGED');
+      fetchLabRequests();
     } catch (err) {
       console.error('[PATHOLOGY] Accept error:', err);
       alert(`Error: ${err.message}`);
@@ -160,7 +156,7 @@ const PathologyDashboard = ({ config }) => {
       setShowReportModal(false);
       setReportForm({ report_content: '', clinical_impression: '', recommendations: [], report_images: [] });
       setSelectedLabRequest(null);
-      fetchLabRequests('ACKNOWLEDGED');
+      fetchLabRequests();
     } catch (err) {
       console.error('[PATHOLOGY] Submit report error:', err);
       alert(`Error: ${err.message}`);
@@ -187,10 +183,16 @@ const PathologyDashboard = ({ config }) => {
   };
 
   // ============ FILTER QUEUE ============
-  const filteredQueue = labQueue.filter(req => {
-    if (filterPriority === 'ALL') return true;
-    return req.priority === filterPriority;
-  });
+  const tabStatuses = {
+    pending: ['PENDING'],
+    'in-progress': ['ACKNOWLEDGED', 'IN_PROGRESS'],
+    completed: ['COMPLETED'],
+    submitted: ['REVIEWED']
+  };
+  const filteredQueue = labQueue.filter(req =>
+    tabStatuses[activeTab].includes(req.status) &&
+    (filterPriority === 'ALL' || req.priority === filterPriority)
+  );
 
   // ============ PRIORITY COLOR MAPPING ============
   const getPriorityColor = (priority) => {
@@ -208,6 +210,7 @@ const PathologyDashboard = ({ config }) => {
     return (
       <div
         key={labRequest.request_id}
+        className="specialist-worklist-card"
         style={{
           padding: '18px',
           borderRadius: '16px',
@@ -326,9 +329,12 @@ const PathologyDashboard = ({ config }) => {
   };
 
   return (
-    <div style={{
+    <SidebarLayout username={userInfo?.name || 'Pathologist'}>
+      <div className="specialist-dashboard specialist-dashboard-pathology" style={{
       display: 'flex',
-      minHeight: '100vh',
+      height: '100%',
+      minHeight: 0,
+      width: '100%',
       background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
       color: '#e2e8f0',
       fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif'
@@ -362,15 +368,17 @@ const PathologyDashboard = ({ config }) => {
               </div>
               <div style={{ padding: '8px 14px', borderRadius: '20px', background: 'rgba(10,185,129,0.15)', border: '1px solid rgba(10,185,129,0.3)' }}>
                 <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600, textTransform: 'uppercase' }}>
-                  In Progress: {labQueue.filter(r => r.status === 'ACKNOWLEDGED').length}
+                  In Progress: {labQueue.filter(r => ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(r.status)).length}
                 </span>
               </div>
             </div>
           </div>
         </header>
 
+        <SpecialistDashboardContext specialty="PATHOLOGY" config={config} />
+
         {/* TABS */}
-        <div style={{
+        <div id="specialist-worklist" className="specialist-worklist-tabs" style={{
           display: 'flex',
           gap: '8px',
           padding: '16px 32px',
@@ -380,12 +388,14 @@ const PathologyDashboard = ({ config }) => {
         }}>
           {[
             { key: 'pending', label: '📥 Pending Tests', count: labQueue.filter(r => r.status === 'PENDING').length },
-            { key: 'in-progress', label: '⏳ In Progress', count: labQueue.filter(r => r.status === 'ACKNOWLEDGED').length },
-            { key: 'completed', label: '✓ Ready to Report', count: labQueue.filter(r => r.status === 'COMPLETED' || r.status === 'IN_PROGRESS').length },
-            { key: 'submitted', label: '📤 Reported', count: labQueue.filter(r => r.status === 'REVIEWED' || r.status === 'COMPLETED').length }
+            { key: 'in-progress', label: '⏳ In Progress', count: labQueue.filter(r => ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(r.status)).length },
+            { key: 'completed', label: '✓ Results Submitted', count: labQueue.filter(r => r.status === 'COMPLETED').length },
+            { key: 'submitted', label: '✓ Physician Reviewed', count: labQueue.filter(r => r.status === 'REVIEWED').length }
           ].map(tab => (
             <button
               key={tab.key}
+            type="button"
+            aria-pressed={activeTab === tab.key}
               onClick={() => handleTabChange(tab.key)}
               style={{
                 padding: '10px 16px',
@@ -401,13 +411,13 @@ const PathologyDashboard = ({ config }) => {
                 borderBottom: activeTab === tab.key ? '2px solid #a855f7' : '2px solid transparent'
               }}
             >
-              {tab.label} ({tab.count})
+              {tab.label} ({loading ? '...' : loadError ? '—' : tab.count})
             </button>
           ))}
         </div>
 
         {/* CONTENT AREA */}
-        <div style={{ flex: 1, display: 'flex', gap: '20px', padding: '20px 32px', overflow: 'hidden' }}>
+        <div className="specialist-worklist-content" style={{ flex: 1, display: 'flex', gap: '20px', padding: '20px 32px', overflow: 'hidden' }}>
           <div style={{
             flex: activeTab === 'pending' || activeTab === 'in-progress' ? '0 0 45%' : '1',
             display: 'flex',
@@ -420,6 +430,8 @@ const PathologyDashboard = ({ config }) => {
               {['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'].map(priority => (
                 <button
                   key={priority}
+                  type="button"
+                  aria-pressed={filterPriority === priority}
                   onClick={() => setFilterPriority(priority)}
                   style={{
                     padding: '6px 12px',
@@ -435,11 +447,15 @@ const PathologyDashboard = ({ config }) => {
                   {priority}
                 </button>
               ))}
-            </div>
+              </div>
 
             {loading ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 20px' }}>
                 Loading lab tests...
+              </div>
+            ) : loadError ? (
+              <div role="alert" style={{ textAlign: 'center', color: '#fca5a5', padding: '40px 20px' }}>
+                {loadError}
               </div>
             ) : filteredQueue.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 20px' }}>
@@ -452,7 +468,7 @@ const PathologyDashboard = ({ config }) => {
 
           {/* RIGHT PANEL */}
           {selectedLabRequest && (
-            <div style={{
+            <div className="specialist-detail-panel" style={{
               flex: '0 0 55%',
               display: 'flex',
               flexDirection: 'column',
@@ -531,6 +547,8 @@ const PathologyDashboard = ({ config }) => {
                 </div>
               </div>
 
+              <EhrContextPanel context={selectedLabRequest.ehrContext} />
+
               {/* ACTION BUTTONS */}
               {activeTab === 'pending' && selectedLabRequest.status === 'PENDING' && (
                 <button
@@ -551,7 +569,7 @@ const PathologyDashboard = ({ config }) => {
                 </button>
               )}
 
-              {activeTab === 'in-progress' && selectedLabRequest.status === 'ACKNOWLEDGED' && (
+              {activeTab === 'in-progress' && ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(selectedLabRequest.status) && (
                 <button
                   onClick={() => setShowReportModal(true)}
                   style={{
@@ -572,11 +590,12 @@ const PathologyDashboard = ({ config }) => {
             </div>
           )}
         </div>
+
       </main>
 
       {/* REPORT MODAL */}
       {showReportModal && selectedLabRequest && (
-        <div style={{
+        <div className="specialist-report-backdrop" style={{
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.7)',
@@ -586,7 +605,7 @@ const PathologyDashboard = ({ config }) => {
           zIndex: 999
         }}
         onClick={() => setShowReportModal(false)}>
-          <div style={{
+          <div className="specialist-report-modal" style={{
             background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))',
             border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: '16px',
@@ -756,7 +775,8 @@ const PathologyDashboard = ({ config }) => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </SidebarLayout>
   );
 };
 

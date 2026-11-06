@@ -218,6 +218,107 @@ export const createBedsBatch = async (req, res) => {
 };
 
 // =====================================================
+// ADMIN BED CONFIGURATION MANAGEMENT
+// =====================================================
+
+export const getBedConfigurations = async (req, res) => {
+  try {
+    const beds = await Bed.find({ hospitalId: req.hospitalId }).sort({ ward_unit: 1, room_number: 1, bed_id: 1 }).lean();
+    const schedules = await BedSchedule.find({ bedId: { $in: beds.map((bed) => bed.bed_id) } }).lean();
+    const scheduleByBedId = new Map(schedules.map((schedule) => [schedule.bedId, schedule]));
+    res.json({ success: true, beds: beds.map((bed) => ({ ...bed, schedule: scheduleByBedId.get(bed.bed_id) || null })) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+const findOrCreateWardForBed = async (hospitalId, wardUnit) => {
+  const department = normalizeWardDepartment(wardUnit);
+  const configuredWard = await Ward.findOne({
+    hospitalId,
+    wardName: String(wardUnit).trim(),
+    isActive: true
+  });
+  if (configuredWard) return configuredWard;
+
+  const departmentWard = await Ward.findOne({ hospitalId, department, isActive: true });
+  if (departmentWard) return departmentWard;
+
+  return Ward.create({
+    wardId: `${hospitalId}-${department}`,
+    wardName: `${department} Ward`,
+    department,
+    hospitalId,
+    location: { floor: 1, wing: 'Main', area: '' },
+    totalBeds: 1,
+    availableBeds: 1,
+    isActive: true
+  });
+};
+
+export const createBedConfiguration = async (req, res) => {
+  try {
+    const { bed_id, ward_unit, room_number = '', sub_unit, equipment_baseline = [], special_characteristics = [], infection_control_tier = 'Standard' } = req.body;
+    if (!bed_id || !ward_unit) return res.status(400).json({ success: false, message: 'Bed ID and ward are required' });
+    const existing = await Bed.findOne({ hospitalId: req.hospitalId, bed_id });
+    if (existing) return res.status(409).json({ success: false, message: `Bed ${bed_id} already exists` });
+    const created = await Bed.create({ hospitalId: req.hospitalId, bed_id, ward_unit, room_number, sub_unit, equipment_baseline, special_characteristics, infection_control_tier, createdBy: req.user?._id });
+    const department = normalizeWardDepartment(ward_unit);
+    const ward = await findOrCreateWardForBed(req.hospitalId, ward_unit);
+    const schedule = await BedSchedule.create({ wardId: ward._id, bedId: bed_id, roomNumber: room_number || bed_id, department, status: 'AVAILABLE', bedType: inferBedType(created), hasMonitor: equipment_baseline.some((item) => /monitor|ventilator|defibrillator|dialysis|oxygen/i.test(item)), hasVentilator: equipment_baseline.some((item) => /ventilator/i.test(item)), hasDialysis: equipment_baseline.some((item) => /dialysis/i.test(item)) });
+    await Ward.updateOne({ _id: ward._id }, { $addToSet: { beds: schedule._id } });
+    res.status(201).json({ success: true, bed: { ...created.toObject(), schedule } });
+  } catch (err) {
+    const status = err.name === 'ValidationError' ? 400 : 500;
+    res.status(status).json({ success: false, message: err.message });
+  }
+};
+
+export const updateBedConfiguration = async (req, res) => {
+  try {
+    const { bedId } = req.params;
+    const updates = (({ bed_id, ward_unit, room_number, sub_unit, equipment_baseline, special_characteristics, infection_control_tier }) => ({ bed_id, ward_unit, room_number, sub_unit, equipment_baseline, special_characteristics, infection_control_tier }))(req.body);
+    Object.keys(updates).forEach((key) => updates[key] === undefined && delete updates[key]);
+    const existingSchedule = await BedSchedule.findOne({ bedId });
+    const bed = await Bed.findOneAndUpdate({ hospitalId: req.hospitalId, bed_id: bedId }, { $set: updates }, { new: true, runValidators: true });
+    if (!bed) return res.status(404).json({ success: false, message: 'Bed not found' });
+    const equipment = bed.equipment_baseline || [];
+    const department = normalizeWardDepartment(bed.ward_unit);
+    const targetWard = await findOrCreateWardForBed(req.hospitalId, bed.ward_unit);
+    const schedule = await BedSchedule.findOneAndUpdate(
+      { bedId },
+      { $set: { wardId: targetWard._id, roomNumber: bed.room_number || bed.bed_id, department, hasMonitor: equipment.some((item) => /monitor|ventilator|defibrillator|dialysis|oxygen/i.test(item)), hasVentilator: equipment.some((item) => /ventilator/i.test(item)), hasDialysis: equipment.some((item) => /dialysis/i.test(item)) } },
+      { new: true }
+    );
+    if (schedule && existingSchedule && String(existingSchedule.wardId) !== String(targetWard._id)) {
+      await Ward.updateOne({ _id: existingSchedule.wardId }, { $pull: { beds: schedule._id }, $inc: { totalBeds: -1, availableBeds: schedule.status === 'AVAILABLE' ? -1 : 0 } });
+      await Ward.updateOne({ _id: targetWard._id }, { $addToSet: { beds: schedule._id }, $inc: { totalBeds: 1, availableBeds: schedule.status === 'AVAILABLE' ? 1 : 0 } });
+    } else if (schedule && !existingSchedule) {
+      await Ward.updateOne({ _id: targetWard._id }, { $addToSet: { beds: schedule._id }, $inc: { totalBeds: 1, availableBeds: schedule.status === 'AVAILABLE' ? 1 : 0 } });
+    }
+    res.json({ success: true, bed: { ...bed.toObject(), schedule } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const deleteBedConfiguration = async (req, res) => {
+  try {
+    const { bedId } = req.params;
+    const bed = await Bed.findOne({ hospitalId: req.hospitalId, bed_id: bedId });
+    if (!bed) return res.status(404).json({ success: false, message: 'Bed not found' });
+    const schedule = await BedSchedule.findOne({ bedId });
+    if (schedule?.status === 'OCCUPIED' || schedule?.currentEncounterId) return res.status(409).json({ success: false, message: 'Occupied beds cannot be deleted. Discharge the patient first.' });
+    await Promise.all([Bed.deleteOne({ _id: bed._id }), BedSchedule.deleteOne({ bedId })]);
+    if (schedule) await Ward.updateMany({ beds: schedule._id }, { $pull: { beds: schedule._id }, $inc: { totalBeds: -1, availableBeds: -1 } });
+    res.json({ success: true, message: `Bed ${bedId} deleted` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+// =====================================================
 // GET WARD DETAILS WITH BED STATUS
 // =====================================================
 
@@ -228,8 +329,16 @@ export const createBedsBatch = async (req, res) => {
 export const getWardsWithBedStatus = async (req, res) => {
   try {
     const { department } = req.query;
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      return res.status(400).json({
+        success: false,
+        message: "Hospital context is required"
+      });
+    }
 
-    const query = department ? { department, isActive: true } : { isActive: true };
+    const query = { hospitalId, isActive: true };
+    if (department) query.department = department;
 
     const wards = await Ward.find(query)
       .sort({ department: 1, wardId: 1 })
@@ -294,9 +403,15 @@ export const getWardsWithBedStatus = async (req, res) => {
 export const getWardDetail = async (req, res) => {
   try {
     const { wardId } = req.params;
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      return res.status(400).json({
+        success: false,
+        message: "Hospital context is required"
+      });
+    }
 
-    // Find ward
-    const ward = await Ward.findById(wardId);
+    const ward = await Ward.findOne({ _id: wardId, hospitalId });
     if (!ward) {
       return res.status(404).json({
         success: false,
@@ -305,7 +420,7 @@ export const getWardDetail = async (req, res) => {
     }
 
     // Get all beds in ward with full details
-    const beds = await BedSchedule.find({ wardId })
+    const beds = await BedSchedule.find({ wardId: ward._id })
       .populate("currentEncounterId", "patient triage diagnosis severity status assignedPhysicianName assignedNurseName")
       .sort({ bedId: 1 })
       .lean();

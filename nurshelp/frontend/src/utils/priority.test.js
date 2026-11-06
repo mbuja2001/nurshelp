@@ -1,4 +1,4 @@
-import { computePriority } from './priority';
+import { computePriority, waitStartFor } from './priority';
 
 const waitingPatient = (overrides = {}) => ({
   triageCategory: 'Yellow',
@@ -84,5 +84,36 @@ describe('computePriority SATS logic', () => {
     const res = computePriority(p, now);
     expect(res.label).toBe('Low');
   });
-});
 
+  it('normalizes numeric and lowercase priority codes into the correct SATS category', () => {
+    const now = 5_000_000_000_000;
+    const numeric = computePriority({ report: { priority_code: 1 } }, now);
+    const lowercase = computePriority({ report: { satsCategory: 'red' } }, now);
+    expect(numeric.category).toBe('Red');
+    expect(lowercase.category).toBe('Red');
+  });
+
+  it('uses API snake_case timestamps and nested triage reports', () => {
+    const now = Date.parse('2026-09-11T12:00:00.000Z');
+    const priority = computePriority({
+      triage: { aiTriageReport: { priority_code: 'ORANGE' } },
+      created_at: '2026-09-11T11:00:00.000Z'
+    }, now);
+    expect(priority.category).toBe('Orange');
+    expect(priority.waitRatio).toBeGreaterThan(1);
+  });
+
+  it('prefers an explicit manual SATS category over numeric encounter severity', () => {
+    const priority = computePriority({
+      severity: 1,
+      manual_triage_report: { satsLevel: 'GREEN' },
+      ai_triage_report: { calculated_priority: 'YELLOW' }
+    }, Date.parse('2026-09-11T12:00:00.000Z'));
+
+    expect(priority.category).toBe('Green');
+  });
+
+  it('resolves the alert wait timestamp from snake_case encounter fields', () => {
+    expect(waitStartFor({ created_at: '2026-09-11T11:00:00.000Z' })).toBe('2026-09-11T11:00:00.000Z');
+  });
+});

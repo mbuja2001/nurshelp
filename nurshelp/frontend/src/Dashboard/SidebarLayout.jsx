@@ -8,8 +8,9 @@ import nhpLogo from './NHP_Icon.png';
 import { styles } from "./styles";
 import { decodeJwt, normalizeRoleLabel } from "../utils/jwt";
 import { notificationService } from '../services/notificationService';
+import { clearAuthSession } from '../utils/authSession';
 
-const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }) => {
+const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -22,7 +23,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   const [hospitalId, setHospitalId] = useState(null);
   
   // Beds and Consults state - now with real-time fetching
-  const [bedState, setBedState] = useState({ total: 12, occupied: 9, cleaning: [{ bed: 7, since: Date.now() - 600000 }], monitoredOccupied: 6 });
+  const [bedState, setBedState] = useState({ total: 0, occupied: 0, cleaning: [], monitoredOccupied: 0 });
+  const [bedStatsLoading, setBedStatsLoading] = useState(true);
   const [onCallConsults, setOnCallConsults] = useState([]);
   const [onCallLoading, setOnCallLoading] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -49,9 +51,13 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
 
   // Fetch real-time bed stats from backend
   useEffect(() => {
-    if (!hospitalId) return;
+    if (!hospitalId) {
+      setBedStatsLoading(false);
+      return undefined;
+    }
 
     const fetchBedStats = async () => {
+      setBedStatsLoading(true);
       try {
         const token = localStorage.getItem('token');
         const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -74,6 +80,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
         }
       } catch (err) {
         console.error('Error fetching bed stats:', err);
+      } finally {
+        setBedStatsLoading(false);
       }
     };
 
@@ -186,6 +194,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
   const pathologyPath = normalizedRole === 'PATHOLOGIST' ? '/pathology' : '/lab-requests?specialty=PATHOLOGY';
 
   const isManager = ['ADMIN', 'MANAGER'].includes((decoded?.role || '').toUpperCase());
+  const isTechnician = (decoded?.role || '').toUpperCase() === 'TECHNICIAN';
 
   const navItems = [
     { id: 'nav-dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiHome size={16} /> },
@@ -205,9 +214,18 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
     { id: 'nav-licenses', label: 'Clinical Licenses', path: '/licenses', icon: <FiCreditCard size={16} /> },
     { id: 'nav-help', label: 'Help', path: '/help', icon: <FiHelpCircle size={16} /> }
   ];
+  const visibleNavItems = isTechnician
+    ? navItems.filter(({ id }) => ['nav-dashboard', 'nav-profile', 'nav-help'].includes(id))
+    : navItems;
 
   const isActive = (path) => location.pathname === path;
   const isSidebarCollapsed = !sidebarOpen;
+
+  const logout = () => {
+    clearAuthSession();
+    if (handleLogout) handleLogout();
+    navigate('/dashboard?login=1', { replace: true });
+  };
 
   // Sidebar drag handlers
   useEffect(() => {
@@ -339,9 +357,9 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           color: #10b981;
         }
         .sidebar-icon-button.logout:hover {
-          background: #fff5f5;
-          border-color: #fecaca;
-          color: #ef4444;
+          background: #f1f5f9;
+          border-color: #e2e8f0;
+          color: #10b981;
         }
 
         .sidebar-header-brand,
@@ -616,7 +634,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
 
         {isSidebarCollapsed ? (
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-            {navItems.map(item => (
+            {visibleNavItems.map(item => (
               <button
                 key={item.id}
                 type="button"
@@ -631,10 +649,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
               type="button"
               title="Log out"
               className="sidebar-icon-button logout"
-              onClick={() => {
-                localStorage.removeItem('token');
-                handleLogout();
-              }}
+              onClick={logout}
               style={{ marginTop: '8px' }}
             >
               <FiLogOut size={16} />
@@ -644,7 +659,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
           <div style={{ width: '100%' }}>
             {/* Navigation Links */}
             <nav style={{ marginBottom: 20 }}>
-              {navItems.map(item => (
+              {visibleNavItems.map(item => (
                   <div
                     key={item.id}
                     className={`nav-item ${isActive(item.path) ? 'active' : ''}`}
@@ -687,8 +702,8 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
             <section style={{ marginBottom: 16 }}>
               <h4 style={{ margin: '6px 0', fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Beds Allocation</h4>
               <div style={{ fontSize: 14 }}>
-                <div style={{ margin: '0.3rem 0', fontSize: 13 }}>Capacity: {bedState.occupied}/{bedState.total} occupied</div>
-                <div style={{ margin: '0.3rem 0', fontSize: 13 }}>Monitored beds left: {Math.max(0, bedState.total - bedState.monitoredOccupied)}</div>
+                <div style={{ margin: '0.3rem 0', fontSize: 13 }}>Capacity: {bedStatsLoading ? 'Loading...' : `${bedState.occupied}/${bedState.total} occupied`}</div>
+                <div style={{ margin: '0.3rem 0', fontSize: 13 }}>Monitored beds left: {bedStatsLoading ? 'Loading...' : Math.max(0, bedState.total - bedState.monitoredOccupied)}</div>
                 <div style={{ marginTop: 8 }}>
                   {bedState.cleaning.map(c => (
                     <div key={c.bed} style={{ margin: '0.3rem 0', fontSize: 12, color: '#444' }}>
@@ -748,10 +763,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = () => {} }
             {/* Logout Button */}
             <section style={{ marginTop: 20 }}>
               <button
-                onClick={() => {
-                  localStorage.removeItem("token");
-                  handleLogout();
-                }}
+                onClick={logout}
                 style={{
                   width: '100%',
                   display: 'flex',

@@ -1,6 +1,6 @@
 lets make sure physician views, nurse triage views, and clinical nurses views of reports are correctly configured,  surgery reports are correctly configured, prescription view reports are correctly configured
 
-introduce call icon for bookings and schedules
+introduce call icon for patient bookings and schedules as well as emergency call logs and language transcription
 
 lets make sure our EHR system application is adaptable to all ehr protocols
 

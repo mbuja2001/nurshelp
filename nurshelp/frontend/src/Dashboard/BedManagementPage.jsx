@@ -32,7 +32,11 @@ const BedManagementPage = ({ navigate, handleLogout }) => {
   const fetchWardsData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${BACKEND_URL}/api/beds/wards`);
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Authentication required to load wards");
+      const response = await fetch(`${BACKEND_URL}/api/beds/wards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
       if (!response.ok) throw new Error("Failed to fetch wards");
       

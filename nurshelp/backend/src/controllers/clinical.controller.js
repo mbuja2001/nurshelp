@@ -7,6 +7,7 @@ import { Encounter } from "../models/encounter.model.js";
 import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { StaffClockRecord } from "../models/staffClockRecord.model.js";
 import { BedSchedule } from "../models/bedSchedule.model.js";
+import { getClinicalStaffAssignmentAvailability } from "../utils/clinicalStaffAvailability.js";
 
 export const getEncounterPatientIdentifier = (encounter = {}) => {
   const patient = encounter?.patient || {};
@@ -51,7 +52,7 @@ export const findActiveHospitalizationForPatient = async (encounter, EncounterMo
  */
 export const getClockedInStaff = async (req, res) => {
   try {
-    const { role, encounterId } = req.query; // Optional filter: PHYSICIAN, NURSE, TRIAGE_NURSE
+    const { role, encounterId, includeRoster } = req.query; // Optional filter: PHYSICIAN, NURSE, TRIAGE_NURSE
     const hospitalId = req.hospitalId;
 
     if (!hospitalId) {
@@ -76,39 +77,77 @@ export const getClockedInStaff = async (req, res) => {
 
     // Find all staff clocked in today (status = CLOCKED_IN or ON_BREAK)
     const clockQuery = {
+      hospitalId,
       date: { $gte: today, $lt: tomorrow },
-      status: { $in: ["CLOCKED_IN", "ON_BREAK"] }
+      status: { $in: ["CLOCKED_IN", "ON_BREAK"] },
+      clockOutTime: null
     };
 
     const clockRecords = await StaffClockRecord.find(clockQuery)
       .populate("staffId", "firstName lastName email clinicalSpecialty systemRole assignment hospitalId")
+      .populate("shiftId", "status date shiftStart shiftEnd")
       .lean();
 
-    // Extract unique staff IDs and their roles
-    const staffMap = new Map();
+    const onDutyByStaffId = new Map();
     for (const record of clockRecords) {
       if (!record.staffId) continue;
       const recordHospitalId = record.hospitalId?.toString() || record.staffId.hospitalId?.toString();
       if (recordHospitalId !== hospitalId.toString()) continue;
-      if (!staffMap.has(record.staffId._id.toString())) {
-        staffMap.set(record.staffId._id.toString(), {
+      const staffId = record.staffId._id.toString();
+      if (!onDutyByStaffId.has(staffId)) {
+        onDutyByStaffId.set(staffId, record);
+      }
+    }
+
+    let staff;
+    if (String(includeRoster).toLowerCase() === "true") {
+      const roster = await ClinicalStaff.find({
+        hospitalId,
+        status: "ACTIVE",
+        systemRole: { $in: ["NURSE", "PHYSICIAN"] }
+      })
+        .select("firstName lastName clinicalSpecialty systemRole assignment")
+        .sort({ lastName: 1, firstName: 1 })
+        .lean();
+
+      staff = roster.map((member) => {
+        const clockRecord = onDutyByStaffId.get(member._id.toString());
+        const availability = getClinicalStaffAssignmentAvailability(clockRecord);
+        return {
+          id: member._id,
+          name: `${member.firstName} ${member.lastName}`.trim(),
+          specialty: member.clinicalSpecialty,
+          role: member.systemRole,
+          department: member.assignment?.department,
+          ...availability,
+          clock_status: clockRecord?.status || null,
+          clock_in_time: clockRecord?.clockInTime || null,
+          clock_out_time: clockRecord?.clockOutTime || null,
+          shift_start: clockRecord?.clockInTime || null,
+          shift_end: clockRecord?.clockOutTime || null,
+          last_break_end: clockRecord?.breakEndTime || null
+        };
+      });
+    } else {
+      staff = Array.from(onDutyByStaffId.values(), (record) => {
+        const availability = getClinicalStaffAssignmentAvailability(record);
+        return {
           id: record.staffId._id,
-          name: `${record.staffId.firstName} ${record.staffId.lastName}`,
+          name: `${record.staffId.firstName} ${record.staffId.lastName}`.trim(),
           email: record.staffId.email,
           specialty: record.staffId.clinicalSpecialty,
           role: record.staffId.systemRole,
           department: record.staffId.assignment?.department,
+          ...availability,
           clock_status: record.status,
           clock_in_time: record.clockInTime,
           clock_out_time: record.clockOutTime,
           shift_start: record.clockInTime,
           shift_end: record.clockOutTime,
           last_break_end: record.breakEndTime
-        });
-      }
+        };
+      });
     }
-
-    let staff = Array.from(staffMap.values());
 
     // Filter by role if specified (PHYSICIAN, NURSE, or both)
     if (role) {
@@ -175,6 +214,9 @@ export const getClockedInStaff = async (req, res) => {
           specialty: s.specialty || "General",
           score: 85 + Math.floor(Math.random() * 15), // Mock score 85-100
           reason,
+          available: s.available,
+          availabilityStatus: s.availabilityStatus,
+          clock_status: s.clock_status,
           clock_in_time: s.clock_in_time,
           clock_out_time: s.clock_out_time,
           shift_start: s.shift_start,
@@ -192,6 +234,9 @@ export const getClockedInStaff = async (req, res) => {
         score: 75 + Math.floor(Math.random() * 20), // Mock score 75-95
         // Always include nurses as support staff, even if specialty doesn't match exactly
         reason: `Support nursing staff - available for ${specialtyFilter || 'patient care'}`,
+        available: s.available,
+        availabilityStatus: s.availabilityStatus,
+        clock_status: s.clock_status,
         clock_in_time: s.clock_in_time,
         clock_out_time: s.clock_out_time,
         shift_start: s.shift_start,

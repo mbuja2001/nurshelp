@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './StaffScheduleDisplay.css';
+import { canAssignSelfAsDownstreamNurse, fetchCurrentAssignmentIdentity } from '../../utils/assignmentValidation';
+import { decodeJwt } from '../../utils/jwt';
 
 /**
  * StaffScheduleDisplay - Shows available nurses, physicians, specialists, and beds
@@ -18,6 +20,11 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
   const [clinicianSearch, setClinicianSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [workloadById, setWorkloadById] = useState({});
+  const [workloadError, setWorkloadError] = useState(null);
+  const [assignmentIdentity, setAssignmentIdentity] = useState(null);
+  const [assignmentIdentityError, setAssignmentIdentityError] = useState(null);
+  const [assignmentWarning, setAssignmentWarning] = useState(null);
 
   const BACKEND_URL =
     import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
@@ -27,7 +34,14 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
     name: item.name || item.displayName || item.fullName || 'Unknown',
     role: (item.role || item.profession || item.type || fallbackRole).toString().toUpperCase(),
     specialty: item.specialty || item.department || item.team || 'General',
-    available: item.isAvailable !== false,
+    available: item.available === true || item.isAvailable === true || item.availabilityStatus === 'ON_SHIFT',
+    availabilityLabel: item.availabilityStatus === 'ON_BREAK'
+      ? 'On break · unavailable'
+      : item.availabilityStatus === 'OFF_SHIFT' || item.available === false || item.isAvailable === false
+        ? 'Off shift · unavailable'
+        : item.available === true || item.isAvailable === true || item.availabilityStatus === 'ON_SHIFT'
+          ? 'On shift'
+          : 'Availability unverified',
     shiftStart: item.clock_in_time || item.clockInTime || item.shift_start || item.shiftStart || null,
     shiftEnd: item.clock_out_time || item.clockOutTime || item.shift_end || item.shiftEnd || null,
     score: typeof item.score === 'number' ? item.score : item.match ?? item.weight ?? 0
@@ -75,12 +89,22 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
       try {
         setLoading(true);
         setError(null);
+        setWorkloadError(null);
+        setAssignmentIdentityError(null);
         const token = localStorage.getItem('token');
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-        const [staffRes, wardsRes] = await Promise.all([
-          fetch(`${BACKEND_URL}/api/clinical/staff/clocked-in`, { headers }),
-          fetch(`${BACKEND_URL}/api/beds/wards`, { headers })
+        const identityRequest = fetchCurrentAssignmentIdentity(BACKEND_URL, token)
+          .then(setAssignmentIdentity)
+          .catch((identityError) => {
+            setAssignmentIdentity({ userId: String(decodeJwt(token)?.id || ''), dutyRole: null });
+            setAssignmentIdentityError(identityError.message || 'Shift duty could not be verified.');
+          });
+        const [staffRes, wardsRes, workloadRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/clinical/staff/clocked-in?includeRoster=true`, { headers }),
+          fetch(`${BACKEND_URL}/api/beds/wards`, { headers }),
+          fetch(`${BACKEND_URL}/api/operations/clinician-workload`, { headers }),
+          identityRequest
         ]);
 
         if (!staffRes.ok) throw new Error(`Failed to fetch clinicians: ${staffRes.status}`);
@@ -91,8 +115,29 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
 
         const clinicians = (staffData.clinicians || staffData.data?.clinicians || staffData.data || []).map((item) => normalizeClinician(item));
         const allWards = (wardData.wards || wardData.data?.wards || wardData.data || []).map(normalizeWard);
+        let workloadData = null;
+        if (workloadRes.ok) {
+          try {
+            workloadData = await workloadRes.json();
+            if (!Array.isArray(workloadData?.clinicians)) throw new Error('Malformed clinician workload data.');
+          } catch {
+            workloadData = null;
+            setWorkloadError('Workload policy response was invalid. Capacity is unavailable until it can be loaded.');
+          }
+        } else {
+          setWorkloadError(`Workload policy is unavailable (request failed: ${workloadRes.status}).`);
+        }
+        const workloadMap = Object.fromEntries((workloadData?.clinicians || []).map((item) => [String(item.clinicianId || item.id), item]));
 
-        setStaffList(clinicians);
+        setWorkloadById(workloadMap);
+        setStaffList(clinicians.map((clinician) => ({
+          ...clinician,
+          activeCases: workloadMap[String(clinician.id)]?.activeCases ?? workloadMap[clinician.name]?.activeCases ?? 0,
+          activeWorkload: workloadMap[String(clinician.id)]?.activeWorkload ?? workloadMap[clinician.name]?.activeWorkload ?? 0,
+          workloadPercent: workloadMap[String(clinician.id)]?.workloadPercent ?? workloadMap[clinician.name]?.workloadPercent ?? null,
+          workloadStatus: workloadMap[String(clinician.id)]?.workloadStatus || workloadMap[clinician.name]?.workloadStatus || (workloadData ? 'Unconfigured' : 'Unavailable'),
+          capacitySource: workloadMap[String(clinician.id)]?.capacitySource || workloadMap[clinician.name]?.capacitySource || (workloadData ? 'Unconfigured' : 'Unavailable')
+        })));
         setWards(allWards);
         setError(null);
       } catch (err) {
@@ -144,6 +189,11 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
   };
 
   const handleNurseSelect = (nurse) => {
+    if (!canAssignSelfAsDownstreamNurse(assignmentIdentity?.userId, nurse.id, assignmentIdentity?.dutyRole)) {
+      setAssignmentWarning('Your shift assigns you as the triage nurse, so you cannot also be selected as the downstream clinical nurse.');
+      return;
+    }
+    setAssignmentWarning(null);
     setSelectedNurse(nurse);
     if (onStaffSelect.onNurseSelect) onStaffSelect.onNurseSelect(nurse);
   };
@@ -184,6 +234,9 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
   return (
     <div style={containerStyle}>
       {error && <div style={errorStyle}>⚠ {error}</div>}
+      {workloadError && <div style={errorStyle} role="alert">⚠ {workloadError}</div>}
+      {assignmentIdentityError && <div style={errorStyle} role="status">⚠ {assignmentIdentityError} Self-assignment is disabled unless your verified shift duty is Clinical Nurse.</div>}
+      {assignmentWarning && <div style={errorStyle} role="alert">⚠ {assignmentWarning}</div>}
 
       <h3 style={headingStyle}>Available Clinicians & Beds</h3>
 
@@ -200,23 +253,34 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
       <div style={sectionStyle}>
         <h4 style={sectionTitleStyle}>Nurse Selection</h4>
         <div style={staffGridStyle}>
-          {nurses.length > 0 ? nurses.map((nurse) => (
+          {nurses.length > 0 ? nurses.map((nurse) => {
+            const selfAssignmentBlocked = !canAssignSelfAsDownstreamNurse(
+              assignmentIdentity?.userId,
+              nurse.id,
+              assignmentIdentity?.dutyRole
+            );
+            return (
             <div
               key={nurse.id}
               style={{
                 ...staffCardStyle,
                 ...(selectedNurse?.id === nurse.id ? selectedStyle : {}),
-                ...(nurse.available === false ? disabledStyle : {})
+                ...(nurse.available === false || selfAssignmentBlocked ? disabledStyle : {})
               }}
               onClick={() => nurse.available !== false && handleNurseSelect(nurse)}
               role="button"
               tabIndex={0}
+              aria-disabled={nurse.available === false || selfAssignmentBlocked}
+              title={selfAssignmentBlocked ? 'Your current shift duty does not permit self-assignment as the downstream nurse.' : undefined}
             >
               <div style={staffNameStyle}>{nurse.name}</div>
               <div style={staffSpecialtyStyle}>{nurse.specialty}</div>
-              <div style={availabilityBadgeStyle}>{nurse.available ? '✓ Available' : '✗ Off shift'}</div>
+              <div title={workloadError || `Capacity source: ${nurse.capacitySource}`} style={workloadStyle}>
+                {workloadError ? 'Clinician Workload: Unavailable' : `Clinician Workload: ${nurse.activeCases} cases · ${nurse.activeWorkload} load · ${nurse.workloadPercent === null ? 'Unconfigured' : `${nurse.workloadPercent}%`}`}
+              </div>
+              <div style={availabilityBadgeStyle}>{nurse.available ? '✓ On shift' : `✗ ${nurse.availabilityLabel}`}</div>
             </div>
-          )) : <p>No nurses available</p>}
+          );}) : <p>No nurses in the active hospital roster.</p>}
         </div>
       </div>
 
@@ -234,12 +298,14 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
               onClick={() => physician.available !== false && handlePhysicianSelect(physician)}
               role="button"
               tabIndex={0}
+              aria-disabled={physician.available === false}
             >
               <div style={staffNameStyle}>{physician.name}</div>
               <div style={staffSpecialtyStyle}>{physician.specialty}</div>
-              <div style={availabilityBadgeStyle}>{physician.available ? '✓ Available' : '✗ Unavailable'}</div>
+              <div title={workloadError || `Capacity source: ${physician.capacitySource}`} style={workloadStyle}>{workloadError ? 'Clinician Workload: Unavailable' : `Clinician Workload: ${physician.activeCases} cases · ${physician.activeWorkload} load · ${physician.workloadPercent === null ? 'Unconfigured' : `${physician.workloadPercent}%`}`}</div>
+              <div style={availabilityBadgeStyle}>{physician.available ? '✓ On shift' : `✗ ${physician.availabilityLabel}`}</div>
             </div>
-          )) : <p>No physicians available</p>}
+          )) : <p>No physicians in the active hospital roster.</p>}
         </div>
       </div>
 
@@ -258,10 +324,12 @@ function StaffScheduleDisplay({ onStaffSelect = {} }) {
                 onClick={() => specialist.available !== false && handleSpecialistSelect(specialist)}
                 role="button"
                 tabIndex={0}
+                aria-disabled={specialist.available === false}
               >
                 <div style={staffNameStyle}>{specialist.name}</div>
                 <div style={staffSpecialtyStyle}>{specialist.specialty}</div>
-                <div style={availabilityBadgeStyle}>{specialist.available ? '✓ Available' : '✗ Unavailable'}</div>
+                <div title={workloadError || `Capacity source: ${specialist.capacitySource}`} style={workloadStyle}>{workloadError ? 'Clinician Workload: Unavailable' : `Clinician Workload: ${specialist.activeCases} cases · ${specialist.activeWorkload} load · ${specialist.workloadPercent === null ? 'Unconfigured' : `${specialist.workloadPercent}%`}`}</div>
+                <div style={availabilityBadgeStyle}>{specialist.available ? '✓ On shift' : `✗ ${specialist.availabilityLabel}`}</div>
               </div>
             ))}
           </div>
@@ -416,6 +484,13 @@ const staffSpecialtyStyle = {
   fontSize: '12px',
   color: '#64748b',
   marginBottom: '6px'
+};
+
+const workloadStyle = {
+  fontSize: '11px',
+  color: '#475569',
+  marginBottom: '4px',
+  fontWeight: '600'
 };
 
 const bedIdStyle = {

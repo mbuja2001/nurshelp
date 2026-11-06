@@ -14,6 +14,7 @@ import { initializeScheduledJobs } from "./services/scheduledJobs.js";
 
 // Authentication (Unified Login)
 import authRouter from "./routes/auth.route.js";
+import accountHospitalRouter from './routes/accountHospital.routes.js';
 
 // Phase 1: Hospital Registration
 import hospitalRouter from "./routes/hospital.route.js";
@@ -41,11 +42,14 @@ import clinicalRouter from "./routes/clinical.routes.js";
 import labRouter from "./routes/lab.routes.js"; // Lab request workflow
 import prescriptionRouter from "./routes/prescription.route.js";
 import calendarRouter from "./routes/calendar.route.js";
+import analyticsRouter from "./routes/analytics.route.js";
 
 // EHR System - New Routes
 import notificationRouter from "./routes/notification.routes.js";
 import operationsRouter from "./routes/operations.routes.js";
+import hospitalOperationsRouter from "./routes/hospitalOperations.routes.js";
 import patientRouter from "./routes/patient.routes.js";
+import clinicalChartSessionRouter from "./routes/clinicalChartSession.routes.js";
 
 dotenv.config();
 
@@ -180,7 +184,7 @@ app.use(express.urlencoded({ extended: true }));
 // ============================================
 
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:5174"],
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174"],
   credentials: true,
 }));
 
@@ -213,6 +217,7 @@ mongoose.connect(MONGO_URI)
  * Returns JWT token with role for RBAC
  */
 app.use("/api/auth", authRouter);
+app.use('/api/account/hospitals', accountHospitalRouter);
 
 // ============================================
 // HOSPITAL WORKFLOW ROUTES (PHASE-BASED)
@@ -271,6 +276,7 @@ app.use("/api/dashboard", dashboardRouter);
 
 app.use("/api/encounters", encounterRouter);
 app.use("/api/triage", triageRouter);
+app.use("/api/analytics", analyticsRouter);
 app.use("/api/physicians", physicianRouter);  // Unified physician endpoint
 app.use("/api/specialist", specialistRouter);  // Specialist queues and results
 app.use("/api/reports/nurse-confirmed", reportRouter);
@@ -287,6 +293,8 @@ app.use("/api/clinical", clinicalRouter);
 app.use("/api/patients", patientRouter);  // Patient search and EHR retrieval
 app.use("/api/notifications", notificationRouter);  // Handover notifications
 app.use("/api/operations", operationsRouter);  // Shared live operations feed
+app.use("/api/chart-sessions", clinicalChartSessionRouter);
+app.use("/api/admin/hospital-operations", hospitalOperationsRouter);  // Administrator live hospital population
 
 // ============================================
 // HEALTH CHECK ENDPOINT

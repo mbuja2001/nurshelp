@@ -1,10 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiEdit2, FiClock, FiCheckCircle, FiAlertCircle, FiBarChart2 } from 'react-icons/fi';
-import { FaUserNurse } from 'react-icons/fa';
+import { FiX, FiEdit2, FiClock, FiCheckCircle, FiAlertCircle, FiBarChart2, FiUser } from 'react-icons/fi';
 import SidebarLayout from '../SidebarLayout';
+import { decodeJwt } from '../../utils/jwt';
 
 const Profile = ({ nurseName: initialNurseName }) => {
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+  const decodedToken = decodeJwt(localStorage.getItem('token')) || {};
+  const accountRole = String(decodedToken.role || '').toUpperCase();
+  const isManagementAccount = ['ADMIN', 'ADMINISTRATIVE', 'SUPERUSER', 'MANAGER', 'SHIFT_MANAGER', 'DEPARTMENT_MANAGER'].includes(accountRole);
+  const isStaffShiftRole = ['NURSE', 'PHYSICIAN'].includes(accountRole);
+
+  const getAuthenticatedClinicianId = () => {
+    const decoded = decodeJwt(localStorage.getItem('token')) || {};
+    return String(decoded.id || decoded._id || decoded.userId || decoded.staffId || decoded.clinicianId || '');
+  };
 
   // ============ STATE ============
   const [nurse, setNurse] = useState(null);
@@ -24,9 +33,23 @@ const Profile = ({ nurseName: initialNurseName }) => {
   });
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [liveWorkload, setLiveWorkload] = useState(null);
+  const [liveWorkloadLoading, setLiveWorkloadLoading] = useState(false);
 
-  // ============ FETCH NURSE PROFILE ============
+  // ============ FETCH STAFF PROFILE ============
   const fetchNurseProfile = async () => {
+    if (isManagementAccount) {
+      setNurse({
+        firstName: decodedToken.firstName || decodedToken.name || '',
+        lastName: decodedToken.lastName || decodedToken.surname || '',
+        email: decodedToken.email || '',
+        role: accountRole,
+        specialty: decodedToken.specialty || decodedToken.clinicalSpecialty || '',
+        department: decodedToken.department || '',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/staff/profile`, {
@@ -34,7 +57,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
       });
       if (!response.ok) {
         const json = await response.json().catch(() => ({}));
-        throw new Error(json.message || 'Failed to load nurse profile');
+        throw new Error(json.message || 'Failed to load staff profile');
       }
 
       const data = await response.json();
@@ -51,7 +74,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
         shiftSignOut: data.shift?.signOut || '',
       });
     } catch (error) {
-      console.error('Error fetching nurse profile:', error);
+      console.error('Error fetching staff profile:', error);
       setErrorMessage(error.message || 'Unable to load profile.');
     } finally {
       setLoading(false);
@@ -60,7 +83,50 @@ const Profile = ({ nurseName: initialNurseName }) => {
 
   useEffect(() => {
     fetchNurseProfile();
+    if (!isManagementAccount) fetchLiveWorkload();
   }, []);
+
+  const fetchLiveWorkload = async () => {
+    setLiveWorkloadLoading(true);
+    console.info('[PROFILE WORKLOAD] GET', `${BACKEND_URL}/api/operations/clinician-workload`);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/operations/clinician-workload`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        cache: 'no-store'
+      });
+      const data = await response.json().catch(() => ({}));
+      console.info('[PROFILE WORKLOAD] response', {
+        status: response.status,
+        success: data.success,
+        clinicians: data.clinicians?.length || 0,
+        acuityWeights: data.acuityWeightByPriority || {},
+        current: data.clinicians?.find((entry) => String(entry.clinicianId || entry.id || entry._id) === getAuthenticatedClinicianId()) || null
+      });
+      if (!response.ok) throw new Error(data.message || 'Unable to load live workload');
+      const clinicianId = getAuthenticatedClinicianId();
+      const current = (data.clinicians || []).find((entry) => String(entry.clinicianId || entry.id || entry._id) === clinicianId);
+      console.info('[PROFILE WORKLOAD] decoded clinician match', {
+        clinicianId,
+        matched: Boolean(current),
+        matchedRole: current?.role || null,
+        capacity: current?.capacity ?? null,
+        capacitySource: current?.capacitySource || null
+      });
+      setLiveWorkload(current || { clinicianId, activeCases: 0, activeWorkload: 0, workloadPercent: 0, workloadStatus: 'No active cases', capacity: null, capacitySource: 'Not required', acuityByPriority: {}, acuityWeights: {}, acuityWeightSource: 'fallback 1.0x' });
+      if (current) {
+        setLiveWorkload({
+          ...current,
+          acuityWeights: data.acuityWeightByPriority || {},
+          acuityWeightSource: data.acuityWeightSource || 'fallback 1.0x'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching live workload:', error);
+      setLiveWorkload({ unavailable: true });
+    } finally {
+      setLiveWorkloadLoading(false);
+    }
+  };
 
   // ============ MODAL HANDLERS ============
   const openEditModal = () => {
@@ -208,7 +274,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
   if (loading) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
-        <p style={{ color: '#6b7280' }}>Loading nurse profile...</p>
+        <p style={{ color: '#6b7280' }}>Loading profile...</p>
       </div>
     );
   }
@@ -216,7 +282,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
   if (!nurse) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
-        <p style={{ color: '#ef4444' }}>Failed to load nurse profile</p>
+        <p style={{ color: '#ef4444' }}>Failed to load profile</p>
       </div>
     );
   }
@@ -224,7 +290,22 @@ const Profile = ({ nurseName: initialNurseName }) => {
   // ============ RENDER ============
   const username = nurse?.firstName && nurse?.lastName 
     ? `${nurse.firstName} ${nurse.lastName}`
-    : initialNurseName || 'Nurse';
+    : initialNurseName || nurse?.firstName || 'Staff';
+  const roleLabel = String(nurse.role || accountRole || 'Staff').replace(/_/g, ' ');
+  const activeCases = Number(liveWorkload?.activeCases || 0);
+  const hasActiveCases = activeCases > 0;
+  const resolvedCapacityLabel = liveWorkload?.capacity ?? (hasActiveCases ? 'Unconfigured' : 'No active cases');
+  const utilizationLabel = liveWorkload?.workloadPercent != null
+    ? `${liveWorkload.workloadPercent}%`
+    : hasActiveCases ? 'Unconfigured' : '0%';
+  const capacitySourceLabel = hasActiveCases
+    ? (liveWorkload?.capacitySource || 'Unconfigured')
+    : 'Not required';
+  const acuityMixLabel = Object.entries(liveWorkload?.acuityByPriority || {})
+    .map(([key, count]) => `${count} ${key} (${Number(liveWorkload?.acuityWeights?.[key] ?? 1).toFixed(1)}x)`)
+    .join(' · ') || 'No active cases';
+  const acuityWeightSourceLabel = liveWorkload?.acuityWeightSource || 'fallback 1.0x';
+  const workloadHasCapacity = liveWorkload?.capacity != null;
 
   return (
     <SidebarLayout username={username} handleLogout={() => {}}>
@@ -233,12 +314,14 @@ const Profile = ({ nurseName: initialNurseName }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#0f172a' }}>
-            <FaUserNurse size={32} style={{ marginRight: 12, verticalAlign: 'middle', color: '#0369a1' }} />
-            Nurse Profile
+            <FiUser size={32} style={{ marginRight: 12, verticalAlign: 'middle', color: '#0369a1' }} />
+            Profile
           </h1>
-          <p style={{ margin: '8px 0 0 0', fontSize: 14, color: '#6b7280' }}>{nurse.department || 'Emergency Department'}</p>
+          <p style={{ margin: '8px 0 0 0', fontSize: 14, color: '#6b7280' }}>
+            {[roleLabel, nurse.specialty, nurse.department].filter(Boolean).join(' · ')}
+          </p>
         </div>
-        <button
+        {!isManagementAccount && <button
           onClick={openEditModal}
           style={{
             padding: '10px 16px',
@@ -256,7 +339,7 @@ const Profile = ({ nurseName: initialNurseName }) => {
         >
           <FiEdit2 size={16} />
           Edit Profile
-        </button>
+        </button>}
       </div>
 
       {/* Success/Error Messages */}
@@ -297,6 +380,41 @@ const Profile = ({ nurseName: initialNurseName }) => {
         </div>
       )}
 
+      {!isManagementAccount && <div style={{ marginBottom: 24, padding: 24, background: 'linear-gradient(135deg, #ecfeff 0%, #f8fafc 100%)', borderRadius: 12, border: '1px solid #bae6fd', boxShadow: '0 1px 3px rgba(15,23,42,0.08)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
+          <div>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, color: '#0f172a' }}><FiBarChart2 color="#0369a1" /> My Live Workload</h3>
+            <p style={{ margin: '6px 0 0', color: '#475569', fontSize: 13, maxWidth: 680 }}>Live assignment load for your current clinical lane. Workload units come from assigned cases and acuity; utilization is only calculated when a capacity policy exists.</p>
+          </div>
+        </div>
+        {liveWorkloadLoading ? <div style={{ color: '#64748b', fontSize: 13 }}>Calculating live workload...</div> : liveWorkload?.unavailable ? (
+          <div style={{ color: '#9a3412', fontSize: 13 }}>Live workload is temporarily unavailable.</div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 10 }}>
+              <div style={{ ...workloadMetricStyle, background: '#ffffff', border: '1px solid #dbeafe' }}><span>Assigned patients</span><strong style={{ fontSize: 25 }}>{liveWorkload?.activeCases ?? 0}</strong><small>Current active cases</small></div>
+              <div style={{ ...workloadMetricStyle, background: '#ffffff', border: '1px solid #dbeafe' }}><span>Weighted workload</span><strong style={{ fontSize: 25 }}>{Number(liveWorkload?.activeWorkload ?? 0).toFixed(1)} <small style={{ fontSize: 12 }}>units</small></strong><small>Acute load after acuity weights</small></div>
+              <div style={{ ...workloadMetricStyle, background: workloadHasCapacity ? '#ffffff' : '#fff7ed', border: `1px solid ${workloadHasCapacity ? '#dbeafe' : '#fed7aa'}` }}><span>Resolved capacity</span><strong style={{ fontSize: 20 }}>{resolvedCapacityLabel}</strong><small>{workloadHasCapacity ? 'Maximum workload units' : 'No policy baseline returned'}</small></div>
+              <div style={{ ...workloadMetricStyle, background: workloadHasCapacity ? '#ffffff' : '#fff7ed', border: `1px solid ${workloadHasCapacity ? '#dbeafe' : '#fed7aa'}` }}><span>Utilization</span><strong style={{ fontSize: 25 }}>{utilizationLabel}</strong><small>{workloadHasCapacity ? 'Workload / capacity' : 'Cannot calculate without capacity'}</small></div>
+            </div>
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+              <div style={{ padding: '12px 14px', background: '#ffffff', border: '1px solid #dbeafe', borderRadius: 10 }}>
+                <div style={{ color: '#64748b', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Acuity mix</div>
+                <div style={{ marginTop: 5, color: '#0f172a', fontWeight: 750, fontSize: 13 }}>{acuityMixLabel}</div>
+              </div>
+              <div style={{ padding: '12px 14px', background: '#ffffff', border: '1px solid #dbeafe', borderRadius: 10 }}>
+                <div style={{ color: '#64748b', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Capacity source</div>
+                <div style={{ marginTop: 5, color: workloadHasCapacity ? '#166534' : '#9a3412', fontWeight: 750, fontSize: 13 }}>{capacitySourceLabel}</div>
+              </div>
+              <div style={{ padding: '12px 14px', background: '#ffffff', border: '1px solid #dbeafe', borderRadius: 10 }}>
+                <div style={{ color: '#64748b', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Acuity weight source</div>
+                <div style={{ marginTop: 5, color: acuityWeightSourceLabel.startsWith('fallback') ? '#9a3412' : '#166534', fontWeight: 750, fontSize: 13 }}>{acuityWeightSourceLabel}</div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>}
+
       {/* Main Content Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
         {/* Personal Information Card */}
@@ -323,13 +441,25 @@ const Profile = ({ nurseName: initialNurseName }) => {
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Employee ID</label>
-              <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{nurse.employeeId}</p>
+              <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{nurse.employeeId || '-'}</p>
             </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Email</label>
+              <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{nurse.email || '-'}</p>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Role</label>
+              <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{roleLabel}</p>
+            </div>
+            {nurse.specialty && <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Specialty</label>
+              <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{nurse.specialty}</p>
+            </div>}
           </div>
         </div>
 
         {/* Shift Information Card */}
-        <div style={{
+        {!isManagementAccount && isStaffShiftRole && <div style={{
           padding: 24,
           backgroundColor: 'white',
           borderRadius: 12,
@@ -373,10 +503,10 @@ const Profile = ({ nurseName: initialNurseName }) => {
               <p style={{ margin: 0, fontSize: 14, color: '#0f172a', fontWeight: 500 }}>{nurse.shift?.expectedHours} hours</p>
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* Worked Hours Card (Immutable) */}
-        <div style={{
+        {!isManagementAccount && isStaffShiftRole && <div style={{
           padding: 24,
           backgroundColor: 'white',
           borderRadius: 12,
@@ -429,8 +559,8 @@ const Profile = ({ nurseName: initialNurseName }) => {
                 {isShiftComplete ? 'Shift Complete' : 'Shift In Progress'}
               </span>
             </div>
-          </div>
         </div>
+        </div>}
       </div>
 
       {/* ============ EDIT PROFILE MODAL ============ */}
@@ -688,6 +818,19 @@ const Profile = ({ nurseName: initialNurseName }) => {
     </div>
     </SidebarLayout>
   );
+};
+
+const workloadMetricStyle = {
+  display: 'grid',
+  gap: 6,
+  minWidth: 0,
+  padding: '12px 13px',
+  border: '1px solid #bae6fd',
+  borderRadius: 9,
+  background: 'rgba(255,255,255,0.72)',
+  color: '#475569',
+  fontSize: 11,
+  fontWeight: 700
 };
 
 export default Profile;

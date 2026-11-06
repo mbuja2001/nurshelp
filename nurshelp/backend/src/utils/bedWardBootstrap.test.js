@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { Bed } from '../models/bed.model.js';
 import { Ward } from '../models/ward.model.js';
 import {
   normalizeWardDepartment,
@@ -13,6 +14,19 @@ test('normalizeWardDepartment supports common ward labels', () => {
   assert.equal(normalizeWardDepartment('Medical Ward'), 'GENERAL');
   assert.equal(normalizeWardDepartment('Pediatric Ward'), 'PEDIATRICS');
   assert.equal(normalizeWardDepartment('Emergency Department'), 'ED');
+  assert.equal(normalizeWardDepartment('ED Triage and Assessment'), 'ED');
+});
+
+test('Bed schema accepts a hospital-configured ward label', () => {
+  const bed = new Bed({
+    hospitalId: '507f1f77bcf86cd799439011',
+    bed_id: 'QA-ED-01',
+    ward_unit: 'ED Triage and Assessment',
+    room_number: 'ED-TRIAGE',
+    equipment_baseline: ['Cardiac Monitor', 'Oxygen Delivery'],
+  });
+
+  assert.equal(bed.validateSync(), undefined);
 });
 
 test('buildWardDefinitionsFromBeds groups bed payloads by ward', () => {

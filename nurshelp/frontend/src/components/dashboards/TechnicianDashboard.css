@@ -1,0 +1,535 @@
+.technician-dashboard {
+  width: min(1540px, 100%);
+  margin: 0 auto;
+  color: #17212b;
+}
+
+.technician-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.technician-page-heading h1 {
+  margin: 5px 0 4px;
+  color: #111827;
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.035em;
+}
+
+.technician-page-heading p,
+.technician-panel-heading p {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.technician-eyebrow,
+.technician-section-label {
+  margin: 0;
+  color: #5b6675;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.technician-shift-status,
+.technician-unavailable-tag {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #b7e4c7;
+  border-radius: 999px;
+  background: #effaf2;
+  color: #187443;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.technician-shift-status span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #20a45b;
+}
+
+.technician-shift-summary,
+.technician-panel,
+.technician-queue-summary-card {
+  border: 1px solid #dfe4ea;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.035);
+}
+
+.technician-shift-summary {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) repeat(2, minmax(130px, auto));
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.technician-shift-summary-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 9px;
+  background: #eaf3fa;
+  color: #17668a;
+  font-size: 19px;
+}
+
+.technician-shift-summary-main,
+.technician-shift-summary-detail {
+  min-width: 0;
+}
+
+.technician-lab-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(180px, 1.3fr);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 17px;
+  margin-bottom: 14px;
+  border: 1px solid #dfe4ea;
+  border-radius: 9px;
+  background: #f9fafb;
+}
+
+.technician-lab-context > div:not(.technician-barcode-field) {
+  min-width: 0;
+}
+
+.technician-lab-context strong {
+  display: block;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #475467;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.technician-barcode-field {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid #d5dce4;
+  border-radius: 6px;
+  background: #fff;
+  color: #85909d;
+  font-size: 11px;
+}
+
+.technician-barcode-field svg {
+  flex: 0 0 auto;
+}
+
+.technician-shift-summary-main strong,
+.technician-shift-summary-detail strong {
+  display: block;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.technician-authorization-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #f0d49c;
+  border-radius: 9px;
+  background: #fff8e9;
+  color: #714d14;
+}
+
+.technician-authorization-notice > svg {
+  flex: 0 0 auto;
+  font-size: 19px;
+}
+
+.technician-authorization-notice div {
+  min-width: 0;
+  flex: 1;
+}
+
+.technician-authorization-notice strong {
+  font-size: 13px;
+}
+
+.technician-authorization-notice p {
+  margin: 3px 0 0;
+  color: #765a2c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.technician-authorization-notice > span {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.technician-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(260px, 0.9fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.technician-dashboard-primary,
+.technician-dashboard-aside {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.technician-queue-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.technician-queue-summary-card {
+  min-width: 0;
+  padding: 13px 14px;
+}
+
+.technician-queue-summary-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: #697586;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.technician-queue-summary-heading svg {
+  flex: 0 0 auto;
+  color: #62758a;
+}
+
+.technician-queue-summary-card > strong {
+  display: block;
+  margin: 8px 0 3px;
+  color: #788493;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.technician-queue-summary-card > span {
+  color: #858f9c;
+  font-size: 10px;
+}
+
+.technician-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.technician-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 17px;
+}
+
+.technician-panel-heading h2 {
+  margin: 0 0 4px;
+  color: #202a35;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.technician-panel-heading > svg {
+  flex: 0 0 auto;
+  color: #68798a;
+  font-size: 18px;
+}
+
+.technician-unavailable-tag {
+  border-color: #e2e7ed;
+  background: #f5f7f9;
+  color: #667085;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.technician-table-wrap {
+  overflow-x: auto;
+}
+
+.technician-worklist-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.technician-worklist-panel th {
+  padding: 10px 12px;
+  border-top: 1px solid #e8ebef;
+  border-bottom: 1px solid #e8ebef;
+  background: #f9fafb;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.technician-worklist-panel th:first-child {
+  padding-left: 17px;
+}
+
+.technician-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 34px 18px;
+  color: #687586;
+  text-align: center;
+}
+
+.technician-empty-state > svg {
+  color: #7b8b9b;
+  font-size: 22px;
+}
+
+.technician-empty-state strong {
+  color: #344054;
+  font-size: 13px;
+}
+
+.technician-empty-state span {
+  max-width: 400px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.technician-secondary-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.technician-panel-empty {
+  margin: 0 15px 15px;
+  padding: 14px;
+  border: 1px dashed #d9e0e7;
+  border-radius: 7px;
+  color: #778393;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.technician-access-requirements {
+  padding-bottom: 15px;
+}
+
+.technician-access-requirements ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 4px 18px 15px 35px;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.technician-access-footnote {
+  margin: 0 16px;
+  padding: 11px 12px;
+  border-radius: 7px;
+  background: #f5f7f9;
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.technician-custody-empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 0 15px 15px;
+  padding: 15px;
+  border: 1px dashed #d9e0e7;
+  border-radius: 7px;
+  color: #778393;
+}
+
+.technician-custody-empty > svg {
+  color: #77899b;
+  font-size: 18px;
+}
+
+.technician-custody-empty strong {
+  color: #344054;
+  font-size: 12px;
+}
+
+.technician-custody-empty span {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.technician-pathology-panels {
+  align-items: stretch;
+}
+
+.technician-disabled-action {
+  margin: 0 15px 15px;
+  padding: 11px;
+  border: 1px solid #e3e7ec;
+  border-radius: 6px;
+  background: #f5f7f9;
+  color: #929ba6;
+  font-size: 11px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.technician-equipment-empty {
+  display: grid;
+  gap: 8px;
+  margin: 0 15px 15px;
+}
+
+.technician-equipment-empty > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #e8ebef;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.technician-equipment-empty strong {
+  color: #344054;
+}
+
+.technician-equipment-empty span {
+  color: #778393;
+  text-align: right;
+}
+
+.technician-scientist-actions {
+  display: grid;
+  gap: 7px;
+  margin: 0 15px;
+}
+
+.technician-scientist-actions span {
+  padding: 10px 11px;
+  border: 1px dashed #d9e0e7;
+  border-radius: 6px;
+  background: #f5f7f9;
+  color: #7a8491;
+  font-size: 11px;
+}
+
+.technician-scientist-actions span:last-child {
+  margin-bottom: 15px;
+}
+
+.technician-access-card {
+  display: flex;
+  width: min(560px, 100%);
+  align-items: flex-start;
+  gap: 14px;
+  margin: 30px auto;
+  padding: 24px;
+  border: 1px solid #e2c994;
+  border-radius: 10px;
+  background: #fff8e9;
+  color: #4a3a20;
+}
+
+.technician-access-card > svg {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+
+.technician-access-card h1 {
+  margin: 5px 0 8px;
+  font-size: 21px;
+}
+
+.technician-access-card p:last-child {
+  margin: 0;
+  color: #6f5c3c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1050px) {
+  .technician-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .technician-lab-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .technician-barcode-field {
+    grid-column: 1 / -1;
+  }
+
+  .technician-shift-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .technician-shift-summary-detail {
+    grid-column: 2;
+  }
+
+  .technician-queue-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .technician-secondary-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .technician-authorization-notice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .technician-authorization-notice > span {
+    margin-left: 31px;
+  }
+}
+
+@media (max-width: 480px) {
+  .technician-page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .technician-worklist-panel table {
+    min-width: 640px;
+  }
+}

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { severityFromReport, waitStartFor, computePriority, formatWaitDetailed, normalizePatient, formatTimestamp } from "../utils/priority";
 import { styles } from "./styles";
-import { FiUser, FiFileText, FiCheckSquare, FiHome, FiSettings, FiUsers, FiBarChart2, FiClock, FiPlusCircle } from 'react-icons/fi';
+import { FiUser, FiFileText, FiCheckSquare, FiHome, FiSettings, FiUsers, FiBarChart2, FiClock, FiPlusCircle, FiCalendar } from 'react-icons/fi';
 import { MdLibraryBooks } from 'react-icons/md';
 import { FaBed, FaSearch, FaHistory } from 'react-icons/fa';
 import nhpLogo from './NHP_Icon.png';
@@ -10,8 +10,10 @@ import SidebarLayout from './SidebarLayout';
 import { useUserFromToken } from '../hooks/useUserFromToken';
 import ClinicalNurseDashboard from '../components/dashboards/ClinicalNurseDashboard';
 import PhysicianDashboard from '../components/dashboards/PhysicianDashboard';
-import OffDutyDashboard from '../components/dashboards/OffDutyDashboard';
-import { decodeJwt } from '../utils/jwt';
+import ClockInOutBoard from './Pages/ClockInOutBoard';
+import StatisticsPage from './Pages/StatisticsPage';
+import { decodeJwt, normalizeRoleLabel } from '../utils/jwt';
+import { resolveShiftDashboardContext } from '../utils/shiftDashboardContext';
 import { isAwaitingPhysicianAcknowledgment, ACKNOWLEDGED_HANDOVER_STATUSES } from '../utils/handoverStatusUtils';
 import { notificationService } from '../services/notificationService';
 import './DashboardTheme.css';
@@ -28,7 +30,8 @@ const NurseDashboard = ({
   toggleAssigned = () => {},
   getWaitTime = () => "N/A",
   handleLogout = () => {},
-  userRole = null
+  userRole = null,
+  config = null
 }) => {
 
   useEffect(() => {
@@ -70,12 +73,13 @@ const NurseDashboard = ({
   const [confirmLoading, setConfirmLoading] = useState({});
   const [attendLoading, setAttendLoading] = useState({});
   const [currentRecord, setCurrentRecord] = useState(null);
-  const [recordLoading, setRecordLoading] = useState(true);
+  const [staffAccessTab, setStaffAccessTab] = useState('clock');
 
   // Track assigned role after clock-in
   const [assignedRole, setAssignedRole] = useState(null);
   const [assignedContext, setAssignedContext] = useState(null);
-  const [roleFetchLoading, setRoleFetchLoading] = useState(false);
+  const [assignedShift, setAssignedShift] = useState(null);
+  const [roleFetchLoading, setRoleFetchLoading] = useState(true);
 
   // Workflow-aware encounter state (newly initiated handovers)
   const [handedOverEncounters, setHandedOverEncounters] = useState([]);
@@ -166,38 +170,9 @@ const NurseDashboard = ({
 
   const { userName } = useUserFromToken();
 
-  // Fetch today's clock record from server to enforce triage permissions
-  const fetchTodayRecord = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setCurrentRecord(null);
-      setRecordLoading(false);
-      return;
-    }
-    try {
-      setRecordLoading(true);
-      const res = await fetch(`${BACKEND_URL}/api/staff/today-record`, {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      console.log('[fetchTodayRecord] response', data);
-      if (res.ok && data.success) {
-        console.log('[fetchTodayRecord] setting currentRecord ->', data.record);
-        setCurrentRecord(data.record || null);
-      } else setCurrentRecord(null);
-    } catch (e) {
-      console.error('Failed to fetch today record', e);
-      setCurrentRecord(null);
-    } finally {
-      setRecordLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchTodayRecord();
-    const iv = setInterval(fetchTodayRecord, 10000);
-    return () => clearInterval(iv);
-  }, []);
+    setCurrentRecord(config?.clockRecord || null);
+  }, [config?.clockRecord]);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,92 +396,45 @@ const NurseDashboard = ({
           const shift = data.shift;
 
           if (!shift) {
+            setAssignedShift(null);
             console.log('[ASSIGNED ROLE] No shift found');
           } else {
-            const userIdStr = userId?.toString();
-            const teamAssignment = shift.teamAssignment || {};
+            setAssignedShift(shift);
+            const context = resolveShiftDashboardContext({
+              userId,
+              role: decoded?.role,
+              shift
+            });
 
-            // PRIORITY: Check teamAssignment first (authoritative for dashboard role)
-            // This determines which dashboard role to display, NOT the generic assignedStaff type
-            let role = null;
-            let context = shift.department || 'ER';
-
-            const triageNurseId = teamAssignment.triageNurseId?.toString?.() || teamAssignment.triageNurseId;
-            const clinicalNurseId = teamAssignment.clinicalNurseId?.toString?.() || teamAssignment.clinicalNurseId;
-            const physicianId = teamAssignment.physicianId?.toString?.() || teamAssignment.physicianId;
-
-            console.log('[ASSIGNED ROLE] Checking teamAssignment...');
-            console.log('  userId:', userIdStr);
-            console.log('  triageNurseId:', triageNurseId);
-            console.log('  clinicalNurseId:', clinicalNurseId);
-            console.log('  physicianId:', physicianId);
-
-            if (userIdStr && triageNurseId && userIdStr === triageNurseId.toString()) {
-              role = 'TRIAGE_NURSE';
-              context = 'TRIAGE';
-              console.log('[ASSIGNED ROLE] ✓ User is TRIAGE_NURSE');
-            } else if (userIdStr && clinicalNurseId && userIdStr === clinicalNurseId.toString()) {
-              role = 'CLINICAL_NURSE';
-              context = teamAssignment.clinicalNurseContext || 'ER';
-              console.log('[ASSIGNED ROLE] ✓ User is CLINICAL_NURSE');
-            } else if (userIdStr && physicianId && userIdStr === physicianId.toString()) {
-              role = 'PHYSICIAN';
-              context = teamAssignment.physicianContext || 'ER';
-              console.log('[ASSIGNED ROLE] ✓ User is PHYSICIAN');
-            } else {
-              // Fallback to assignedStaff if not in teamAssignment
-              console.log('[ASSIGNED ROLE] Not in teamAssignment, checking assignedStaff as fallback...');
-              if (shift.assignedStaff && shift.assignedStaff.length > 0) {
-                const staffEntry = shift.assignedStaff.find(staff => 
-                  (staff.staffID && staff.staffID.toString?.() === userIdStr) || staff.staffID === userIdStr || staff.staffID?._id === userId
-                );
-                if (staffEntry) {
-                  const roleMap = {
-                    'NURSE': 'CLINICAL_NURSE',
-                    'PHYSICIAN': 'PHYSICIAN',
-                    'SPECIALIST': 'SPECIALIST'
-                  };
-                  role = roleMap[staffEntry.type] || staffEntry.type;
-                  console.log(`[ASSIGNED ROLE] Fallback: User assigned as ${role} from assignedStaff`);
-                }
+            if (context !== 'NO_SHIFT') {
+              const role = context === 'TRIAGE_NURSE' ? 'TRIAGE_NURSE'
+                : context.startsWith('CLINICAL_NURSE') ? 'CLINICAL_NURSE'
+                  : context.startsWith('PHYSICIAN') ? 'PHYSICIAN'
+                    : context === 'PHARMACY' ? 'PHARMACIST'
+                      : context === 'RADIOLOGY' ? 'RADIOLOGIST'
+                        : context === 'PATHOLOGY' ? 'PATHOLOGIST'
+                          : null;
+              if (!role) {
+                setAssignedRole(null);
+                return;
               }
-            }
-
-            if (role) {
               setAssignedRole(role);
               setAssignedContext(context);
-              console.log(`[ASSIGNED ROLE] Final: ${role} in ${context}`);
+              console.log(`[ASSIGNED ROLE] Explicit shift assignment: ${role} in ${context}`);
               return; // Successfully set role, exit
             }
+            setAssignedShift(shift);
           }
         }
 
-        // If we reach here, shift lookup failed or user not in shift - use JWT fallback
-        console.log('[ASSIGNED ROLE] Not found in shift assignment, checking JWT role as fallback...');
-        const jwtRole = decoded?.role;
-        const jwtNsgRole = decoded?.nsgRole;
-        
-        if (jwtRole || jwtNsgRole) {
-          
-          console.log('[ASSIGNED ROLE] JWT role:', jwtRole, 'nsgRole:', jwtNsgRole);
-          
-          // Map JWT role to dashboard role
-          if (jwtNsgRole === 'TRIAGE_NURSE') {
-            setAssignedRole('TRIAGE_NURSE');
-            setAssignedContext('TRIAGE');
-            console.log('[ASSIGNED ROLE] Fallback: Using JWT TRIAGE_NURSE role');
-          } else if (jwtNsgRole === 'CLINICAL_NURSE') {
-            setAssignedRole('CLINICAL_NURSE');
-            setAssignedContext('ER');
-            console.log('[ASSIGNED ROLE] Fallback: Using JWT CLINICAL_NURSE role');
-          } else if (jwtRole === 'PHYSICIAN') {
-            setAssignedRole('PHYSICIAN');
-            setAssignedContext('ER');
-            console.log('[ASSIGNED ROLE] Fallback: Using JWT PHYSICIAN role');
-          } else {
-            console.log('[ASSIGNED ROLE] No matching role found');
-            setAssignedRole(null);
-          }
+        // Only roles independent of team duty can use their authenticated role as a fallback.
+        const jwtRole = normalizeRoleLabel(decoded?.role || userRole, decoded?.specialty || decoded?.clinicalSpecialty || decoded?.department);
+        if (['PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST'].includes(jwtRole)) {
+          setAssignedRole(jwtRole);
+          setAssignedContext(jwtRole === 'PHARMACIST' ? 'PHARMACY' : jwtRole === 'RADIOLOGIST' ? 'RADIOLOGY' : 'PATHOLOGY');
+        } else {
+          console.log('[ASSIGNED ROLE] No explicit clinical duty found; refusing to infer nurse dashboard role');
+          setAssignedRole(null);
         }
       } catch (err) {
         console.error('[ASSIGNED ROLE] Error:', err);
@@ -519,7 +447,13 @@ const NurseDashboard = ({
     fetchAssignedRole();
   }, []);
 
-  const triageAllowed = !!(currentRecord && currentRecord.status === 'CLOCKED_IN');
+  const recordShowsClockedIn = !!(currentRecord && currentRecord.status === 'CLOCKED_IN');
+  const triageAllowed = recordShowsClockedIn
+    && (config?.clockStatusVerified !== true || config?.isClockedIn === true);
+  const normalizedUserRole = normalizeRoleLabel(userRole);
+  const isTriageNurse = assignedRole === 'TRIAGE_NURSE'
+    || config?.context === 'TRIAGE_NURSE'
+    || normalizedUserRole === 'TRIAGE_NURSE';
 
   // normalize all patients first so attendance fields are consistent
   const normalizedPatients = (sortedPatients || []).map(p => normalizePatient(p));
@@ -609,26 +543,20 @@ const NurseDashboard = ({
   });
 
   const providerLoadEntries = operationsProviders.map((provider) => ({
+    clinicianId: provider.clinicianId || provider.id || null,
     name: provider.name || provider.specialty || 'Unassigned',
     count: Number(provider.activeCases ?? provider.count ?? 0),
-    percent: Math.min(100, Number(provider.percent ?? provider.workloadPercent ?? 0))
+    activeWorkload: Number(provider.activeWorkload ?? provider.workloadScore ?? provider.activeCases ?? 0),
+    workloadPercent: provider.workloadPercent === null || provider.workloadPercent === undefined ? null : Number(provider.workloadPercent),
+    activeCaseShare: Number(provider.activeCaseShare ?? 0),
+    workloadStatus: provider.workloadStatus || (provider.workloadPercent == null ? 'Unconfigured' : 'Configured'),
+    capacitySource: provider.capacitySource || 'Unconfigured',
+    role: provider.role || null
   }));
-  queueSource.forEach((item) => {
-    if (operationsProviders.length > 0) return;
-    const patient = item.patient || item;
-    const clinician = item.assignedClinician || patient.assigned_clinician || patient.assignedClinician || patient.triage?.assigned_physician;
-    const name = clinician?.name || patient.specialistDoctor || patient.attendingDoctor || 'Unassigned';
-    const existing = providerLoadEntries.find((provider) => provider.name === name);
-    if (existing) existing.count += 1;
-    else providerLoadEntries.push({ name, count: 1, percent: 0 });
-  });
-  const maxProviderCount = Math.max(1, ...providerLoadEntries.map((provider) => provider.count));
-  providerLoadEntries.forEach((provider) => {
-    provider.percent = Math.min(100, Math.round((provider.count / maxProviderCount) * 100));
-  });
 
-  const congestionMessage = providerLoadEntries.some((provider) => provider.count >= 3)
-    ? `Congestion Alert: ${providerLoadEntries.find((provider) => provider.count >= 3).name}'s queue is exceeding the current workload threshold.`
+  const congestedProvider = providerLoadEntries.find((provider) => provider.workloadPercent !== null && provider.workloadPercent >= 100);
+  const congestionMessage = congestedProvider
+    ? `Congestion Alert: ${congestedProvider.name}'s configured workload capacity has been reached.`
     : null;
 
   // determine urgent alerts: when waitRatio >= 1 (surpassed SATS threshold) or Critical
@@ -658,6 +586,64 @@ const NurseDashboard = ({
     prevUrgentIdsRef.current = ids;
   }, [urgentAlerts]);
 
+  if (roleFetchLoading) {
+    return <div role="status" aria-live="polite" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#475569', fontWeight: 700 }}>Loading your clinical dashboard...</div>;
+  }
+
+  if (!assignedRole) {
+    return <div role="alert" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, color: '#475569', textAlign: 'center' }}>Unable to determine your clinical dashboard role. Contact your hospital administrator.</div>;
+  }
+
+  if (isTriageNurse && roleFetchLoading) {
+    return (
+      <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#334155' }}>
+        <p>Checking your shift and clock-in status...</p>
+      </main>
+    );
+  }
+
+  if (isTriageNurse && !triageAllowed) {
+    const token = localStorage.getItem('token');
+    const user = token ? decodeJwt(token) : {};
+    const staffTabs = [
+      { id: 'clock', label: 'Clock In/Out', icon: FiClock },
+      { id: 'myshifts', label: 'My Schedule', icon: FiCalendar },
+      { id: 'history', label: 'Attendance History', icon: FaHistory },
+      { id: 'statistics', label: 'Statistics', icon: FiBarChart2 }
+    ];
+    return (
+      <main style={{ minHeight: '100vh', width: '100%', boxSizing: 'border-box', padding: '32px 24px', background: '#f8fafc' }}>
+        <section style={{ width: 'min(1200px, 100%)', margin: '0 auto', padding: 24, border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
+          <header style={{ marginBottom: 24 }}>
+            <h1 style={{ margin: '0 0 8px', color: '#0f172a' }}>Clock in to access your dashboard</h1>
+            <p style={{ margin: 0, color: '#475569' }}>
+              Your dashboard, patient queues, and clinical actions remain unavailable until you are assigned to a shift and clock in.
+            </p>
+          </header>
+          <nav aria-label="Staff schedule and attendance" style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', borderBottom: '1px solid #e2e8f0' }}>
+            {staffTabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={staffAccessTab === id}
+                onClick={() => setStaffAccessTab(id)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: '0 0 auto', padding: '11px 13px', border: 0, borderBottom: `3px solid ${staffAccessTab === id ? '#0f766e' : 'transparent'}`, background: 'transparent', color: staffAccessTab === id ? '#0f766e' : '#475569', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              >
+                <Icon size={16} />{label}
+              </button>
+            ))}
+          </nav>
+          <section role="tabpanel" aria-label={staffTabs.find((tab) => tab.id === staffAccessTab)?.label}>
+            {staffAccessTab === 'statistics'
+              ? <StatisticsPage token={token} />
+              : <ClockInOutBoard token={token} user={user} activeTab={staffAccessTab} />}
+          </section>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <SidebarLayout username={userName} handleLogout={handleLogout}>
       <style>{`
@@ -672,8 +658,33 @@ const NurseDashboard = ({
         }
         .priority-queue-launcher-count { position: absolute; top: -5px; right: -5px; min-width: 21px; height: 21px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: #dc2626; color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; }
         .priority-queue-modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.48); }
-        .priority-queue-modal { width: min(560px, 100%); max-height: min(78vh, 720px); overflow: hidden; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
-        .priority-queue-modal-list { max-height: calc(min(78vh, 720px) - 82px); overflow-y: auto; }
+        .priority-queue-modal { width: min(560px, 100%); min-width: 0; max-height: min(78vh, 720px); overflow: hidden; display: flex; flex-direction: column; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
+        .priority-queue-modal-list { min-width: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+        .priority-queue-modal-workload { min-width: 0; flex: 0 0 auto; max-height: 190px; overflow-y: auto; overflow-x: hidden; }
+        .nurse-workload-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; align-items: center; min-width: 0; margin-bottom: 12px; }
+        .nurse-workload-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: #1e293b; }
+        .nurse-workload-percent { padding: 3px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 800; white-space: nowrap; }
+        .nurse-workload-meter { grid-column: 1 / -1; height: 8px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+        .nurse-workload-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px 10px; min-width: 0; color: #64748b; font-size: 10px; line-height: 1.4; }
+        .priority-queue-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; padding: 12px 18px; border-bottom: 1px solid #f1f5f9; }
+        .priority-queue-entry-details { min-width: 0; overflow: hidden; }
+        .priority-queue-entry-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin-top: 3px; color: #64748b; font-size: 10px; line-height: 1.4; }
+        .priority-queue-entry-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+        .priority-queue-entry-status { padding: 3px 6px; border-radius: 999px; font-size: 9px; font-weight: 800; white-space: nowrap; }
+        .priority-queue-entry-view { flex-shrink: 0; padding: 7px 9px; border: 0; border-radius: 5px; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
+        .nurse-dashboard-main-header { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start !important; gap: 16px 24px !important; }
+        .nurse-dashboard-main-header > div:first-child { min-width: 0 !important; grid-column: 1; grid-row: 1; }
+        .nurse-dashboard-header-status { display: contents !important; }
+        .nurse-dashboard-status-row { grid-column: 2; grid-row: 1; display: flex; width: auto; max-width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; justify-self: end; gap: 8px; }
+        .nurse-dashboard-status-pill { min-width: 0; max-width: 100%; min-height: 40px; flex: 0 1 auto; line-height: 1.25; }
+        .nurse-dashboard-actions { grid-column: 1 / -1; grid-row: 2; display: grid !important; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); width: 100%; max-width: 100%; gap: 8px !important; margin-top: 0 !important; }
+        .nurse-dashboard-actions button { display: inline-flex; min-width: 0; width: 100%; max-width: 100%; justify-content: center; white-space: nowrap; }
+        @media (max-width: 900px) {
+          .nurse-dashboard-main-header { grid-template-columns: minmax(0, 1fr); gap: 14px !important; }
+          .nurse-dashboard-main-header > div:first-child { grid-column: 1; grid-row: 1; }
+          .nurse-dashboard-status-row { grid-column: 1; grid-row: 2; justify-self: start; justify-content: flex-start; }
+          .nurse-dashboard-actions { grid-column: 1; grid-row: 3; }
+        }
         @media (max-width: 640px) {
           .nurse-dashboard-main-header {
             padding: 16px !important;
@@ -701,16 +712,23 @@ const NurseDashboard = ({
             overflow: hidden;
             text-overflow: ellipsis;
           }
+          .nurse-dashboard-actions {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
           .nurse-dashboard-actions button {
             min-width: 0;
-            flex: 0 1 42px;
+            width: 100%;
+            min-height: 42px;
+            flex: initial;
             padding: 10px !important;
             justify-content: center;
           }
           .nurse-dashboard-action-label { display: none; }
           .priority-queue-modal-backdrop { padding: 16px; }
           .priority-queue-modal { max-height: 84vh; border-radius: 12px; }
-          .priority-queue-modal-list { max-height: calc(84vh - 82px); }
+          .priority-queue-modal-workload { max-height: 170px; }
+          .priority-queue-entry { grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; padding: 11px 12px; }
+          .priority-queue-entry-view { grid-column: 2; justify-self: start; }
         }
         .nurse-responsive-table-shell { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
         .nurse-responsive-table { min-width: 860px; }
@@ -722,21 +740,12 @@ const NurseDashboard = ({
             justify-content: flex-start !important;
             flex-wrap: wrap;
           }
-          .nurse-dashboard-status-pill {
-            min-height: 40px;
-            flex: 1 1 150px;
-            justify-content: center;
-          }
+          .nurse-dashboard-status-pill { min-height: 40px; flex: 1 1 150px; justify-content: center; }
           .nurse-dashboard-status-row {
             width: 100%;
             flex-wrap: wrap;
           }
-          .nurse-dashboard-actions {
-            width: 100%;
-            margin-top: 0 !important;
-            flex-direction: row !important;
-            justify-content: flex-start !important;
-          }
+          .nurse-dashboard-actions { width: 100%; margin-top: 0 !important; }
           .nurse-responsive-table-shell { overflow-x: visible; }
           .nurse-responsive-table { min-width: 0 !important; width: 100% !important; display: block; }
           .nurse-responsive-table thead { display: none; }
@@ -831,18 +840,15 @@ const NurseDashboard = ({
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
               {providerLoadEntries.map((provider) => (
-                <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{provider.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ position: 'relative', height: 10, flex: 1, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
-                      <div style={{
-                        width: `${provider.percent}%`,
-                        height: '100%',
-                        background: provider.name === 'Dr. S. Tan' ? '#ef4444' : provider.name === 'Dr. J. Wong' ? '#f59e0b' : '#2bb3c2',
-                        borderRadius: 999
-                      }} />
-                    </div>
-                    <div style={{ fontSize: 12, color: '#475569', fontWeight: 700, minWidth: 38, textAlign: 'right' }}>{provider.percent}%</div>
+                <div key={provider.clinicianId || provider.name} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
+                  <div className="nurse-workload-name">{provider.name}</div>
+                  <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
+                  <div className="nurse-workload-meter">
+                    <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
+                  </div>
+                  <div className="nurse-workload-details">
+                    <span>{provider.count} active cases</span>
+                    <span>{provider.activeWorkload} weighted units</span>
                   </div>
                 </div>
               ))}
@@ -1027,6 +1033,13 @@ const NurseDashboard = ({
             }}>
               {urgentAlerts.map((item, idx) => {
                 const id = item.patient._id || item.patient.id;
+                const alertWaitStart = waitStartFor(item.patient);
+                const alertWaitStartMs = alertWaitStart ? new Date(alertWaitStart).getTime() : NaN;
+                const alertWaitMs = Number.isFinite(item.waitMs)
+                  ? item.waitMs
+                  : Number.isFinite(alertWaitStartMs)
+                    ? Math.max(0, now - alertWaitStartMs)
+                    : null;
                 const severityColors = {
                   CRITICAL: { bg: '#fee2e2', border: '#fecaca', text: '#991b1b' },
                   HIGH: { bg: '#ffedd5', border: '#fed7aa', text: '#9a3412' },
@@ -1090,7 +1103,7 @@ const NurseDashboard = ({
                           </span>
                           <span style={{ color: '#94a3b8' }}>•</span>
                           <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                            {item.waitMs ? formatWaitDetailed(item.waitMs) : 'N/A'} waiting
+                            {Number.isFinite(alertWaitMs) ? formatWaitDetailed(alertWaitMs) : 'N/A'} waiting
                           </span>
                           <button
                             type="button"
@@ -1412,11 +1425,12 @@ const NurseDashboard = ({
         <>
           {assignedRole === 'CLINICAL_NURSE' && (
             <ClinicalNurseDashboard 
+              embedded
               config={{
                 staffName: username,
                 staffDepartment: assignedContext || 'ER',
-                shiftStartTime: currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString() : 'N/A',
-                shiftEndTime: '—'
+                shiftStartTime: assignedShift?.shiftStart || (currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString() : 'N/A'),
+                shiftEndTime: assignedShift?.shiftEnd || '—'
               }}
               context={assignedContext || 'ER'}
             />
@@ -1426,8 +1440,8 @@ const NurseDashboard = ({
               config={{
                 staffName: username,
                 staffDepartment: assignedContext || 'ER',
-                shiftStartTime: currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString() : 'N/A',
-                shiftEndTime: '—'
+                shiftStartTime: assignedShift?.shiftStart || (currentRecord?.clockInTime ? new Date(currentRecord.clockInTime).toLocaleTimeString() : 'N/A'),
+                shiftEndTime: assignedShift?.shiftEnd || '—'
               }}
               context={assignedContext || 'ER'}
             />
@@ -1448,7 +1462,7 @@ const NurseDashboard = ({
               flexWrap: 'wrap',
               gap: 20
             }}>
-              <div style={{ minWidth: '280px' }}>
+              <div style={{ minWidth: 0 }}>
                 <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 800, color: '#0f172a' }}>Triage Nurse Dashboard</h1>
                 <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>
                   {userName} • {assignedContext || 'ER'}
@@ -1595,7 +1609,7 @@ const NurseDashboard = ({
               }}>
                 <p style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#713f12', fontWeight: 800, letterSpacing: '0.01em' }}>Pending Triaged Patients</p>
                 <h2 style={{ margin: 0, fontSize: '44px', lineHeight: 1, color: '#ca8a04', fontWeight: 900, textShadow: '0 2px 0 rgba(255,255,255,0.9)' }}>
-                  {nurseMetrics.pendingTriagedPatients}
+                  {metricsLoading ? '—' : nurseMetrics.pendingTriagedPatients}
                 </h2>
               </div>
             </div>
@@ -1603,43 +1617,6 @@ const NurseDashboard = ({
           <div className="nurse-dashboard-columns" style={{ display: 'flex', gap: 16, minWidth: 0, width: '100%' }}>
         <div className="nurse-dashboard-main" style={{ flex: '1 1 0', minWidth: 0, width: 0 }}>
           <div style={styles.queueBox}>
-            {recordLoading ? (
-              <div style={{ padding: 16, color: '#6b7280' }}>Checking shift status...</div>
-            ) : (!currentRecord || currentRecord.status === 'CLOCKED_OUT') ? (
-              <div style={{ padding: 16, color: '#92400e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>Clock in to work on patients</div>
-                <button onClick={() => navigate('/clock-in-out')} style={{ ...styles.btnLarge, padding: '8px 12px' }}>Clock In</button>
-              </div>
-            ) : (currentRecord.status === 'ON_BREAK') ? (
-              <div style={{ padding: 16, color: '#92400e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>You are currently on break — end break to work on patients</div>
-                <button onClick={async () => {
-                  try {
-                    const token = localStorage.getItem('token');
-                    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
-                    const res = await fetch(`${BACKEND_URL}/api/staff/break-end`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ breakDuration: 0 })
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (res.ok && data.success) {
-                      await fetchTodayRecord();
-                      alert('Break ended');
-                    } else {
-                      console.error('[END BREAK] Error:', data);
-                      alert('Failed to end break: ' + (data.message || 'server error'));
-                    }
-                  } catch (e) {
-                    console.error('End break error', e);
-                    alert('Error ending break: ' + e.message);
-                  }
-                }} style={{ ...styles.btnLarge, padding: '8px 12px' }}>End Break</button>
-              </div>
-            ) : null}
-
-
-
           </div>
 
           {attendedPatients.length > 0 && (
@@ -1806,8 +1783,8 @@ const NurseDashboard = ({
                         // Get specialty from assigned physician first, fall back to aiTriageReport or assigned_specialty
                         const specialty = physician?.specialty || enc.triage?.specialty || enc.triage?.assigned_specialty || 'General';
                       
-                        const rpt = enc.triage?.aiTriageReport || enc.triage?.manualTriageReport || {};
-                        const esiLevel = rpt.esiLevel || rpt.ESI || enc.severity || 4;
+                        const priority = computePriority(enc, now);
+                        const esiLevel = ({ Red: 1, Orange: 2, Yellow: 3, Green: 4 })[priority.category] || 4;
                       
                         const severityConfig = {
                           1: { label: 'CRITICAL', color: '#991b1b', bg: '#fee2e2', icon: '🔴' },
@@ -1829,8 +1806,9 @@ const NurseDashboard = ({
                         const physicianStatusConfig = statusColors[physicianStatus] || statusColors['NOTIFIED'];
                         const nurseStatusConfig = statusColors[nurseStatus] || statusColors['NOTIFIED'];
                       
-                        const createdAt = enc.created_at || enc.createdAt;
-                        const waitTime = createdAt ? formatWaitDetailed(Date.now() - new Date(createdAt).getTime()) : 'N/A';
+                        const waitStart = waitStartFor(enc);
+                        const waitStartMs = waitStart ? new Date(waitStart).getTime() : NaN;
+                        const waitTime = Number.isFinite(waitStartMs) ? formatWaitDetailed(Math.max(0, now - waitStartMs)) : 'N/A';
 
                         return (
                           <tr 
@@ -1891,7 +1869,7 @@ const NurseDashboard = ({
                               </span>
                             </td>
                             <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{waitTime}</td>
-                            <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{enc.priority || 'N/A'}</td>
+                            <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{priority.category.toUpperCase()}</td>
                             <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                               <button
                                 onClick={() => {
@@ -2059,8 +2037,8 @@ const NurseDashboard = ({
                         const hasAcknowledged = handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status));
                         if (!hasAcknowledged) return null;
                       
-                        const rpt = enc.triage?.aiTriageReport || enc.triage?.manualTriageReport || {};
-                        const esiLevel = rpt.esiLevel || rpt.ESI || enc.severity || 4;
+                        const priorityCategory = computePriority(enc, now).category;
+                        const esiLevel = ({ Red: 1, Orange: 2, Yellow: 3, Green: 4 })[priorityCategory] || 4;
                       
                         const severityConfig = {
                           1: { label: 'CRITICAL', color: '#991b1b', bg: '#fee2e2', icon: '🔴' },
@@ -2173,16 +2151,35 @@ const NurseDashboard = ({
                 </div>
                 <button type="button" aria-label="Close priority queue" title="Close priority queue" onClick={() => setShowPriorityQueueModal(false)} style={{ border: 0, background: 'transparent', color: '#475569', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
+              <div className="priority-queue-modal-workload" style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 10 }}>Clinician Workload</div>
+                {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 5).map((provider) => (
+                  <div key={`modal-workload-${provider.clinicianId || provider.name}`} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
+                    <div className="nurse-workload-name">{provider.name}</div>
+                    <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
+                    <div className="nurse-workload-meter">
+                      <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
+                    </div>
+                    <div className="nurse-workload-details">
+                      <span>{provider.count} active cases</span>
+                      <span>{provider.activeWorkload} weighted units</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
               <div className="priority-queue-modal-list">
                 {queueManagerEntries.map((patient, idx) => (
-                  <div key={`${patient.id}-modal-prio`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                    <div style={{ minWidth: 42, padding: '8px 5px', textAlign: 'center', borderRadius: 7, background: patient.category === 'Red' ? '#fee2e2' : patient.category === 'Orange' ? '#ffedd5' : patient.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: patient.category === 'Red' ? '#991b1b' : patient.category === 'Orange' ? '#9a3412' : patient.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11 }}>{patient.categoryEmoji} {patient.category}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                  <div key={`${patient.id}-modal-prio`} className="priority-queue-entry" style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                    <div style={{ padding: '6px 7px', textAlign: 'center', borderRadius: 7, background: patient.category === 'Red' ? '#fee2e2' : patient.category === 'Orange' ? '#ffedd5' : patient.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: patient.category === 'Red' ? '#991b1b' : patient.category === 'Orange' ? '#9a3412' : patient.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11, whiteSpace: 'nowrap' }}>{patient.categoryEmoji} {patient.category}</div>
+                    <div className="priority-queue-entry-details">
                       <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div>
-                      <div title={`${patient.type} • ${patient.waitLabel}`} style={{ marginTop: 3, color: '#64748b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type} • {patient.waitLabel}</div>
+                      <div className="priority-queue-entry-meta" title={`${patient.type} • ${patient.waitLabel}`}>
+                        <span>{patient.type}</span>
+                        <span>{patient.waitLabel}</span>
+                        <span className="priority-queue-entry-status" style={{ color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9' }}>{patient.status}</span>
+                      </div>
                     </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9', borderRadius: 999, padding: '5px 7px', whiteSpace: 'nowrap' }}>{patient.status}</span>
-                    <button type="button" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${patient.id}`); }} style={{ padding: '7px 9px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View</button>
+                    <button type="button" className="priority-queue-entry-view" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${patient.id}`); }}>View</button>
                   </div>
                 ))}
               </div>
@@ -2207,21 +2204,27 @@ const NurseDashboard = ({
               </div>
               <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sorted by severity & wait time</p>
             </div>
-            <div style={{ padding: 16, overflowY: 'auto' }}>
+            <div style={{ padding: 16, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
                 {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 3).map((provider) => (
-                  <div key={provider.name} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 34px', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.name}</div>
-                    <div style={{ height: 9, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}><div style={{ width: `${provider.percent}%`, height: '100%', background: provider.percent >= 80 ? '#ef4444' : provider.percent >= 50 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} /></div>
-                    <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textAlign: 'right' }}>{provider.percent}%</div>
+                  <div key={provider.clinicianId || provider.name} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
+                    <div className="nurse-workload-name">{provider.name}</div>
+                    <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
+                    <div className="nurse-workload-meter">
+                      <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
+                    </div>
+                    <div className="nurse-workload-details">
+                      <span>{provider.count} active cases</span>
+                      <span>{provider.activeWorkload} weighted units</span>
+                    </div>
                   </div>
                 ))}
               </div>
               <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Patient Queue</div>
                 {queueManagerEntries.length === 0 ? <div style={{ padding: '18px 0', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No patients in queue</div> : queueManagerEntries.map((patient, index) => (
-                  <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                  <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                     <span aria-hidden="true" style={{ width: 18, flexShrink: 0, fontSize: 14, lineHeight: 1 }}>{patient.categoryEmoji}</span>
                     <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div><div title={patient.type} style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type}</div></div>
                     <span style={{ fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>{patient.waitLabel}</span>

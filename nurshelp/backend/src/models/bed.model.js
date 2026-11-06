@@ -29,18 +29,6 @@ const bedSchema = new mongoose.Schema(
     // ============ BED LOCATION & ASSIGNMENT ============
     ward_unit: {
       type: String,
-      enum: [
-        // Critical Care (6)
-        'ICU', 'NICU', 'PICU', 'CICU', 'SICU', 'Neuro ICU',
-        // Step-Down (2)
-        'HDU', 'PCU',
-        // Medical/Surgical (6)
-        'Medical Ward', 'Surgical Ward', 'Orthopaedic Ward', 'Oncology Ward', 'Neurology Ward', 'Gastroenterology Ward',
-        // Demographic/Specialty (5)
-        'Pediatric Ward', 'Geriatric Ward', 'Maternity Ward', 'Psychiatric Ward', 'Infectious Disease Ward',
-        // Support departments
-        'Radiology', 'Pathology', 'Pharmacy'
-      ],
       required: true,
       index: true,
     },
@@ -52,6 +40,11 @@ const bedSchema = new mongoose.Schema(
       // NICU: "Level I NICU", "Level II NICU", "Level III NICU", "Isolation Nursery"
       // Radiology: "X-Ray Lab", "CT Lab", "MRI Lab", "Ultrasound Lab"
       required: false,
+    },
+
+    room_number: {
+      type: String,
+      default: '',
     },
 
     // ============ BED STATUS ============

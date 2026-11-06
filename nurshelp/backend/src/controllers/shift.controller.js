@@ -5,6 +5,18 @@
 
 import { Shift } from '../models/shift.model.js';
 import { ClinicalStaff } from '../models/clinicalstaff.model.js';
+import {
+  buildAssignedStaff,
+  getClinicalTeamRoleField,
+  normalizeShiftAssignmentRole,
+  validateClinicalTeam,
+} from '../utils/shiftTeamAssignment.js';
+import {
+  canonicalizeServiceCoverage,
+  getConfiguredHospitalServiceSpecialties,
+  inferAssignmentServiceCoverage,
+  validateHospitalShiftCoverage,
+} from '../utils/hospitalShiftCoverage.js';
 
 // Helper function to generate Shift ID
 const generateShiftID = () => `SHIFT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -12,7 +24,7 @@ const generateShiftID = () => `SHIFT-${Date.now()}-${Math.random().toString(36).
 // ============ CREATE SHIFT ============
 export const createShift = async (req, res) => {
   try {
-    const { shiftName, department, shiftStart, shiftEnd, date, dayOfWeek, recurrence, recurrenceEndDate, maxStaffRequired, notes, assignedStaff } = req.body;
+    const { shiftName, department, specialty, shiftStart, shiftEnd, date, dayOfWeek, recurrence, recurrenceEndDate, maxStaffRequired, notes, assignedStaff } = req.body;
     const managerID = req.user.id;
     const hospitalId = req.hospitalId;
 
@@ -34,9 +46,11 @@ export const createShift = async (req, res) => {
     if (!shiftName || !department || !shiftStart || !shiftEnd || !maxStaffRequired) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: shiftName, department, shiftStart, shiftEnd, maxStaffRequired'
+        message: 'Missing required fields: shiftName, department, specialty, shiftStart, shiftEnd, maxStaffRequired'
       });
     }
+    const coverageError = await validateHospitalShiftCoverage({ hospitalId, departmentName: department, specialty });
+    if (coverageError) return res.status(400).json({ success: false, message: coverageError });
 
     // Calculate duration
     const [startHour, startMin] = shiftStart.split(':').map(Number);
@@ -45,11 +59,72 @@ export const createShift = async (req, res) => {
     const endTime = endHour * 60 + endMin;
     const duration = (endTime - startTime) / 60;
 
+    const rosterInputs = Array.isArray(assignedStaff) ? assignedStaff : [];
+    if (rosterInputs.length > Number(maxStaffRequired)) {
+      return res.status(400).json({ success: false, message: 'Assigned staff exceeds maxStaffRequired' });
+    }
+
+    const staffIds = rosterInputs.map((entry) => String(entry.staffID || ''));
+    if (staffIds.some((id) => !id) || new Set(staffIds).size !== staffIds.length) {
+      return res.status(400).json({ success: false, message: 'Every shift assignment must include a unique staffID' });
+    }
+    const staffDocs = await ClinicalStaff.find({ _id: { $in: staffIds }, hospitalId, status: 'ACTIVE' }).lean();
+    const staffById = new Map(staffDocs.map((staff) => [String(staff._id), staff]));
+    if (staffById.size !== staffIds.length) {
+      return res.status(400).json({ success: false, message: 'One or more assigned staff are inactive, missing, or outside this hospital' });
+    }
+
+    const configuredServices = await getConfiguredHospitalServiceSpecialties(hospitalId);
+    const canonicalAssignments = [];
+    const teamAssignment = {
+      triageNurseId: null,
+      clinicalNurseId: null,
+      clinicalNurseContext: 'CLINICAL_NURSE_ER',
+      physicianId: null,
+      physicianContext: 'PHYSICIAN_ER',
+      physicianSpecialty: 'GENERAL',
+      teamAssignedAt: rosterInputs.length ? new Date() : null,
+      assignedBy: managerID,
+    };
+    for (const input of rosterInputs) {
+      const canonicalStaff = staffById.get(String(input.staffID));
+      let assignmentRole;
+      try {
+        assignmentRole = normalizeShiftAssignmentRole(input.assignmentRole || input.role, canonicalStaff.systemRole);
+      } catch (error) {
+        return res.status(400).json({ success: false, message: `${canonicalStaff.firstName} ${canonicalStaff.lastName}: ${error.message}` });
+      }
+      const requestedService = String(input.serviceCoverage || '').trim();
+      const serviceCoverage = requestedService
+        ? canonicalizeServiceCoverage(requestedService, configuredServices)
+        : inferAssignmentServiceCoverage({ staff: canonicalStaff, assignmentRole, configuredSpecialties: configuredServices });
+      if (!serviceCoverage) {
+        return res.status(400).json({
+          success: false,
+          message: `Choose a service mapped in the hospital structure for ${canonicalStaff.firstName} ${canonicalStaff.lastName}`
+        });
+      }
+      const assignment = {
+        staffID: canonicalStaff._id,
+        type: canonicalStaff.systemRole,
+        assignmentRole,
+        name: `${canonicalStaff.firstName || ''} ${canonicalStaff.lastName || ''}`.trim(),
+        surname: canonicalStaff.lastName || '',
+        specialty: canonicalStaff.clinicalSpecialty || '',
+        serviceCoverage,
+        status: 'ASSIGNED',
+      };
+      canonicalAssignments.push(assignment);
+      const teamRoleField = getClinicalTeamRoleField(assignmentRole);
+      if (teamRoleField) teamAssignment[teamRoleField] = canonicalStaff._id;
+    }
+
     const newShift = new Shift({
       hospitalId,
       shiftID: generateShiftID(),
       shiftName,
       department,
+      specialty,
       shiftStart,
       shiftEnd,
       duration,
@@ -58,7 +133,9 @@ export const createShift = async (req, res) => {
       recurrence: recurrence || 'ONCE',
       recurrenceEndDate: recurrenceEndDate ? new Date(recurrenceEndDate) : null,
       maxStaffRequired,
-      assignedStaff: assignedStaff && Array.isArray(assignedStaff) ? assignedStaff : [],
+      assignedStaff: canonicalAssignments,
+      teamAssignment,
+      shiftContext: teamAssignment.triageNurseId ? 'TRIAGE' : 'WARD',
       status: 'PUBLISHED',
       createdBy: managerID,
       notes
@@ -426,12 +503,12 @@ export const publishShift = async (req, res) => {
 export const assignStaffToShift = async (req, res) => {
   try {
     const { shiftID } = req.params;
-    const { staffID, staffType, name, surname, specialty } = req.body;
+    const { staffID, assignmentRole, serviceCoverage: requestedServiceCoverage } = req.body;
 
-    if (!staffID || !staffType) {
+    if (!staffID || !assignmentRole) {
       return res.status(400).json({
         success: false,
-        message: 'staffID and staffType are required'
+        message: 'staffID and assignmentRole are required'
       });
     }
 
@@ -459,8 +536,26 @@ export const assignStaffToShift = async (req, res) => {
       });
     }
 
+    if (staff.status !== 'ACTIVE') {
+      return res.status(400).json({ success: false, message: 'Inactive staff cannot be assigned to a shift' });
+    }
+
+    let canonicalRole;
+    try {
+      canonicalRole = normalizeShiftAssignmentRole(assignmentRole, staff.systemRole);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    const configuredServices = await getConfiguredHospitalServiceSpecialties(req.hospitalId);
+    const serviceCoverage = requestedServiceCoverage
+      ? canonicalizeServiceCoverage(requestedServiceCoverage, configuredServices)
+      : inferAssignmentServiceCoverage({ staff, assignmentRole: canonicalRole, configuredSpecialties: configuredServices });
+    if (!serviceCoverage) {
+      return res.status(400).json({ success: false, message: `Choose a service mapped in the hospital structure for ${staff.firstName} ${staff.lastName}` });
+    }
+
     // Check if staff is already assigned
-    const alreadyAssigned = shift.assignedStaff.some(s => s.staffID === staffID);
+    const alreadyAssigned = shift.assignedStaff.some((entry) => String(entry.staffID?._id || entry.staffID) === String(staffID));
     if (alreadyAssigned) {
       return res.status(400).json({
         success: false,
@@ -476,13 +571,26 @@ export const assignStaffToShift = async (req, res) => {
       });
     }
 
-    // Add staff to shift
+    const roleField = getClinicalTeamRoleField(canonicalRole);
+    if (roleField) {
+      if (shift.teamAssignment?.[roleField] && String(shift.teamAssignment[roleField]) !== String(staffID)) {
+        return res.status(409).json({ success: false, message: `This shift already has an assigned ${canonicalRole.replaceAll('_', ' ').toLowerCase()}` });
+      }
+      shift.teamAssignment[roleField] = staff._id;
+      shift.teamAssignment.teamAssignedAt = new Date();
+      shift.teamAssignment.assignedBy = req.user.id;
+      if (canonicalRole === 'TRIAGE_NURSE') shift.shiftContext = 'TRIAGE';
+      if (canonicalRole === 'CLINICAL_NURSE') shift.teamAssignment.clinicalNurseContext = shift.teamAssignment.clinicalNurseContext || 'CLINICAL_NURSE_ER';
+    }
+
     shift.assignedStaff.push({
-      staffID,
-      type: staffType,
-      name: name || staff.firstName,
-      surname: surname || staff.lastName,
-      specialty: specialty || staff.clinicalSpecialty,
+      staffID: staff._id,
+      type: staff.systemRole,
+      assignmentRole: canonicalRole,
+      name: `${staff.firstName || ''} ${staff.lastName || ''}`.trim(),
+      surname: staff.lastName,
+      specialty: staff.clinicalSpecialty,
+      serviceCoverage,
       status: 'ASSIGNED'
     });
 
@@ -546,7 +654,17 @@ export const removeStaffFromShift = async (req, res) => {
 export const updateShift = async (req, res) => {
   try {
     const { shiftID } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
+    const assignmentServices = updateData.assignmentServices;
+    delete updateData.assignmentServices;
+
+    const shift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId });
+    if (!shift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shift not found'
+      });
+    }
 
     // Recalculate duration if times changed
     if (updateData.shiftStart && updateData.shiftEnd) {
@@ -557,18 +675,51 @@ export const updateShift = async (req, res) => {
       updateData.duration = (endTime - startTime) / 60;
     }
 
-    const shift = await Shift.findOneAndUpdate(
-      { shiftID, hospitalId: req.hospitalId },
-      updateData,
-      { new: true, runValidators: true }
-    );
+    if (updateData.department !== undefined || updateData.specialty !== undefined || updateData.wardId !== undefined) {
+      if (!['DRAFT', 'PUBLISHED'].includes(shift.status)) {
+        return res.status(409).json({ success: false, message: 'Department, specialty, and ward can only be changed before a shift starts' });
+      }
+      const coverageError = await validateHospitalShiftCoverage({
+        hospitalId: req.hospitalId,
+        departmentName: updateData.department ?? shift.department,
+        specialty: updateData.specialty ?? shift.specialty,
+        wardId: updateData.wardId ?? shift.wardId,
+      });
+      if (coverageError) return res.status(400).json({ success: false, message: coverageError });
+    }
 
-    if (!shift) {
-      return res.status(404).json({
-        success: false,
-        message: 'Shift not found'
+    if (assignmentServices !== undefined) {
+      if (!Array.isArray(assignmentServices)) {
+        return res.status(400).json({ success: false, message: 'assignmentServices must be an array' });
+      }
+      if (!['DRAFT', 'PUBLISHED'].includes(shift.status)) {
+        return res.status(409).json({ success: false, message: 'Roster service coverage can only be changed before a shift starts' });
+      }
+
+      const configuredServices = await getConfiguredHospitalServiceSpecialties(req.hospitalId);
+      const requestedByStaff = new Map();
+      for (const assignment of assignmentServices) {
+        const staffId = String(assignment?.staffID || '');
+        const serviceCoverage = canonicalizeServiceCoverage(assignment?.serviceCoverage, configuredServices);
+        if (!staffId || !serviceCoverage || requestedByStaff.has(staffId)) {
+          return res.status(400).json({ success: false, message: 'Every roster service entry needs a unique staffID and a hospital-mapped serviceCoverage' });
+        }
+        requestedByStaff.set(staffId, serviceCoverage);
+      }
+
+      const shiftStaffIds = new Set(shift.assignedStaff.map((assignment) => String(assignment.staffID?._id || assignment.staffID)));
+      const unassignedStaffId = [...requestedByStaff.keys()].find((staffId) => !shiftStaffIds.has(staffId));
+      if (unassignedStaffId) {
+        return res.status(400).json({ success: false, message: 'Roster service coverage can only be updated for staff assigned to this shift' });
+      }
+      shift.assignedStaff.forEach((assignment) => {
+        const staffId = String(assignment.staffID?._id || assignment.staffID);
+        if (requestedByStaff.has(staffId)) assignment.serviceCoverage = requestedByStaff.get(staffId);
       });
     }
+
+    Object.assign(shift, updateData);
+    await shift.save();
 
     res.status(200).json({
       success: true,
@@ -610,6 +761,51 @@ export const deleteShift = async (req, res) => {
       success: false,
       message: 'Failed to delete shift',
       error: err.message
+    });
+  }
+};
+
+// ============ CANCEL SHIFT ============
+export const cancelShift = async (req, res) => {
+  try {
+    const { shiftID } = req.params;
+    const cancellationReason = req.body?.reason?.trim() || null;
+
+    const shift = await Shift.findOneAndUpdate(
+      { shiftID, hospitalId: req.hospitalId, status: { $nin: ['CANCELLED', 'COMPLETED'] } },
+      {
+        $set: {
+          status: 'CANCELLED',
+          cancelledBy: req.user.id,
+          cancelledAt: new Date(),
+          cancellationReason,
+        },
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!shift) {
+      const existingShift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId }).select('status');
+      if (!existingShift) {
+        return res.status(404).json({ success: false, message: 'Shift not found' });
+      }
+      return res.status(409).json({
+        success: false,
+        message: `Cannot cancel a ${existingShift.status.toLowerCase()} shift`,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shift cancelled successfully',
+      shift,
+    });
+  } catch (err) {
+    console.error('Error cancelling shift:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to cancel shift',
+      error: err.message,
     });
   }
 };
@@ -720,55 +916,36 @@ export const assignClinicalTeam = async (req, res) => {
       });
     }
 
-    // Verify staff exist in the system
     const staffIds = [triageNurseId, clinicalNurseId, physicianId].filter(Boolean);
-    if (staffIds.length > 0) {
-      const staffCheck = await ClinicalStaff.find({ _id: { $in: staffIds } });
-      if (staffCheck.length !== staffIds.length) {
-        return res.status(400).json({
-          success: false,
-          message: 'One or more staff members not found in the system'
-        });
-      }
-    }
+    const staffDocs = await ClinicalStaff.find({
+      _id: { $in: staffIds },
+      hospitalId: req.hospitalId,
+      status: 'ACTIVE',
+    }).lean().exec();
+    const staffById = new Map(staffDocs.map((staff) => [staff._id.toString(), staff]));
 
-    // Ensure assignedStaff array contains entries for any team members (keeps staff visibility consistent)
+    let normalizedTeam;
     try {
-      const currentAssigned = shift.assignedStaff || [];
-      const existingIds = currentAssigned.map(s => s.staffID ? s.staffID.toString() : null).filter(Boolean);
-
-      // Build a quick lookup for staff details
-      const staffDocs = await ClinicalStaff.find({ _id: { $in: staffIds } }).lean().exec();
-      const staffMap = {};
-      staffDocs.forEach(d => { staffMap[d._id.toString()] = d; });
-
-      const assignedStaffUpdated = currentAssigned.slice();
-      const addIfMissing = (id, defaultType) => {
-        if (!id) return;
-        const sid = id.toString();
-        if (existingIds.includes(sid)) return;
-        const doc = staffMap[sid];
-        assignedStaffUpdated.push({
-          staffID: sid,
-          type: doc ? (doc.systemRole || doc.role || defaultType) : defaultType,
-          name: doc ? (doc.firstName || doc.name || '') : '',
-          surname: doc ? (doc.lastName || doc.surname || '') : '',
-          specialty: doc ? (doc.clinicalSpecialty || doc.specialty || '') : '',
-          status: 'ASSIGNED'
-        });
-      };
-
-      addIfMissing(triageNurseId, 'NURSE');
-      addIfMissing(clinicalNurseId, 'NURSE');
-      addIfMissing(physicianId, 'PHYSICIAN');
-
-      // Put the updated assignedStaff into the updateData below so it's persisted atomically
-      // (we'll attach it to updateData later)
-      var persistedAssignedStaff = assignedStaffUpdated;
-    } catch (err) {
-      console.warn('[ASSIGN CLINICAL TEAM] Could not normalize assignedStaff:', err.message);
-      var persistedAssignedStaff = shift.assignedStaff || [];
+      normalizedTeam = validateClinicalTeam({
+        shiftId,
+        triageNurseId,
+        clinicalNurseId,
+        physicianId,
+        staffById,
+        hospitalId: req.hospitalId,
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
     }
+
+    const assignedStaff = buildAssignedStaff(
+      shift.assignedStaff,
+      staffById,
+      normalizedTeam,
+    );
 
     // Determine shiftContext based on assigned roles
     let shiftContext = 'WARD';
@@ -782,22 +959,18 @@ export const assignClinicalTeam = async (req, res) => {
 
     // Update shift using findByIdAndUpdate for reliable persistence
     const updateData = {
-      'teamAssignment.triageNurseId': triageNurseId || null,
-      'teamAssignment.clinicalNurseId': clinicalNurseId || null,
+      'teamAssignment.triageNurseId': normalizedTeam.triageNurseId || null,
+      'teamAssignment.clinicalNurseId': normalizedTeam.clinicalNurseId || null,
       'teamAssignment.clinicalNurseContext': clinicalNurseContext || 'CLINICAL_NURSE_ER',
-      'teamAssignment.physicianId': physicianId || null,
+      'teamAssignment.physicianId': normalizedTeam.physicianId || null,
       'teamAssignment.physicianContext': physicianContext || 'PHYSICIAN_ER',
       'teamAssignment.physicianSpecialty': physicianSpecialty || 'GENERAL',
       'teamAssignment.teamAssignedAt': new Date(),
       'teamAssignment.assignedBy': req.user?.id,
+      assignedStaff,
       shiftContext,
       status: shift.status === 'PUBLISHED' ? 'PUBLISHED' : 'ACTIVE'
     };
-
-    // Attach any assignedStaff normalization result
-    if (persistedAssignedStaff) {
-      updateData.assignedStaff = persistedAssignedStaff;
-    }
 
     const updatedShift = await Shift.findByIdAndUpdate(shiftId, updateData, { new: true, runValidators: true });
 

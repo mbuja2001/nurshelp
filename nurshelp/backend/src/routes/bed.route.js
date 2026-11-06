@@ -13,6 +13,10 @@ import {
   dischargePatientFromBed,
   getBedHistory,
   getOccupancyAnalytics
+  ,getBedConfigurations
+  ,createBedConfiguration
+  ,updateBedConfiguration
+  ,deleteBedConfiguration
 } from "../controllers/bed.controller.js";
 
 const router = express.Router();
@@ -27,22 +31,26 @@ const router = express.Router();
  * Protected: Manager/Admin only
  */
 router.post("/batch", protect, authorize('MANAGER', 'ADMIN'), createBedsBatch);
+router.get("/configuration", protect, authorize('MANAGER', 'ADMIN'), getBedConfigurations);
+router.post("/configuration", protect, authorize('MANAGER', 'ADMIN'), createBedConfiguration);
+router.patch("/configuration/:bedId", protect, authorize('MANAGER', 'ADMIN'), updateBedConfiguration);
+router.delete("/configuration/:bedId", protect, authorize('MANAGER', 'ADMIN'), deleteBedConfiguration);
 
 // =====================================================
-// PUBLIC ENDPOINTS (live status monitoring)
+// Authenticated hospital-scoped live status
 // =====================================================
 
 /**
  * GET /api/beds/wards
  * Get all wards with live bed status
  */
-router.get("/wards", getWardsWithBedStatus);
+router.get("/wards", protect, getWardsWithBedStatus);
 
 /**
  * GET /api/beds/ward/:wardId
  * Get detailed ward view
  */
-router.get("/ward/:wardId", getWardDetail);
+router.get("/ward/:wardId", protect, getWardDetail);
 
 /**
  * GET /api/beds/stats

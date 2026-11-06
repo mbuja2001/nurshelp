@@ -4,6 +4,7 @@ import {
   getEncounterLabRequests,
   getLabRequestsForSpecialty,
   acknowledgeLabRequest,
+  startLabRequest,
   submitLabReport,
   declineLabRequest,
   reviewLabReport,
@@ -47,6 +48,10 @@ router.get("/physician/reports", protect, getLabReportsForPhysician);
 // PATCH /api/lab-requests/:encounterId/:requestId/acknowledge
 // Specialist acknowledges and accepts a lab request
 router.patch("/:encounterId/:requestId/acknowledge", protect, acknowledgeLabRequest);
+
+// PATCH /api/lab-requests/:encounterId/:requestId/start
+// Assigned specialist starts work after accepting the request
+router.patch("/:encounterId/:requestId/start", protect, startLabRequest);
 
 // PATCH /api/lab-requests/:encounterId/:requestId/submit-report
 // Specialist submits completed lab report with findings

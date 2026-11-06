@@ -1,75 +1,35 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import NurseDashboard from "./NurseDashboard";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import LoginForm from "./LoginForm";
 import RegisterForm from "./RegisterForm";
+import SandboxAccountRegister from "./SandboxAccountRegister";
+import AccountDashboard from "./AccountDashboard";
 import StaffScheduleManager from "./Pages/StaffScheduleManager";
-import ClockInOutBoard from "./Pages/ClockInOutBoard";
-import PharmacistDashboard from "../components/dashboards/PharmacistDashboard";
-import RadiologyDashboard from "../components/dashboards/RadiologyDashboard";
-import PathologyDashboard from "../components/dashboards/PathologyDashboard";
+import DashboardRouter from "../components/dashboards/DashboardRouter";
 import { styles } from "./styles";
-import { decodeJwt, normalizeRoleLabel, getDashboardRoute } from "../utils/jwt";
+import { decodeJwt, normalizeRoleLabel } from "../utils/jwt";
+import { clearAuthSession } from "../utils/authSession";
+import { apiFetch } from "../utils/apiFetch";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
-
-/**
- * API helper (CRITICAL for consistency)
- */
-const apiFetch = async (url, options = {}) => {
-  const token = localStorage.getItem("token");
-
-  const res = await fetch(`${BACKEND_URL}${url}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    }
-  });
-
-  if (res.status === 401) {
-    // 🔥 token expired / invalid
-    localStorage.removeItem("token");
-    window.location.reload();
-    return;
-  }
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    throw new Error(data.message || "Request failed");
-  }
-
-  return data;
-};
-
-/** dedupe by _id */
-function dedupeById(list) {
-  const seen = new Set();
-  return list.filter(item => {
-    const id = item._id || item.id;
-    if (!id || seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-}
+const SHIFT_GATED_DASHBOARD_ROLES = new Set([
+  "NURSE",
+  "PHYSICIAN",
+  "PHARMACIST",
+  "RADIOLOGIST",
+  "PATHOLOGIST",
+  "TECHNICIAN"
+]);
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const [view, setView] = useState("home");
+  const [view, setView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('login') === '1') return 'login';
+    return params.get('register') === 'account' ? 'account-register' : 'home';
+  });
   const [nurse, setNurse] = useState(null);
 
-  const [waitingPatients, setWaitingPatients] = useState([]);
-  const [nurseEncounters, setNurseEncounters] = useState([]);
-
-  const [bedsAvailable] = useState(12);
-  const [loading, setLoading] = useState(false);
-
-  const pollRef = useRef(null);
-  const POLL_INTERVAL = 5000;
 
   // -----------------------------
   // SESSION RESTORE
@@ -84,103 +44,27 @@ const Dashboard = () => {
         id: decoded.id,
         email: decoded.email,
         name: decoded.name || "Staff",
-        role: normalizeRoleLabel(decoded.role, decoded.specialty || decoded.department),
+        role: normalizeRoleLabel(decoded.systemRole || decoded.role, decoded.specialty || decoded.department),
         specialty: decoded.specialty || decoded.department,
-        hospitalId: decoded.hospitalId
+        hospitalId: decoded.hospitalId,
+        identityType: decoded.identityType
       });
       setView("dashboard");
     }
   }, []);
 
-  // -----------------------------
-  // FETCH WAITING (PER USER NOW)
-  // -----------------------------
-  const fetchWaiting = useCallback(async () => {
-    try {
-      const data = await apiFetch("/api/encounters/waiting");
-
-      setWaitingPatients(
-        Array.isArray(data) ? data : (data.encounters ?? [])
-      );
-    } catch (err) {
-      console.warn("Waiting fetch failed:", err.message);
-    }
-  }, []);
-
-  // -----------------------------
-  // FETCH MY ENCOUNTERS
-  // -----------------------------
-  const fetchMyEncounters = useCallback(async () => {
-    try {
-      setLoading(true);
-
-      const data = await apiFetch("/api/encounters");
-
-      setNurseEncounters(
-        Array.isArray(data) ? data : (data.encounters ?? [])
-      );
-    } catch (err) {
-      console.error("Encounter fetch failed:", err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // -----------------------------
-  // POLLING LOOP
-  // -----------------------------
   useEffect(() => {
-    if (!nurse) return;
-
-    // Only fetch patient data if user is staff (not admin/manager)
-    const isAdmin = nurse.role === "ADMIN" || nurse.role === "MANAGER";
-    
-    if (!isAdmin) {
-      fetchWaiting();
-      fetchMyEncounters();
-
-      pollRef.current = setInterval(() => {
-        fetchWaiting();
-      }, POLL_INTERVAL);
-    }
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    const resetSession = () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('currentNurseId');
+      localStorage.removeItem('userRole');
+      setNurse(null);
+      setView('login');
     };
-  }, [nurse, fetchWaiting, fetchMyEncounters]);
 
-  // -----------------------------
-  // NAVIGATION STATE (NEW PATIENT or NEW ENCOUNTER from triage)
-  // -----------------------------
-  useEffect(() => {
-    if (location.state?.newPatient) {
-      const newP = location.state.newPatient;
-
-      setNurseEncounters(prev => {
-        if (prev.find(p => p._id === newP._id)) return prev;
-        return [newP, ...prev];
-      });
-
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state]);
-
-  // Handle newly created encounter from manual triage form
-  useEffect(() => {
-    if (location.state?.newEncounterId) {
-      console.log(`[DASHBOARD] New encounter from triage: ${location.state.newEncounterId}`);
-      
-      // Immediately refresh the waiting queue to pick up the new encounter
-      fetchWaiting().then(() => {
-        console.log(`[DASHBOARD] Waiting queue refreshed after new triage`);
-      }).catch(err => {
-        console.error(`[DASHBOARD] Failed to refresh waiting queue:`, err);
-      });
-      
-      // Clear the navigation state to avoid re-triggering
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state?.newEncounterId, fetchWaiting]);
+    window.addEventListener('nursehelpdesk:logout', resetSession);
+    return () => window.removeEventListener('nursehelpdesk:logout', resetSession);
+  }, []);
 
   // Get user role from JWT token
   const getUserRole = () => {
@@ -198,21 +82,13 @@ const Dashboard = () => {
 
   const getNormalizedRole = (role, specialty) => normalizeRoleLabel(role, specialty);
 
-  const isSpecialistRole = (role, specialty) => {
-    const normalized = getNormalizedRole(role, specialty);
-    return [
-      "PHARMACIST",
-      "RADIOLOGIST",
-      "PATHOLOGIST"
-    ].includes(normalized);
-  };
-
   // -----------------------------
   // AUTH
   // -----------------------------
   const handleLogin = async ({ email, password }) => {
     try {
-      // Unified login endpoint - works for all user types
+      // All auth must come from the backend JWT producer. Do not allow a locally forged token,
+      // because protected routes verify the signature against the server secret and reject it with 401.
       const endpoint = "/api/auth/login";
 
       const data = await apiFetch(endpoint, {
@@ -232,21 +108,33 @@ const Dashboard = () => {
           id: decoded.id,
           email: decoded.email,
           name: decoded.name || "Staff",
-          role: normalizeRoleLabel(decoded.role, decoded.specialty || decoded.department),
-          specialty: decoded.specialty || decoded.department
+          role: normalizeRoleLabel(decoded.systemRole || decoded.role, decoded.specialty || decoded.department),
+          specialty: decoded.specialty || decoded.department,
+          hospitalId: decoded.hospitalId,
+          identityType: decoded.identityType
         });
 
         setView("dashboard");
 
-        // Only fetch patient encounters if nurse/physician (not admin/manager)
-        if (decoded.role !== "ADMIN" && decoded.role !== "MANAGER") {
-          await fetchMyEncounters();
-          await fetchWaiting();
-        }
+
       }
     } catch (err) {
       alert(err.message);
     }
+  };
+
+  const handleAccountRegister = async (payload) => {
+    const data = await apiFetch('/api/auth/register-account', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!data.token) throw new Error(data.message || 'Account registration failed');
+    localStorage.setItem('token', data.token);
+    window.dispatchEvent(new Event('nursehelpdesk:auth-changed'));
+    const decoded = decodeJwt(data.token);
+    setNurse({ id: decoded.id, email: decoded.email, name: decoded.name, role: decoded.role, identityType: decoded.identityType });
+    setView('dashboard');
+    navigate('/dashboard', { replace: true });
   };
 
   const handleRegister = async (payload) => {
@@ -333,34 +221,11 @@ const Dashboard = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("currentNurseId");
-    localStorage.removeItem("userRole");
+    clearAuthSession();
     setNurse(null);
-    setWaitingPatients([]);
-    setNurseEncounters([]);
     setView("login");
+    navigate('/dashboard?login=1', { replace: true });
   };
-
-  // -----------------------------
-  // DATA MERGE + SORT
-  // -----------------------------
-  const combined = dedupeById([
-    ...(waitingPatients || []),
-    ...(nurseEncounters || [])
-  ]);
-
-  const sorted = combined.sort((a, b) => {
-    const sa = a.severity || a.triage?.severity || 1;
-    const sb = b.severity || b.triage?.severity || 1;
-
-    if (sb !== sa) return sb - sa;
-
-    const ta = new Date(a.createdAt || 0).getTime();
-    const tb = new Date(b.createdAt || 0).getTime();
-
-    return ta - tb;
-  });
 
   // -----------------------------
   // UI
@@ -388,13 +253,13 @@ const Dashboard = () => {
             </button>
 
             <button
-              onClick={() => setView("register")}
+              onClick={() => setView("account-register")}
               style={{
                 ...styles.btnOutline,
                 minWidth: "220px"
               }}
             >
-              Register Hospital
+              Create Account
             </button>
 
             <button
@@ -413,7 +278,11 @@ const Dashboard = () => {
   }
 
   if (view === "login") {
-    return <LoginForm onLogin={handleLogin} onCancel={() => setView("home")} />;
+    return <LoginForm onLogin={handleLogin} onCancel={() => setView("home")} onCreateAccount={() => setView('account-register')} />;
+  }
+
+  if (view === 'account-register') {
+    return <SandboxAccountRegister onRegister={handleAccountRegister} onLogin={() => setView('login')} onCancel={() => setView('home')} />;
   }
 
   if (view === "register") {
@@ -421,6 +290,9 @@ const Dashboard = () => {
   }
 
   if (view === "dashboard" && nurse) {
+    if (nurse.identityType === 'ACCOUNT') {
+      return <AccountDashboard account={nurse} onLogout={handleLogout} />;
+    }
     // Check user role from JWT
     const userRole = nurse.role || getUserRole();
     const userSpecialty = nurse.specialty || null;
@@ -439,43 +311,8 @@ const Dashboard = () => {
           onLogout={handleLogout}
         />
       );
-    } else if (normalizedRole === "NURSE" || normalizedRole === "PHYSICIAN") {
-      // Staff dashboard - their home page with patient tracking and clock in/out
-      return (
-        <NurseDashboard
-          navigate={navigate}
-          setView={setView}
-          username={nurse.name}
-          patients={combined}
-          bedsAvailable={bedsAvailable}
-          sortedPatients={sorted}
-          loading={loading}
-          refresh={fetchMyEncounters}
-          handleLogout={handleLogout}
-          userRole={userRole}
-          token={localStorage.getItem("token")}
-          user={nurse}
-          getWaitTime={(p) => {
-            if (!p?.createdAt) return "N/A";
-            const diff = Math.floor((Date.now() - new Date(p.createdAt)) / 60000);
-            return diff < 60 ? `${diff}m` : `${Math.floor(diff / 60)}h`;
-          }}
-        />
-      );
-    } else if (isSpecialistRole(userRole, userSpecialty)) {
-      const dashboardRoute = getDashboardRoute(userRole, userSpecialty);
-
-      if (dashboardRoute === "PHARMACY") {
-        return <PharmacistDashboard />;
-      }
-
-      if (dashboardRoute === "RADIOLOGY") {
-        return <RadiologyDashboard />;
-      }
-
-      if (dashboardRoute === "PATHOLOGY") {
-        return <PathologyDashboard />;
-      }
+    } else if (SHIFT_GATED_DASHBOARD_ROLES.has(normalizedRole)) {
+      return <DashboardRouter />;
     }
 
     // Fallback: render a visible dashboard shell so the user is never left with a blank page.

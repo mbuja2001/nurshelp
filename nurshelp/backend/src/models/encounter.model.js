@@ -250,6 +250,7 @@ const encounterSchema = new mongoose.Schema({
       lab_type: String, // e.g., "Chest X-ray", "CT Scan", "Blood Work", "Urinalysis"
       description: String, // Clinical indication for the test
       priority: { type: String, enum: ['URGENT', 'HIGH', 'MEDIUM', 'LOW'], default: 'MEDIUM' },
+      ehrContext: { type: mongoose.Schema.Types.Mixed, default: null },
       
       // Request creation
       requested_by: String, // Physician name
@@ -257,7 +258,11 @@ const encounterSchema = new mongoose.Schema({
       
       // Acknowledgment stage
       assigned_technician: String, // Radiologist/Pathologist who accepted
+      assigned_technician_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
       assigned_at: Date,
+      started_at: Date,
+      started_by: String,
+      started_by_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
       
       // Work & completion
       report_content: String, // Findings/observations from lab
@@ -266,6 +271,7 @@ const encounterSchema = new mongoose.Schema({
       recommendations: [String], // Follow-up recommendations
       submitted_at: Date,
       submitted_by: String, // Specialist who submitted report
+      submitted_by_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
       
       // Status tracking
       status: { type: String, enum: ['PENDING', 'ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED', 'REVIEWED', 'DECLINED'], default: 'PENDING' },
@@ -273,6 +279,7 @@ const encounterSchema = new mongoose.Schema({
       // Physician review
       reviewed_at: Date,
       reviewed_by: String, // Physician who reviewed the report
+      reviewed_by_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
       review_notes: String, // Physician's clinical interpretation
       
       // Metadata

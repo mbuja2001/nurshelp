@@ -5,7 +5,7 @@ import { FaFlask, FaChartLine } from 'react-icons/fa';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
-export default function LabRequestsPage() {
+export default function LabRequestsPage({ mode = 'specialist' }) {
   const navigate = useNavigate();
   const [labRequests, setLabRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -180,6 +180,52 @@ export default function LabRequestsPage() {
   };
 
   const journeyStages = ['Order placed', 'Acknowledged', 'Test started', 'Results sent'];
+
+  if (mode === 'admin') {
+    return (
+      <div style={{ display: 'grid', gap: 18, maxWidth: 1320, margin: '0 auto', padding: 24 }}>
+        <div style={{ padding: 22, borderRadius: 14, background: '#f8fbff', border: '1px solid #dbeafe' }}>
+          <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, color: '#0f766e' }}>Lab reporting</div>
+          <h2 style={{ margin: '8px 0 6px', color: '#0f172a' }}>Admin lab configuration</h2>
+          <p style={{ margin: 0, color: '#475569', fontSize: 14 }}>
+            This page is limited to hospital-level lab reporting configuration. Ordering, review, and specialist diagnostics remain in the clinician-facing dashboards.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          {[
+            ['Pending reviews', stats.pending, 'queued by request time'],
+            ['Urgent tests', stats.urgent, 'priority routing only'],
+            ['Completed', stats.completed, 'results finalized'],
+            ['Scope', 'Current hospital only', 'server-side scoping enforced'],
+          ].map(([label, value, meta]) => (
+            <div key={label} style={{ padding: 18, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b' }}>{label}</div>
+              <div style={{ marginTop: 10, fontSize: 20, fontWeight: 700, color: '#0f172a' }}>{value}</div>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>{meta}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
+          <h3 style={{ margin: '0 0 12px', color: '#0f172a' }}>Configurable lab reporting elements</h3>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {[
+              'Turnaround SLAs for radiology and pathology requests.',
+              'Priority routing and escalation thresholds for urgent testing.',
+              'Which lab metrics are included in admin dashboards and hospital reporting.',
+              'Hospital-scoped reporting and access gating for case-level results.'
+            ].map((item) => (
+              <div key={item} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <span style={{ color: '#0f766e', fontWeight: 800 }}>✓</span>
+                <span style={{ color: '#334155', fontSize: 13 }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24, maxWidth: 1320, margin: '0 auto', fontFamily: 'system-ui, -apple-system, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>

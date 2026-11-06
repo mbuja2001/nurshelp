@@ -37,7 +37,9 @@ export default function WardBoard({ token }) {
 
   const fetchWards = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/beds/wards`);
+      const res = await fetch(`${BACKEND_URL}/api/beds/wards`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
       if (data.success) {
         setWards(data.data);
@@ -51,7 +53,9 @@ export default function WardBoard({ token }) {
   const fetchWardDetails = async (wardId) => {
     try {
       setLoading(true);
-      const res = await fetch(`${BACKEND_URL}/api/beds/ward/${wardId}`);
+      const res = await fetch(`${BACKEND_URL}/api/beds/ward/${wardId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
       if (data.success) {
         setWardDetails(data.data);

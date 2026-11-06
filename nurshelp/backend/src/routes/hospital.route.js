@@ -4,8 +4,10 @@
  */
 
 import express from 'express';
-import { registerHospital } from '../controllers/hospital.controller.js';
+import { createManagedHospital, getHospitalTrialMode, listManagedHospitals, loginManager, registerHospital, selectManagedHospital, updateManagedHospitalCredentials } from '../controllers/hospital.controller.js';
 import { Manager } from '../models/manager.model.js';
+import { protect } from '../middleware/authmiddleware.js';
+import { authorize } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -26,6 +28,12 @@ const router = express.Router();
  * Response: { token, user, hospital }
  */
 router.post('/register', registerHospital);
+router.post('/login', loginManager);
+router.get('/clinical-trial-mode', protect, authorize('ADMIN', 'MANAGER', 'SUPERUSER', 'RADIOLOGIST', 'PATHOLOGIST'), getHospitalTrialMode);
+router.get('/managed', protect, listManagedHospitals);
+router.post('/managed', protect, createManagedHospital);
+router.post('/managed/:hospitalId/select', protect, selectManagedHospital);
+router.patch('/managed/:hospitalId/credentials', protect, updateManagedHospitalCredentials);
 
 // ============================================
 // DEBUG ENDPOINTS (Development Only)

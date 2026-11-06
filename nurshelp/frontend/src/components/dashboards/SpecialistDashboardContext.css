@@ -1,0 +1,559 @@
+@import '../../Dashboard/DashboardTheme.css';
+
+.specialist-dashboard {
+  box-sizing: border-box;
+  min-height: 100vh;
+  overflow: auto !important;
+}
+
+.specialist-dashboard,
+.specialist-dashboard * {
+  box-sizing: border-box;
+}
+
+.specialist-dashboard-radiology {
+  --specialist-accent: #06b6d4;
+  --specialist-accent-soft: rgba(6, 182, 212, 0.13);
+  --specialist-accent-border: rgba(6, 182, 212, 0.3);
+}
+
+.specialist-dashboard-pathology {
+  --specialist-accent: #c084fc;
+  --specialist-accent-soft: rgba(168, 85, 247, 0.14);
+  --specialist-accent-border: rgba(192, 132, 252, 0.3);
+}
+
+.specialist-dashboard > main {
+  min-width: 0;
+  min-height: 100vh;
+  overflow: visible !important;
+}
+
+.specialist-dashboard .specialist-context {
+  --specialist-accent: #06b6d4;
+  --specialist-accent-soft: rgba(6, 182, 212, 0.13);
+  --specialist-accent-border: rgba(6, 182, 212, 0.3);
+  padding: 20px 32px 28px;
+  color: #e2e8f0;
+  background: #0b1425;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.specialist-dashboard .specialist-context-pathology {
+  --specialist-accent: #c084fc;
+  --specialist-accent-soft: rgba(168, 85, 247, 0.14);
+  --specialist-accent-border: rgba(192, 132, 252, 0.3);
+}
+
+.specialist-context-topline,
+.specialist-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.specialist-context-topline {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.specialist-context-topline h2,
+.specialist-card-heading h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.specialist-context-topline h2 {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.specialist-eyebrow {
+  margin: 0 0 5px;
+  color: var(--specialist-accent, #06b6d4);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.specialist-environment-badge,
+.specialist-module-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--specialist-accent-border, rgba(6, 182, 212, 0.3));
+  border-radius: 999px;
+  background: var(--specialist-accent-soft, rgba(6, 182, 212, 0.13));
+  color: #e0f2fe;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.specialist-environment-badge {
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.specialist-environment-badge.is-production {
+  color: #dcfce7;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.specialist-environment-badge.is-unknown {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.specialist-context-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.specialist-context-item {
+  display: flex;
+  min-width: 0;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.specialist-context-icon,
+.specialist-module-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--specialist-accent, #06b6d4);
+  background: var(--specialist-accent-soft, rgba(6, 182, 212, 0.13));
+}
+
+.specialist-context-item > div {
+  min-width: 0;
+}
+
+.specialist-context-label {
+  display: block;
+  margin-bottom: 5px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.specialist-context-item strong {
+  display: block;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.specialist-context-item small,
+.specialist-context-item [role="alert"] {
+  display: block;
+  margin-top: 5px;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.specialist-module-nav {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.specialist-module-nav a {
+  padding: 8px 11px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.specialist-module-nav a:hover,
+.specialist-module-nav a:focus-visible {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: var(--specialist-accent, #06b6d4);
+  outline: none;
+}
+
+.specialist-dashboard .specialist-checklist-grid,
+.specialist-dashboard .specialist-deny-reasons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.specialist-dashboard .specialist-checklist-grid {
+  padding: 0 32px 20px;
+  background: #0b1425;
+}
+
+.specialist-checklist-card,
+.specialist-access-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.94));
+  scroll-margin-top: 16px;
+}
+
+.specialist-card-heading h3 {
+  font-size: 16px;
+}
+
+.specialist-card-description,
+.specialist-access-card > p {
+  margin: 14px 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.specialist-checklist-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.specialist-checklist-card li::marker {
+  color: var(--specialist-accent, #06b6d4);
+}
+
+.specialist-not-connected {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 11px;
+  background: rgba(120, 53, 15, 0.14);
+  color: #fbbf24;
+}
+
+.specialist-not-connected > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.specialist-not-connected strong {
+  display: block;
+  font-size: 12px;
+}
+
+.specialist-not-connected p,
+.specialist-not-connected small {
+  display: block;
+  margin: 5px 0 0;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.specialist-not-connected small {
+  color: #94a3b8;
+}
+
+.specialist-dashboard .specialist-access-card {
+  margin: 0 32px 32px;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.specialist-dashboard .specialist-deny-reasons {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.specialist-deny-reason {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.65);
+}
+
+.specialist-deny-reason code {
+  color: #fbbf24;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.specialist-deny-reason span,
+.specialist-deny-reason small {
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.specialist-deny-reason small {
+  color: #94a3b8;
+}
+
+.specialist-dashboard .specialist-worklist-tabs {
+  scroll-margin-top: 12px;
+}
+
+.specialist-dashboard .specialist-worklist-content {
+  flex-wrap: wrap;
+  overflow: auto !important;
+  min-height: 320px;
+}
+
+@media (max-width: 1050px) {
+  .specialist-context-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .specialist-dashboard .specialist-deny-reasons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .specialist-dashboard .specialist-context {
+    padding: 16px;
+  }
+
+  .specialist-context-topline {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .specialist-context-grid,
+  .specialist-dashboard .specialist-checklist-grid,
+  .specialist-dashboard .specialist-deny-reasons {
+    grid-template-columns: 1fr;
+  }
+
+  .specialist-dashboard .specialist-checklist-grid {
+    padding: 0 16px 16px;
+  }
+
+  .specialist-dashboard .specialist-access-card {
+    margin: 0 16px 20px;
+  }
+
+  .specialist-dashboard .specialist-worklist-content {
+    padding: 16px !important;
+  }
+
+  .specialist-dashboard .specialist-worklist-content > * {
+    flex: 1 1 100% !important;
+    min-width: 0;
+  }
+
+  .specialist-dashboard main > header {
+    padding: 18px 16px !important;
+  }
+}
+
+.specialist-dashboard {
+  height: 100%;
+  min-height: 0 !important;
+  width: 100%;
+  overflow: hidden !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  font-family: inherit !important;
+}
+
+.specialist-dashboard > main {
+  height: 100%;
+  min-height: 0 !important;
+  overflow: auto !important;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.specialist-dashboard > main > header {
+  flex-shrink: 0;
+  border-bottom: 1px solid #e2e8f0 !important;
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.specialist-dashboard > main > header h1 {
+  background: none !important;
+  color: var(--color-role-dark, #0c4a6e) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+.specialist-dashboard > main > header p {
+  color: #64748b !important;
+}
+
+.specialist-dashboard > main > header button {
+  border: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+  color: #0369a1 !important;
+}
+
+.specialist-dashboard .specialist-context {
+  border-bottom-color: #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+}
+
+.specialist-dashboard .specialist-context-topline h2,
+.specialist-dashboard .specialist-card-heading h3,
+.specialist-dashboard .specialist-context-item strong {
+  color: #0f172a;
+}
+
+.specialist-dashboard .specialist-context-item,
+.specialist-dashboard .specialist-checklist-card,
+.specialist-dashboard .specialist-access-card {
+  border-color: #e2e8f0;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.specialist-dashboard .specialist-context-label,
+.specialist-dashboard .specialist-context-item small,
+.specialist-dashboard .specialist-context-item [role="alert"],
+.specialist-dashboard .specialist-card-description,
+.specialist-dashboard .specialist-checklist-card ul,
+.specialist-dashboard .specialist-access-card > p,
+.specialist-dashboard .specialist-deny-reason span,
+.specialist-dashboard .specialist-deny-reason small {
+  color: #475569;
+}
+
+.specialist-dashboard .specialist-checklist-grid {
+  background: #f8fafc;
+}
+
+.specialist-dashboard .specialist-not-connected {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.specialist-dashboard .specialist-not-connected p,
+.specialist-dashboard .specialist-not-connected small {
+  color: #78350f;
+}
+
+.specialist-dashboard .specialist-deny-reason {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.specialist-dashboard .specialist-deny-reason code {
+  color: #92400e;
+}
+
+.specialist-dashboard .specialist-worklist-tabs {
+  flex-shrink: 0;
+  border-bottom-color: #e2e8f0 !important;
+  background: #fff !important;
+}
+
+.specialist-dashboard .specialist-worklist-tabs button[aria-pressed="false"],
+.specialist-dashboard .specialist-worklist-content button[aria-pressed="false"] {
+  border-color: #cbd5e1 !important;
+  background: #fff !important;
+  color: #475569 !important;
+}
+
+.specialist-dashboard .specialist-worklist-tabs button[aria-pressed="true"],
+.specialist-dashboard .specialist-worklist-content button[aria-pressed="true"] {
+  border-color: var(--specialist-accent, #0369a1) !important;
+  background: var(--specialist-accent-soft, #e0f2fe) !important;
+  color: var(--specialist-accent, #0369a1) !important;
+}
+
+.specialist-dashboard .specialist-worklist-content {
+  align-items: flex-start;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.specialist-dashboard .specialist-worklist-content > div:first-child {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+
+.specialist-dashboard .specialist-detail-panel {
+  flex: 1 1 420px !important;
+  min-width: 0;
+}
+
+.specialist-dashboard .specialist-worklist-card,
+.specialist-dashboard .specialist-detail-panel > div {
+  border-color: #e2e8f0 !important;
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.specialist-dashboard .specialist-worklist-card h4 {
+  color: #0f172a !important;
+}
+
+.specialist-dashboard .specialist-worklist-card p,
+.specialist-dashboard .specialist-detail-panel > div p {
+  color: #475569 !important;
+}
+
+.specialist-dashboard .specialist-report-backdrop {
+  background: rgba(15, 23, 42, 0.45) !important;
+}
+
+.specialist-dashboard .specialist-report-modal {
+  border: 1px solid #e2e8f0 !important;
+  background: #fff !important;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+}
+
+.specialist-dashboard .specialist-report-modal h2 {
+  color: #0f172a !important;
+}
+
+.specialist-dashboard .specialist-report-modal p,
+.specialist-dashboard .specialist-report-modal label {
+  color: #475569 !important;
+}
+
+.specialist-dashboard .specialist-report-modal textarea,
+.specialist-dashboard .specialist-report-modal input {
+  border-color: #cbd5e1 !important;
+  background: #fff !important;
+  color: #0f172a !important;
+}
+
+@media (max-width: 700px) {
+  .specialist-dashboard {
+    height: auto;
+    min-height: 100%;
+    overflow: visible !important;
+  }
+
+  .specialist-dashboard > main {
+    height: auto;
+    min-height: 100%;
+    overflow: visible !important;
+  }
+
+  .specialist-dashboard .specialist-worklist-content {
+    overflow: visible !important;
+  }
+}

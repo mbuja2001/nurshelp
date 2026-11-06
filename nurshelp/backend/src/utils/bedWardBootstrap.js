@@ -4,9 +4,11 @@ export const normalizeWardDepartment = (wardUnit = '') => {
   if (!value) return 'GENERAL';
 
   const normalized = value.toUpperCase();
+  if (normalized === 'ED' || normalized.startsWith('ED ') || normalized.includes('EMERGENCY')) {
+    return 'ED';
+  }
+
   const mappings = {
-    ED: 'ED',
-    'EMERGENCY DEPARTMENT': 'ED',
     ICU: 'ICU',
     NICU: 'NICU',
     PICU: 'PICU',

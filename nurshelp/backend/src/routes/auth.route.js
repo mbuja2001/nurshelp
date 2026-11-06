@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { login, debugToken, findUserByEmail } from '../controllers/auth.controller.js';
+import { login, registerSandboxAccount, debugToken, findUserByEmail } from '../controllers/auth.controller.js';
 
 const router = express.Router();
 
@@ -46,6 +46,7 @@ const router = express.Router();
  * - 500: Server error
  */
 router.post('/login', login);
+router.post('/register-account', registerSandboxAccount);
 
 // ============================================
 // DEBUG ENDPOINTS (Development Only)

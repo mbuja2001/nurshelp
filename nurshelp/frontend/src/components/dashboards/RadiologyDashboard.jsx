@@ -1,35 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FaCalendarAlt, FaCheckCircle, FaFileAlt, FaFlask, FaHistory, FaClock } from 'react-icons/fa';
 import { decodeJwt } from '../../utils/jwt';
+import SidebarLayout from '../../Dashboard/SidebarLayout';
+import EhrContextPanel from '../diagnostics/EhrContextPanel';
 import './RadiologyDashboard.css';
 
 /**
- * RadiologyDashboard Component
- * 
- * RADIOLOGY DEPARTMENT CONTEXT
- * Role: Diagnostic imaging specialists - process radiology requests
- * Controls:
- *   - View pending lab requests (CT, X-ray, ultrasound, MRI, etc.)
- *   - Accept & acknowledge lab orders
- *   - Document findings and clinical impressions
- *   - Submit reports back to ordering physician
- *   - Track report acknowledgment by physician
+ * The dashboard reads and updates the hospital-scoped radiology request queue.
  */
 
-const BACKEND_URL = 'http://localhost:5001';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 const RadiologyDashboard = ({ config }) => {
   const navigate = useNavigate();
   const userInfo = decodeJwt(localStorage.getItem('token'));
 
   // ============ STATE MANAGEMENT ============
+  const [activeView, setActiveView] = useState('hub');
   const [activeTab, setActiveTab] = useState('pending'); // pending, in-progress, completed, submitted
   const [labQueue, setLabQueue] = useState([]);
   const [selectedLabRequest, setSelectedLabRequest] = useState(null);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [actionSuccess, setActionSuccess] = useState('');
+  const [savingAction, setSavingAction] = useState(false);
   const [filterPriority, setFilterPriority] = useState('ALL'); // ALL, URGENT, HIGH, MEDIUM, LOW
-
+  const [hubFilter, setHubFilter] = useState('ALL');
+  const [hubSearch, setHubSearch] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [showReportModal, setShowReportModal] = useState(false);
   const [reportForm, setReportForm] = useState({
     report_content: '',
     clinical_impression: '',
@@ -39,11 +40,12 @@ const RadiologyDashboard = ({ config }) => {
   const [newRecommendation, setNewRecommendation] = useState('');
 
   // ============ FETCH LAB REQUESTS ============
-  const fetchLabRequests = async (status = 'PENDING') => {
-    setLoading(true);
+  const fetchLabRequests = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setLoadError('');
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${BACKEND_URL}/api/lab-requests/queue/requests?specialty=RADIOLOGY&status=${status}`, {
+      const response = await fetch(`${BACKEND_URL}/api/lab-requests/queue/requests?specialty=RADIOLOGY`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -52,63 +54,70 @@ const RadiologyDashboard = ({ config }) => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch lab requests');
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || `Unable to load radiology requests (${response.status})`);
       }
 
       const data = await response.json();
       setLabQueue(data.lab_requests || []);
-      console.log(`[RADIOLOGY] Fetched ${data.lab_requests?.length || 0} ${status} lab requests`);
+      console.log(`[RADIOLOGY] Fetched ${data.lab_requests?.length || 0} lab requests`);
     } catch (err) {
       console.error('[RADIOLOGY] Fetch error:', err);
-      alert(`Error fetching lab requests: ${err.message}`);
+      setLoadError(err.message || 'Unable to load radiology requests');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
     console.log('[RADIOLOGY] Dashboard loaded');
-    fetchLabRequests('PENDING');
-
-    // Auto-refresh queue periodically (every 15s)
-    const interval = setInterval(() => {
-      const statusMap = {
-        'pending': 'PENDING',
-        'in-progress': 'ACKNOWLEDGED',
-        'completed': 'COMPLETED',
-        'submitted': 'REVIEWED'
-      };
-      const status = statusMap[activeTab] || 'PENDING';
-      fetchLabRequests(status);
-    }, 15000);
+    fetchLabRequests();
+    const interval = setInterval(() => fetchLabRequests(false), 15000);
 
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   // ============ TAB SWITCHING ============
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setSelectedLabRequest(null);
+    setActiveView('worklist');
+  };
 
-    const statusMap = {
-      'pending': 'PENDING',
-      'in-progress': 'ACKNOWLEDGED',
-      'completed': 'COMPLETED',
-      'submitted': 'REVIEWED'
-    };
+  const scrollToWorklist = (tab) => {
+    setActiveTab(tab);
+    setSelectedLabRequest(null);
+    setActiveView('worklist');
+    window.setTimeout(() => {
+      document.getElementById('specialist-worklist')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
 
-    if (statusMap[tab]) {
-      fetchLabRequests(statusMap[tab]);
-    }
+  const openWorklistRequest = (labRequest, tab) => {
+    setActiveTab(tab);
+    setFilterPriority('ALL');
+    setSelectedLabRequest(labRequest);
+    setActiveView('worklist');
+    window.setTimeout(() => {
+      document.getElementById('specialist-worklist')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   };
 
   // ============ ACCEPT LAB REQUEST ============
   const handleAcceptLabRequest = async (labRequest) => {
     if (!labRequest || !labRequest.encounterId || !labRequest.request_id) {
-      alert('Invalid lab request data');
+      setActionError('This request is missing its encounter or request identifier.');
       return;
     }
 
+    setSavingAction(true);
+    setActionError('');
+    setActionSuccess('');
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(
@@ -125,27 +134,71 @@ const RadiologyDashboard = ({ config }) => {
         }
       );
 
-      if (!response.ok) {
-        throw new Error('Failed to accept lab request');
-      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Unable to accept request (${response.status})`);
 
-      alert(`✓ Lab request accepted: ${labRequest.lab_type}`);
-      setSelectedLabRequest(null);
-      fetchLabRequests('PENDING'); // Refresh queue
-      fetchLabRequests('ACKNOWLEDGED'); // Show in in-progress
+      setActiveTab('in-progress');
+      setSelectedLabRequest({ ...labRequest, status: 'ACKNOWLEDGED', assigned_technician: userInfo?.name || 'Radiologist' });
+      setActionSuccess('Request accepted and recorded.');
+      await fetchLabRequests();
     } catch (err) {
       console.error('[RADIOLOGY] Accept error:', err);
-      alert(`Error: ${err.message}`);
+      setActionError(err.message || 'Unable to accept request');
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const handleStartRequest = async (labRequest) => {
+    if (!labRequest?.encounterId || !labRequest?.request_id) {
+      setActionError('This request is missing its encounter or request identifier.');
+      return;
+    }
+
+    setSavingAction(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${BACKEND_URL}/api/lab-requests/${labRequest.encounterId}/${labRequest.request_id}/start`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Unable to start request (${response.status})`);
+
+      setSelectedLabRequest({
+        ...labRequest,
+        status: data.status,
+        started_at: data.started_at,
+        started_by: data.started_by
+      });
+      setActionSuccess('Radiologist work started and recorded.');
+      await fetchLabRequests();
+    } catch (err) {
+      console.error('[RADIOLOGY] Start request error:', err);
+      setActionError(err.message || 'Unable to start request');
+    } finally {
+      setSavingAction(false);
     }
   };
 
   // ============ SUBMIT LAB REPORT ============
   const handleSubmitReport = async () => {
-    if (!selectedLabRequest || !reportForm.report_content || !reportForm.clinical_impression) {
-      alert('Please fill in report content and clinical impression');
+    if (!selectedLabRequest || !reportForm.report_content.trim() || !reportForm.clinical_impression.trim()) {
+      setActionError('Enter both findings and a clinical impression before submitting.');
       return;
     }
 
+    setSavingAction(true);
+    setActionError('');
+    setActionSuccess('');
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(
@@ -159,25 +212,25 @@ const RadiologyDashboard = ({ config }) => {
           body: JSON.stringify({
             report_content: reportForm.report_content,
             clinical_impression: reportForm.clinical_impression,
-            recommendations: reportForm.recommendations,
-            report_images: reportForm.report_images,
-            submitted_by: userInfo?.name || 'Radiologist'
+            recommendations: reportForm.recommendations
           })
         }
       );
+      const data = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error('Failed to submit lab report');
-      }
+      if (!response.ok) throw new Error(data.message || `Unable to submit report (${response.status})`);
 
-      alert(`✓ Report submitted for ${selectedLabRequest.lab_type}`);
       setShowReportModal(false);
       setReportForm({ report_content: '', clinical_impression: '', recommendations: [], report_images: [] });
       setSelectedLabRequest(null);
-      fetchLabRequests('ACKNOWLEDGED'); // Refresh queue
+      setActiveTab('completed');
+      setActionSuccess('Report saved to the encounter and made available to the ordering physician.');
+      await fetchLabRequests();
     } catch (err) {
       console.error('[RADIOLOGY] Submit report error:', err);
-      alert(`Error: ${err.message}`);
+      setActionError(err.message || 'Unable to submit report');
+    } finally {
+      setSavingAction(false);
     }
   };
 
@@ -201,10 +254,84 @@ const RadiologyDashboard = ({ config }) => {
   };
 
   // ============ FILTER QUEUE BY PRIORITY ============
-  const filteredQueue = labQueue.filter(req => {
-    if (filterPriority === 'ALL') return true;
-    return req.priority === filterPriority;
+  const tabStatuses = {
+    pending: ['PENDING'],
+    'in-progress': ['ACKNOWLEDGED', 'IN_PROGRESS'],
+    completed: ['COMPLETED'],
+    submitted: ['REVIEWED']
+  };
+  const filteredQueue = labQueue.filter(req =>
+    tabStatuses[activeTab].includes(req.status) &&
+    (filterPriority === 'ALL' || req.priority === filterPriority)
+  );
+  const searchTerm = hubSearch.trim().toLowerCase();
+  const filteredHubQueue = labQueue.filter((request) => {
+    const type = (request.lab_type || '').toLowerCase();
+    const matchesModality = hubFilter === 'ALL'
+      || (hubFilter === 'CT' && (type.includes('ct') || type.includes('computed tomography')))
+      || (hubFilter === 'MRI' && type.includes('mri'))
+      || (hubFilter === 'X-ray' && (type.includes('x-ray') || type.includes('xray') || type.includes('radiograph')))
+      || (hubFilter === 'Ultrasound' && (type.includes('ultrasound') || type.includes('sonograph')));
+    const searchable = [
+      request.patientName,
+      request.patientId,
+      request.request_id,
+      request.requested_by,
+      request.lab_type
+    ].filter(Boolean).join(' ').toLowerCase();
+    return matchesModality && (!searchTerm || searchable.includes(searchTerm));
   });
+  const requestAge = (requestedAt) => {
+    const timestamp = new Date(requestedAt).getTime();
+    if (!requestedAt || Number.isNaN(timestamp)) return 'Time unavailable';
+    const minutes = Math.max(0, Math.floor((currentTime.getTime() - timestamp) / 60000));
+    if (minutes < 60) return `Waiting ${minutes} min`;
+    return `Waiting ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  };
+  const stageRequests = {
+    new: filteredHubQueue.filter((request) => request.status === 'PENDING'),
+    vetted: filteredHubQueue.filter((request) => request.status === 'ACKNOWLEDGED'),
+    reporting: filteredHubQueue.filter((request) => request.status === 'IN_PROGRESS'),
+    released: filteredHubQueue.filter((request) => request.status === 'COMPLETED'),
+    delivered: filteredHubQueue.filter((request) => request.status === 'REVIEWED')
+  };
+  const hubStages = [
+    { key: 'new', title: 'New requests', detail: 'Awaiting radiologist review', requests: stageRequests.new, tab: 'pending' },
+    { key: 'vetted', title: 'Vetted', detail: 'Accepted by radiology', requests: stageRequests.vetted, tab: 'in-progress' },
+    { key: 'scheduled', title: 'Scheduled', detail: 'Requires PACS / RIS event', requests: [], integrationStage: true },
+    { key: 'acquired', title: 'Acquired', detail: 'Requires PACS / RIS event', requests: [], integrationStage: true },
+    { key: 'reporting', title: 'Reporting', detail: 'Radiologist work started', requests: stageRequests.reporting, tab: 'in-progress' },
+    { key: 'released', title: 'Report released', detail: 'Saved to Nurshelp', requests: stageRequests.released, tab: 'completed' },
+    { key: 'delivered', title: 'Delivered', detail: 'Acknowledged by physician', requests: stageRequests.delivered, tab: 'submitted' }
+  ];
+  const connections = [
+    'Order handoff',
+    'Report return',
+    'Patient details sync',
+    'Image viewer launch',
+    'Modality worklist',
+    'Patient portal'
+  ];
+
+  const renderHubRequest = (request, tab) => (
+    <button
+      className="radiology-hub-request"
+      key={request.request_id}
+      type="button"
+      onClick={() => openWorklistRequest(request, tab)}
+    >
+      <span className="radiology-hub-request-top">
+        <strong>{request.lab_type || 'Imaging request'}</strong>
+        <span className={`radiology-priority-badge priority-${(request.priority || 'MEDIUM').toLowerCase()}`}>
+          {request.priority || 'Priority unavailable'}
+        </span>
+      </span>
+      <span className="radiology-hub-request-patient">{request.patientName || 'Patient name unavailable'}</span>
+      <span className="radiology-hub-request-meta">
+        {request.requested_by || 'Ordering clinician unavailable'} · {requestAge(request.requested_at)}
+      </span>
+    </button>
+  );
 
   // ============ PRIORITY COLOR MAPPING ============
   const getPriorityColor = (priority) => {
@@ -222,6 +349,7 @@ const RadiologyDashboard = ({ config }) => {
     return (
       <div
         key={labRequest.request_id}
+        className="specialist-worklist-card"
         style={{
           padding: '18px',
           borderRadius: '16px',
@@ -312,7 +440,7 @@ const RadiologyDashboard = ({ config }) => {
             onMouseEnter={(e) => e.target.style.opacity = '0.9'}
             onMouseLeave={(e) => e.target.style.opacity = '1'}
           >
-            ✓ Accept & Start Imaging
+            ✓ Accept & vet request
           </button>
         )}
         {/* Open Encounter / View Report */}
@@ -348,75 +476,204 @@ const RadiologyDashboard = ({ config }) => {
   };
 
   return (
-    <div style={{
+    <SidebarLayout username={userInfo?.name || 'Radiologist'}>
+      <div className="specialist-dashboard specialist-dashboard-radiology" style={{
       display: 'flex',
-      minHeight: '100vh',
+      height: '100%',
+      minHeight: 0,
+      width: '100%',
       background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
       color: '#e2e8f0',
       fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif'
     }}>
       {/* MAIN CONTENT */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto', overflowX: 'hidden' }}>
         {/* HEADER */}
-        <header style={{
-          padding: '24px 32px',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          background: 'linear-gradient(180deg, rgba(15,23,42,0.95), rgba(30,41,59,0.88))'
+        <header className="radiology-dashboard-header" style={{
+          padding: '24px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
+          <div className="radiology-header-title">
               <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 800, background: 'linear-gradient(90deg, #06b6d4, #0ea5e9)', backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 🔬 RADIOLOGY DEPARTMENT
               </h1>
               <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
                 {userInfo?.name || 'Radiologist'} • {userInfo?.department || 'Imaging'}
               </p>
+          </div>
+          <div className="radiology-header-actions">
+            <div className="radiology-header-meta">
+              <span className="radiology-shift-time"><FaClock /> Shift: {config?.shiftStartTime || '—'} - {config?.shiftEndTime || '—'}</span>
+              <span className="radiology-current-time">
+                <FaClock />
+                <span>{currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</span>
+                <span className="radiology-time-separator">•</span>
+                <span>{currentTime.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+              </span>
             </div>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button onClick={() => {
-                  const statusMap = { 'pending': 'PENDING', 'in-progress': 'ACKNOWLEDGED', 'completed': 'COMPLETED', 'submitted': 'REVIEWED' };
-                  fetchLabRequests(statusMap[activeTab] || 'PENDING');
-                }} style={{ padding: '6px 10px', borderRadius: '10px', border: 'none', background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', cursor: 'pointer' }}>
-                  🔄 Refresh
+            <nav className="radiology-header-shortcuts" aria-label="Radiology dashboard shortcuts">
+              {[
+                { icon: <FaCheckCircle />, label: 'Radiology hub', action: () => { setSelectedLabRequest(null); setActiveView('hub'); } },
+                { icon: <FaCalendarAlt />, label: 'Calendar Events', action: () => navigate('/calendar') },
+                { icon: <FaHistory />, label: 'History Actions', action: () => navigate('/history-actions') },
+                { icon: <FaFlask />, label: 'Lab Requests', action: () => navigate('/lab-requests') },
+                { icon: <FaFileAlt />, label: 'Reports Submitted', action: () => scrollToWorklist('completed') },
+                { icon: <FaCheckCircle />, label: 'Physician Reviewed', action: () => scrollToWorklist('submitted') }
+              ].map((item) => (
+                <button key={item.label} type="button" onClick={item.action}>
+                  <span aria-hidden="true">{item.icon}</span>
+                  <span>{item.label}</span>
                 </button>
-              </div>
-              <div style={{ padding: '8px 14px', borderRadius: '20px', background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)' }}>
-                <span style={{ fontSize: '12px', color: '#06b6d4', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Pending: {labQueue.filter(r => r.status === 'PENDING').length}
-                </span>
-              </div>
-              <div style={{ padding: '8px 14px', borderRadius: '20px', background: 'rgba(10,185,129,0.15)', border: '1px solid rgba(10,185,129,0.3)' }}>
-                <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600, textTransform: 'uppercase' }}>
-                  In Progress: {labQueue.filter(r => r.status === 'ACKNOWLEDGED').length}
-                </span>
-              </div>
-            </div>
+              ))}
+            </nav>
           </div>
         </header>
 
+        {actionError && <div className="radiology-action-feedback is-error" role="alert">{actionError}</div>}
+        {actionSuccess && <div className="radiology-action-feedback is-success" role="status">{actionSuccess}</div>}
+
+        {activeView === 'hub' && (
+          <section className="radiology-hub" aria-label="Radiology hub">
+            <div className="radiology-hub-toolbar">
+              <div>
+                <p className="radiology-hub-eyebrow">Imaging workflow</p>
+                <h2>Radiology request pipeline</h2>
+              </div>
+              <label className="radiology-hub-search">
+                <span className="sr-only">Search by patient, request, or requester</span>
+                <input
+                  type="search"
+                  value={hubSearch}
+                  onChange={(event) => setHubSearch(event.target.value)}
+                  placeholder="Search patient, request, requester"
+                />
+              </label>
+            </div>
+
+            <div className="radiology-connection-strip" aria-label="PACS and RIS integration status">
+              {connections.map((connection) => (
+                <span className="radiology-connection-status" key={connection}>
+                  <span aria-hidden="true" />
+                  {connection}
+                  <strong>Not configured</strong>
+                </span>
+              ))}
+            </div>
+
+            <div className="radiology-hub-filters" aria-label="Filter imaging requests">
+              {['ALL', 'CT', 'MRI', 'X-ray', 'Ultrasound'].map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  aria-pressed={hubFilter === filter}
+                  onClick={() => setHubFilter(filter)}
+                >
+                  {filter === 'ALL' ? 'All' : filter}
+                </button>
+              ))}
+              <span className="radiology-live-count">
+                {loading ? 'Loading live requests…' : loadError ? 'Live request queue unavailable' : `${filteredHubQueue.length} requests`}
+              </span>
+            </div>
+
+            {loadError ? (
+              <div className="radiology-hub-error" role="alert">
+                Unable to load the hospital radiology queue: {loadError}
+              </div>
+            ) : (
+              <div className="radiology-stage-board" aria-label="Imaging request stages">
+                {hubStages.map((stage) => {
+                  return (
+                    <section className="radiology-stage-column" key={stage.key} aria-label={`${stage.title} stage`}>
+                      <div className="radiology-stage-heading">
+                        <div>
+                          <h3>{stage.title}</h3>
+                          <p>{stage.detail}</p>
+                        </div>
+                        <span className={stage.integrationStage ? 'radiology-stage-unavailable' : 'radiology-stage-count'}>
+                          {stage.integrationStage ? 'PACS / RIS' : loading ? '…' : stage.requests.length}
+                        </span>
+                      </div>
+                      <div className="radiology-stage-cards">
+                        {stage.integrationStage ? (
+                          <p className="radiology-stage-empty">This stage will populate from the configured imaging-system event feed.</p>
+                        ) : loading ? (
+                          <p className="radiology-stage-empty">Loading live requests…</p>
+                        ) : stage.requests.length ? (
+                          stage.requests.map((request) => renderHubRequest(request, stage.tab))
+                        ) : (
+                          <p className="radiology-stage-empty">No requests at this stage.</p>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+
+            <section className="radiology-hub-panel radiology-queue-summary" aria-labelledby="radiology-action-title">
+              <div className="radiology-hub-panel-heading">
+                <div>
+                  <p className="radiology-hub-eyebrow">Live Nurshelp requests</p>
+                  <h2 id="radiology-action-title">Needs action now</h2>
+                </div>
+                <button type="button" onClick={() => scrollToWorklist('pending')}>Open worklist</button>
+              </div>
+              {loading ? (
+                <p className="radiology-stage-empty">Loading the hospital request queue…</p>
+              ) : loadError ? (
+                <p className="radiology-stage-empty">The worklist is unavailable until the request queue loads.</p>
+              ) : (
+                <>
+                  {[
+                    { title: 'Urgent requests to vet', requests: stageRequests.new.filter((request) => ['URGENT', 'HIGH'].includes(request.priority)), tab: 'pending', action: 'Review request' },
+                    { title: 'Accepted requests to start', requests: stageRequests.vetted, tab: 'in-progress', action: 'Open request' },
+                    { title: 'Reports awaiting physician review', requests: stageRequests.released, tab: 'completed', action: 'View report' }
+                  ].map((group) => (
+                    <div className="radiology-action-group" key={group.title}>
+                      <h3>{group.title}<span>{group.requests.length}</span></h3>
+                      {group.requests.length ? group.requests.map((request) => (
+                        <div className="radiology-action-row" key={request.request_id}>
+                          <span className={`radiology-action-tag ${request.priority === 'URGENT' ? 'is-urgent' : ''}`}>
+                            {request.priority || 'Priority unavailable'}
+                          </span>
+                          <div>
+                            <strong>{request.lab_type || 'Imaging request'} · {request.patientName || 'Patient name unavailable'}</strong>
+                            <p>{request.requested_by || 'Ordering clinician unavailable'} · {requestAge(request.requested_at)}</p>
+                          </div>
+                          <button type="button" onClick={() => openWorklistRequest(request, group.tab)}>{group.action}</button>
+                        </div>
+                      )) : <p className="radiology-stage-empty">No requests in this group.</p>}
+                    </div>
+                  ))}
+                </>
+              )}
+            </section>
+          </section>
+        )}
+
+        {activeView === 'worklist' && (
+          <>
         {/* TABS */}
-        <div style={{
+        <div id="specialist-worklist" className="specialist-worklist-tabs" style={{
           display: 'flex',
           gap: '8px',
           padding: '16px 32px',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
-          background: 'rgba(15,23,42,0.5)',
-          overflowX: 'auto'
+          background: 'rgba(15,23,42,0.5)'
         }}>
           {[
             { key: 'pending', label: '📥 Pending Orders', count: labQueue.filter(r => r.status === 'PENDING').length },
-            { key: 'in-progress', label: '⏳ In Progress', count: labQueue.filter(r => r.status === 'ACKNOWLEDGED').length },
-            { key: 'completed', label: '✓ Ready to Submit', count: labQueue.filter(r => r.status === 'COMPLETED' || r.status === 'IN_PROGRESS').length },
-            { key: 'submitted', label: '📤 Submitted', count: labQueue.filter(r => r.status === 'REVIEWED' || r.status === 'COMPLETED').length }
+            { key: 'in-progress', label: '⏳ In Progress', count: labQueue.filter(r => ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(r.status)).length },
+            { key: 'completed', label: '✓ Reports Submitted', count: labQueue.filter(r => r.status === 'COMPLETED').length },
+            { key: 'submitted', label: '✓ Physician Reviewed', count: labQueue.filter(r => r.status === 'REVIEWED').length }
           ].map(tab => (
             <button
               key={tab.key}
+            type="button"
+            aria-pressed={activeTab === tab.key}
               onClick={() => handleTabChange(tab.key)}
               style={{
                 padding: '10px 16px',
@@ -434,26 +691,21 @@ const RadiologyDashboard = ({ config }) => {
               onMouseEnter={(e) => !activeTab !== tab.key && (e.target.style.color = '#cbd5e1')}
               onMouseLeave={(e) => !activeTab !== tab.key && (e.target.style.color = '#94a3b8')}
             >
-              {tab.label} ({tab.count})
+              {tab.label} ({loading ? '...' : loadError ? '—' : tab.count})
             </button>
           ))}
         </div>
 
         {/* CONTENT AREA */}
-        <div style={{ flex: 1, display: 'flex', gap: '20px', padding: '20px 32px', overflow: 'hidden' }}>
+        <div className={`specialist-worklist-content${selectedLabRequest ? ' has-selected-request' : ''}`} style={{ padding: '20px 32px' }}>
           {/* LEFT: LAB QUEUE LIST */}
-          <div style={{
-            flex: activeTab === 'pending' || activeTab === 'in-progress' ? '0 0 45%' : '1',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            overflowY: 'auto',
-            paddingRight: '12px'
-          }}>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          <div className="specialist-worklist-queue">
+            <div className="specialist-worklist-priority-filters">
               {['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'].map(priority => (
                 <button
                   key={priority}
+                  type="button"
+                  aria-pressed={filterPriority === priority}
                   onClick={() => setFilterPriority(priority)}
                   style={{
                     padding: '6px 12px',
@@ -469,11 +721,15 @@ const RadiologyDashboard = ({ config }) => {
                   {priority}
                 </button>
               ))}
-            </div>
+              </div>
 
             {loading ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 20px' }}>
                 Loading lab requests...
+              </div>
+            ) : loadError ? (
+              <div role="alert" style={{ textAlign: 'center', color: '#fca5a5', padding: '40px 20px' }}>
+                {loadError}
               </div>
             ) : filteredQueue.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 20px' }}>
@@ -486,16 +742,14 @@ const RadiologyDashboard = ({ config }) => {
 
           {/* RIGHT: DETAIL PANEL */}
           {selectedLabRequest && (
-            <div style={{
-              flex: '0 0 55%',
+            <div className="specialist-detail-panel" style={{
               display: 'flex',
               flexDirection: 'column',
               gap: '16px',
               padding: '20px',
               borderRadius: '16px',
               border: '1px solid rgba(255,255,255,0.12)',
-              background: 'linear-gradient(135deg, rgba(6,182,212,0.1), rgba(14,165,233,0.1))',
-              overflowY: 'auto'
+              background: 'linear-gradient(135deg, rgba(6,182,212,0.1), rgba(14,165,233,0.1))'
             }}>
               {/* PATIENT INFO */}
               <div style={{
@@ -565,9 +819,12 @@ const RadiologyDashboard = ({ config }) => {
                 </div>
               </div>
 
+              <EhrContextPanel context={selectedLabRequest.ehrContext} />
+
               {/* ACTION BUTTONS */}
               {activeTab === 'pending' && selectedLabRequest.status === 'PENDING' && (
                 <button
+                  disabled={savingAction}
                   onClick={() => handleAcceptLabRequest(selectedLabRequest)}
                   style={{
                     width: '100%',
@@ -581,36 +838,79 @@ const RadiologyDashboard = ({ config }) => {
                     cursor: 'pointer'
                   }}
                 >
-                  ✓ Accept Imaging Request
+                  {savingAction ? 'Saving…' : 'Accept & vet request'}
                 </button>
               )}
 
-              {activeTab === 'in-progress' && selectedLabRequest.status === 'ACKNOWLEDGED' && (
+              {selectedLabRequest.status === 'ACKNOWLEDGED' && (
                 <button
-                  onClick={() => setShowReportModal(true)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: '12px',
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: '14px',
-                    cursor: 'pointer'
-                  }}
+                  disabled={savingAction}
+                  onClick={() => handleStartRequest(selectedLabRequest)}
+                  className="radiology-primary-action"
+                  type="button"
                 >
-                  📋 Write & Submit Report
+                  {savingAction ? 'Saving…' : 'Start radiologist work'}
                 </button>
+              )}
+
+              {selectedLabRequest.status === 'IN_PROGRESS' && (
+                <button
+                  disabled={savingAction}
+                  onClick={() => {
+                    setReportForm({ report_content: '', clinical_impression: '', recommendations: [], report_images: [] });
+                    setActionError('');
+                    setShowReportModal(true);
+                  }}
+                  className="radiology-primary-action"
+                  type="button"
+                >
+                  Create & submit report
+                </button>
+              )}
+
+              {['COMPLETED', 'REVIEWED'].includes(selectedLabRequest.status) && (
+                <section className="radiology-saved-report" aria-label="Submitted radiology report">
+                  <div className="radiology-report-heading">
+                    <h3>Report returned to the EHR</h3>
+                    <span>{selectedLabRequest.status === 'REVIEWED' ? 'Physician acknowledged' : 'Awaiting physician review'}</span>
+                  </div>
+                  <dl>
+                    <dt>Findings</dt>
+                    <dd>{selectedLabRequest.report_content || 'No findings stored on this report.'}</dd>
+                    <dt>Clinical impression</dt>
+                    <dd>{selectedLabRequest.clinical_impression || 'No impression stored on this report.'}</dd>
+                    {selectedLabRequest.recommendations?.length > 0 && (
+                      <>
+                        <dt>Recommendations</dt>
+                        <dd>{selectedLabRequest.recommendations.join('; ')}</dd>
+                      </>
+                    )}
+                    <dt>Submitted by</dt>
+                    <dd>{selectedLabRequest.submitted_by || 'Not recorded'}</dd>
+                    <dt>Submitted at</dt>
+                    <dd>{selectedLabRequest.submitted_at ? new Date(selectedLabRequest.submitted_at).toLocaleString() : 'Not recorded'}</dd>
+                  </dl>
+                  <button
+                    className="radiology-secondary-action"
+                    type="button"
+                    onClick={() => navigate(`/summary/${selectedLabRequest.encounterId}`, { state: { openLabRequestId: selectedLabRequest.request_id } })}
+                  >
+                    Open encounter timeline
+                  </button>
+                </section>
               )}
             </div>
           )}
         </div>
+
+          </>
+        )}
+
       </main>
 
       {/* REPORT SUBMISSION MODAL */}
       {showReportModal && selectedLabRequest && (
-        <div style={{
+        <div className="specialist-report-backdrop" style={{
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.7)',
@@ -620,7 +920,7 @@ const RadiologyDashboard = ({ config }) => {
           zIndex: 999
         }}
         onClick={() => setShowReportModal(false)}>
-          <div style={{
+          <div className="specialist-report-modal" style={{
             background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))',
             border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: '16px',
@@ -632,7 +932,7 @@ const RadiologyDashboard = ({ config }) => {
           }}
           onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: 700, color: '#eff6ff' }}>
-              📋 Imaging Report: {selectedLabRequest.lab_type}
+              Radiology report: {selectedLabRequest.lab_type}
             </h2>
             <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#94a3b8' }}>
               Patient: {selectedLabRequest.patientName}
@@ -644,6 +944,7 @@ const RadiologyDashboard = ({ config }) => {
                 📝 Findings & Observations
               </label>
               <textarea
+                required
                 value={reportForm.report_content}
                 onChange={(e) => setReportForm({ ...reportForm, report_content: e.target.value })}
                 placeholder="Describe imaging findings, measurements, abnormalities detected..."
@@ -668,6 +969,7 @@ const RadiologyDashboard = ({ config }) => {
                 🔍 Clinical Impression
               </label>
               <textarea
+                required
                 value={reportForm.clinical_impression}
                 onChange={(e) => setReportForm({ ...reportForm, clinical_impression: e.target.value })}
                 placeholder="Radiologist's clinical interpretation and diagnosis..."
@@ -776,6 +1078,7 @@ const RadiologyDashboard = ({ config }) => {
                 Cancel
               </button>
               <button
+                disabled={savingAction}
                 onClick={handleSubmitReport}
                 style={{
                   flex: 1,
@@ -788,13 +1091,14 @@ const RadiologyDashboard = ({ config }) => {
                   cursor: 'pointer'
                 }}
               >
-                ✓ Submit Report
+                {savingAction ? 'Saving report…' : 'Submit report to EHR'}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </SidebarLayout>
   );
 };
 
