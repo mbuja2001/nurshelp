@@ -20,9 +20,15 @@ const shiftSchema = new mongoose.Schema(
     },
     department: {
       type: String,
-      enum: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General', 'Nursing'],
-      required: true,
+      trim: true,
+      default: null,
       index: true,
+    },
+    departmentId: { type: String, trim: true, default: null, index: true },
+    departmentName: {
+      type: String,
+      trim: true,
+      default: function () { return this.department || null; },
     },
     specialty: {
       type: String,
@@ -79,8 +85,9 @@ const shiftSchema = new mongoose.Schema(
         },
         assignmentRole: {
           type: String,
-          enum: ['TRIAGE_NURSE', 'CLINICAL_NURSE', 'PHYSICIAN', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST', 'SPECIALIST', 'SUPPORT'],
+          enum: ['TRIAGE_NURSE', 'CLINICAL_NURSE', 'PHYSICIAN', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST', 'SPECIALIST', 'TECHNICIAN', 'SUPPORT'],
         },
+        positionCodeNeedsBackfill: { type: Boolean, default: false },
         name: String,
         surname: String,
         specialty: String,
@@ -169,6 +176,7 @@ const shiftSchema = new mongoose.Schema(
 
 // Composite index for efficient hospital + department queries
 shiftSchema.index({ hospitalId: 1, department: 1, date: 1 });
+shiftSchema.index({ hospitalId: 1, departmentId: 1, date: 1 });
 shiftSchema.index({ hospitalId: 1, date: 1 });
 shiftSchema.index({ hospitalId: 1, status: 1 });
 

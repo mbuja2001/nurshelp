@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import { Hospital } from '../models/hospital.model.js';
 import { Manager } from '../models/manager.model.js';
 import { AuditLog } from '../models/auditLog.model.js';
+import { HOSPITAL_DEPARTMENTS, HOSPITAL_SPECIALTIES } from '../config/hospitalStructureCatalog.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
@@ -42,10 +43,10 @@ export const registerHospital = async (req, res) => {
 
     // Step 1: Create Hospital
     const hospitalID = `HOSP-${Date.now()}`;
-    const supportedDepartments = ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General'];
+    const supportedDepartments = HOSPITAL_DEPARTMENTS.map(({ name }) => name);
     const requestedDepartments = Array.isArray(departments) ? departments : [];
     const configuredDepartments = [...new Set(requestedDepartments.map((value) => String(value).trim()).filter((value) => supportedDepartments.includes(value)))];
-    const hospitalDepartments = configuredDepartments.length ? configuredDepartments : ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General'];
+    const hospitalDepartments = configuredDepartments.length ? configuredDepartments : supportedDepartments.slice(0, 8);
 
     const newHospital = new Hospital({
       hospitalID,
@@ -199,9 +200,22 @@ export const createManagedHospital = async (req, res) => {
     const normalizedAdminEmail = String(adminEmail).trim().toLowerCase();
     if (normalizedAdminEmail === String(manager.email).toLowerCase()) return res.status(400).json({ success: false, message: 'Use a different email for the additional hospital administrator' });
 
-    const supportedDepartments = ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General'];
+    const supportedDepartments = HOSPITAL_DEPARTMENTS.map(({ name }) => name);
     const configuredDepartments = [...new Set((Array.isArray(departments) ? departments : []).map((value) => String(value).trim()).filter((value) => supportedDepartments.includes(value)))];
     const hospitalDepartments = configuredDepartments.length ? configuredDepartments : supportedDepartments;
+    const specialtyByDepartment = new Map();
+    for (const configuration of Array.isArray(req.body?.departmentSpecialties) ? req.body.departmentSpecialties : []) {
+      const name = String(configuration?.department || '').trim();
+      const specialties = Array.isArray(configuration?.specialties) ? configuration.specialties : [];
+      if (!hospitalDepartments.includes(name)) {
+        return res.status(400).json({ success: false, message: `Specialties reference an unconfigured department: ${name || 'unknown'}` });
+      }
+      const normalizedSpecialties = [...new Set(specialties.map((value) => String(value).trim()).filter(Boolean))];
+      if (normalizedSpecialties.some((specialty) => !HOSPITAL_SPECIALTIES.some((option) => option.name === specialty))) {
+        return res.status(400).json({ success: false, message: `Department ${name} contains an unsupported specialty` });
+      }
+      specialtyByDepartment.set(name, normalizedSpecialties.map((specialty) => ({ name: specialty })));
+    }
     const hospital = await Hospital.create({
       hospitalID: `HOSP-${Date.now()}`,
       name: String(hospitalName).trim(),
@@ -210,7 +224,11 @@ export const createManagedHospital = async (req, res) => {
       adminManagerName: manager.name,
       adminManagerEmail: manager.email,
       isActive: true,
-      departments: hospitalDepartments.map((name) => ({ name, isActive: true }))
+      departments: hospitalDepartments.map((name) => ({
+        name,
+        isActive: true,
+        specialties: specialtyByDepartment.get(name) || []
+      }))
     });
 
     const additionalAdmin = await Manager.create({

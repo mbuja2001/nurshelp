@@ -3,6 +3,7 @@ import {
   createLabRequest,
   getEncounterLabRequests,
   getLabRequestsForSpecialty,
+  recordRadiologyWorkflowEvent,
   acknowledgeLabRequest,
   startLabRequest,
   submitLabReport,
@@ -52,6 +53,9 @@ router.patch("/:encounterId/:requestId/acknowledge", protect, acknowledgeLabRequ
 // PATCH /api/lab-requests/:encounterId/:requestId/start
 // Assigned specialist starts work after accepting the request
 router.patch("/:encounterId/:requestId/start", protect, startLabRequest);
+
+// Manual status tracking only; PACS and modality acquisition remain external.
+router.patch("/:encounterId/:requestId/radiology-workflow", protect, recordRadiologyWorkflowEvent);
 
 // PATCH /api/lab-requests/:encounterId/:requestId/submit-report
 // Specialist submits completed lab report with findings

@@ -14,7 +14,11 @@ import {
 } from '../utils/hospitalShiftCoverage.js';
 import { createSyntheticHistoricalEncounter, historicalEncounterDate, normalizeHistoricalDays } from '../utils/syntheticHistoricalEncounter.js';
 import { getScheduledShiftAutoEndAt, getScheduledShiftEndAt } from '../utils/scheduledShiftEnd.js';
+import { departmentCodeFromName, resolveConfiguredDepartment } from '../utils/hospitalDepartment.js';
+import { getAllowedShiftDuties } from '../config/hospitalStaffRoleCatalog.js';
+import { normalizeShiftAssignmentRole } from '../utils/shiftTeamAssignment.js';
 import { HOSPITAL_DEPARTMENTS, HOSPITAL_SPECIALTIES } from '../config/hospitalStructureCatalog.js';
+import { findHospitalStaffRole, HOSPITAL_STAFF_ROLES, legacyHospitalStaffRole } from '../config/hospitalStaffRoleCatalog.js';
 import bcrypt from 'bcrypt';
 
 const hospitalIdFor = (req) => req.user?.hospitalId || req.hospitalId;
@@ -43,7 +47,8 @@ export const getHospitalStructure = async (req, res) => {
       success: true,
       departments: hospital.departments || [],
       departmentOptions: HOSPITAL_DEPARTMENTS,
-      specialties: HOSPITAL_SPECIALTIES
+      specialties: HOSPITAL_SPECIALTIES,
+      staffRoles: HOSPITAL_STAFF_ROLES
     });
   } catch (error) {
     console.error('[HOSPITAL STRUCTURE] Load error:', error);
@@ -56,22 +61,28 @@ export const updateHospitalStructure = async (req, res) => {
     const hospitalId = requireHospital(req, res);
     if (!hospitalId) return;
     const requested = req.body?.departments;
-    if (!Array.isArray(requested) || requested.length < 1 || requested.length > HOSPITAL_DEPARTMENTS.length) {
-      return res.status(400).json({ success: false, message: `Select between 1 and ${HOSPITAL_DEPARTMENTS.length} departments` });
+    if (!Array.isArray(requested) || requested.length < 1 || requested.length > 100) {
+      return res.status(400).json({ success: false, message: 'Select between 1 and 100 departments' });
     }
     const hospital = await Hospital.findById(hospitalId).select('departments');
     if (!hospital) return res.status(404).json({ success: false, message: 'Hospital not found' });
 
-    const allowedDepartments = new Map(HOSPITAL_DEPARTMENTS.map((item) => [item.name, item]));
     const allowedSpecialties = new Set(HOSPITAL_SPECIALTIES.map((item) => item.name));
     const seenDepartments = new Set();
+    const seenDepartmentIds = new Set();
     const departments = [];
     for (const input of requested) {
-      const name = String(input?.name || '').trim();
-      if (!allowedDepartments.has(name) || seenDepartments.has(name)) {
+      const name = String(input?.name || '').trim().replace(/\s+/g, ' ');
+      const normalizedName = name.toLowerCase();
+      if (
+        name.length < 2
+        || name.length > 60
+        || !/^[\p{L}\p{N}][\p{L}\p{N} &().'-]*$/u.test(name)
+        || seenDepartments.has(normalizedName)
+      ) {
         return res.status(400).json({ success: false, message: `Invalid or duplicate department: ${name || 'unknown'}` });
       }
-      seenDepartments.add(name);
+      seenDepartments.add(normalizedName);
       const serviceTypes = [...new Set(Array.isArray(input.serviceTypes) ? input.serviceTypes : [])];
       if (!serviceTypes.length || serviceTypes.some((type) => !['OUTPATIENT', 'INPATIENT', 'CLINICAL_SUPPORT'].includes(type))) {
         return res.status(400).json({ success: false, message: `Select valid service types for ${name}` });
@@ -81,12 +92,20 @@ export const updateHospitalStructure = async (req, res) => {
         return res.status(400).json({ success: false, message: `Unknown specialty configured for ${name}` });
       }
       if (!specialties.length) return res.status(400).json({ success: false, message: `Select at least one specialty for ${name}` });
+      const existingDepartment = (hospital.departments || []).find((item) => (
+        item.name?.trim().toLowerCase() === normalizedName
+        || (input.departmentId && item.departmentId === input.departmentId)
+      ));
+      const departmentId = existingDepartment?.departmentId || departmentCodeFromName(name);
+      if (seenDepartmentIds.has(departmentId)) {
+        return res.status(400).json({ success: false, message: `Department names must produce unique IDs: ${name}` });
+      }
+      seenDepartmentIds.add(departmentId);
       departments.push({
         name,
-        departmentId: `DEPT-${name.toUpperCase().replace(/[^A-Z0-9]+/g, '-')}`,
+        departmentId,
         serviceTypes,
         specialties: specialties.map((specialty) => {
-          const existingDepartment = hospital?.departments?.find((item) => item.name === name);
           const existingSpecialty = existingDepartment?.specialties?.find((item) => (item.name || item) === specialty);
           return typeof existingSpecialty === 'string'
             ? { name: specialty }
@@ -96,7 +115,7 @@ export const updateHospitalStructure = async (req, res) => {
       });
     }
 
-    const removedDepartments = hospital.departments.map((item) => item.name).filter((name) => !seenDepartments.has(name));
+    const removedDepartments = (hospital.departments || []).map((item) => item.name).filter((name) => !seenDepartments.has(name.trim().toLowerCase()));
     if (removedDepartments.length) {
       const linkedWard = await Ward.findOne({ hospitalId, departmentName: { $in: removedDepartments }, isActive: true }).select('wardName departmentName').lean();
       if (linkedWard) {
@@ -145,7 +164,7 @@ export const saveHospitalWards = async (req, res) => {
     const hospital = await Hospital.findById(hospitalId).select('departments');
     if (!hospital) return res.status(404).json({ success: false, message: 'Hospital not found' });
     const activeDepartments = (hospital.departments || []).filter((department) => department.isActive !== false);
-    const departmentNames = new Set(activeDepartments.map((department) => department.name));
+    const activeDepartmentsByName = new Map(activeDepartments.map((department) => [department.name.trim().toLowerCase(), department]));
     const requested = req.body?.wards;
     if (!Array.isArray(requested) || requested.length > 300) {
       return res.status(400).json({ success: false, message: 'Provide a valid ward list (maximum 300 wards)' });
@@ -156,11 +175,13 @@ export const saveHospitalWards = async (req, res) => {
     for (const input of requested) {
       const wardId = String(input?.wardId || '').trim();
       const wardName = String(input?.wardName || '').trim();
-      const departmentName = String(input?.departmentName || '').trim();
+      const requestedDepartmentName = String(input?.departmentName || '').trim();
+      const configuredDepartment = activeDepartmentsByName.get(requestedDepartmentName.toLowerCase());
+      const departmentName = configuredDepartment?.name || requestedDepartmentName;
       const careTier = String(input?.careTier || '').trim();
       const acuityLevelAllowed = [...new Set(Array.isArray(input?.acuityLevelAllowed) ? input.acuityLevelAllowed : [])];
       const totalBeds = Number(input?.totalBeds);
-      if (!wardId || !wardName || (input?.isActive !== false && !departmentNames.has(departmentName))) {
+      if (!wardId || !wardName || (input?.isActive !== false && !configuredDepartment)) {
         return res.status(400).json({ success: false, message: `Ward ${wardName || wardId || '(unnamed)'} needs a name, ID, and active hospital department` });
       }
       if (seenIds.has(wardId)) return res.status(400).json({ success: false, message: `Duplicate ward ID: ${wardId}` });
@@ -174,18 +195,19 @@ export const saveHospitalWards = async (req, res) => {
       if (!Number.isInteger(totalBeds) || totalBeds < 1 || totalBeds > 2000) {
         return res.status(400).json({ success: false, message: `Ward ${wardName} capacity must be between 1 and 2000 beds` });
       }
-      const department = departmentName === 'ED' ? 'ED'
-        : departmentName === 'ICU' ? 'ICU'
-          : departmentName === 'OR' ? 'OR'
-            : departmentName === 'OB' ? 'MATERNITY'
-              : departmentName === 'Pediatrics' ? 'PEDIATRICS'
-                : departmentName === 'Psychiatry' ? 'PSYCH'
+      const normalizedDepartmentName = departmentName.toUpperCase();
+      const department = normalizedDepartmentName === 'ED' ? 'ED'
+        : normalizedDepartmentName === 'ICU' ? 'ICU'
+          : normalizedDepartmentName === 'OR' ? 'OR'
+            : normalizedDepartmentName === 'OB' ? 'MATERNITY'
+              : normalizedDepartmentName === 'PEDIATRICS' ? 'PEDIATRICS'
+                : normalizedDepartmentName === 'PSYCHIATRY' ? 'PSYCH'
                   : 'GENERAL';
       normalized.push({
         wardId,
         wardName,
         department,
-        departmentId: `DEPT-${departmentName.toUpperCase().replace(/[^A-Z0-9]+/g, '-')}`,
+        departmentId: configuredDepartment?.departmentId || departmentCodeFromName(departmentName),
         departmentName,
         fhirLocationType: 'wa',
         careTier,
@@ -316,18 +338,6 @@ export const recordHospitalShiftEvent = async (req, res) => {
       if (shift.status !== 'PUBLISHED') {
         return res.status(409).json({ success: false, message: `Only published shifts can be started (current status: ${shift.status})` });
       }
-      const coverageError = await validateHospitalShiftCoverage({
-        hospitalId,
-        departmentName: shift.department,
-        specialty: shift.specialty,
-        wardId: shift.wardId,
-      });
-      if (coverageError) {
-        return res.status(409).json({
-          success: false,
-          message: `This shift cannot start: ${coverageError}. Select a primary specialty configured for ${shift.department}.`
-        });
-      }
       const hasAssignedStaff = (shift.assignedStaff || []).some((assignment) => assignment.status !== 'ABSENT');
       if (!hasAssignedStaff) {
         return res.status(409).json({ success: false, message: 'Assign at least one staff member before starting the shift' });
@@ -418,8 +428,13 @@ export const bulkOnboardHospitalStaff = async (req, res) => {
     const input = Array.isArray(req.body?.staff) ? req.body.staff : [];
     if (!input.length || input.length > 500) return res.status(400).json({ success: false, message: 'Provide between 1 and 500 staff members' });
 
-    const allowedRoles = ['PHYSICIAN', 'NURSE', 'ADMINISTRATIVE', 'TECHNICIAN', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST'];
-    const allowedDepartments = ['EMERGENCY', 'CARDIOLOGY', 'ICU', 'PEDIATRICS', 'RADIOLOGY', 'GENERAL_WARD'];
+    const hospital = await Hospital.findById(hospitalId).select('departments').lean();
+    if (!hospital) return res.status(404).json({ success: false, message: 'Hospital not found' });
+    const allowedDepartments = new Map();
+    (hospital.departments || []).filter((item) => item.isActive !== false).forEach((item) => {
+      allowedDepartments.set(String(item.name).trim().toUpperCase(), item);
+      if (item.departmentId) allowedDepartments.set(String(item.departmentId).trim().toUpperCase(), item);
+    });
     const allowedTitles = ['MD', 'DO', 'RN', 'NP', 'PA', 'PhD'];
     const existingEmails = new Set((await ClinicalStaff.find({ hospitalId }).select('email').lean()).map((staff) => String(staff.email).toLowerCase()));
     const seenEmails = new Set();
@@ -430,21 +445,36 @@ export const bulkOnboardHospitalStaff = async (req, res) => {
       const firstName = String(item.firstName || item.name || '').trim();
       const lastName = String(item.lastName || item.surname || '').trim();
       const email = String(item.email || '').trim().toLowerCase();
-      const role = String(item.role || item.systemRole || 'NURSE').trim().toUpperCase();
-      const department = String(item.department || 'GENERAL_WARD').trim().toUpperCase();
-      const specialty = String(item.specialty || item.clinicalSpecialty || 'General Practice').trim();
-      const title = String(item.title || (role === 'PHYSICIAN' ? 'MD' : role === 'TECHNICIAN' ? '' : 'RN')).trim();
+      const positionCode = String(item.positionCode || '').trim();
+      const position = positionCode
+        ? findHospitalStaffRole(positionCode)
+        : legacyHospitalStaffRole(item.role || item.systemRole || 'NURSE');
+      const departmentInput = String(item.departmentId || item.department || '').trim();
+      const configuredDepartment = allowedDepartments.get(departmentInput.toUpperCase());
+      const department = String(configuredDepartment?.name || '').trim();
+      const specialty = String(item.specialty || item.clinicalSpecialty || '').trim();
+      const title = String(item.title || position?.defaultTitle || '').trim();
       const password = String(item.password || '').trim();
-      const licenseNumber = String(item.licenseNumber || item.license || (role === 'TECHNICIAN' ? '' : `PENDING-${Date.now()}-${index + 1}`)).trim();
+      const licenseNumber = String(item.licenseNumber || item.license || (position?.requiresCredentials ? `PENDING-${Date.now()}-${index + 1}` : '')).trim();
 
       if (!firstName || !lastName || !email || !password) return res.status(400).json({ success: false, message: `Staff row ${index + 1} requires firstName, lastName, email, and password` });
-      if (!allowedRoles.includes(role)) return res.status(400).json({ success: false, message: `Staff row ${index + 1} has an invalid role` });
-      if (!allowedDepartments.includes(department)) return res.status(400).json({ success: false, message: `Staff row ${index + 1} has an invalid department` });
+      if (!position) return res.status(400).json({ success: false, message: `Staff row ${index + 1} has an invalid staff role` });
+      if (!configuredDepartment) return res.status(400).json({ success: false, message: `Staff row ${index + 1} must use an active department configured for this hospital` });
       if (title && !allowedTitles.includes(title)) return res.status(400).json({ success: false, message: `Staff row ${index + 1} has an invalid credential title` });
-      if (role !== 'TECHNICIAN' && (!title || !licenseNumber)) return res.status(400).json({ success: false, message: `Staff row ${index + 1} requires a credential title and license number` });
+      if (position.requiresCredentials && (!title || !licenseNumber)) return res.status(400).json({ success: false, message: `Staff row ${index + 1} requires a credential title and license number` });
       if (password.length < 8) return res.status(400).json({ success: false, message: `Staff row ${index + 1} password must be at least 8 characters` });
       if (existingEmails.has(email) || seenEmails.has(email)) return res.status(409).json({ success: false, message: `Duplicate staff email: ${email}` });
       seenEmails.add(email);
+      const configuredSpecialties = (configuredDepartment.specialties || [])
+        .map((configured) => String(configured?.name || configured || '').trim());
+      const canonicalSpecialty = configuredSpecialties.find((configured) => configured.toLowerCase() === specialty.toLowerCase());
+      if (!canonicalSpecialty) {
+        return res.status(400).json({
+          success: false,
+          code: 'SPECIALTY_NOT_CONFIGURED',
+          message: `Staff row ${index + 1} must use a specialty configured for ${department}`
+        });
+      }
 
       documents.push({
         hospitalId,
@@ -452,8 +482,10 @@ export const bulkOnboardHospitalStaff = async (req, res) => {
         lastName,
         email,
         password: await bcrypt.hash(password, 12),
-        systemRole: role,
-        clinicalSpecialty: specialty,
+        systemRole: position.systemRole,
+        positionCode: position.code,
+        positionTitle: position.label,
+        clinicalSpecialty: canonicalSpecialty,
         credentials: {
           ...(title ? { title } : {}),
           ...(licenseNumber ? { licenseNumber } : {}),
@@ -469,17 +501,157 @@ export const bulkOnboardHospitalStaff = async (req, res) => {
     await AuditLog.create({
       action: 'HOSPITAL_STAFF_ONBOARDED', actorId: req.user._id, hospitalId,
       resourceType: 'STAFF', authorized: true,
-      changeDetails: { requested: input.length, created: created.length, roles: created.reduce((result, staff) => { result[staff.systemRole] = (result[staff.systemRole] || 0) + 1; return result; }, {}) },
+      changeDetails: {
+        requested: input.length,
+        created: created.length,
+        roles: created.reduce((result, staff) => { result[staff.positionTitle] = (result[staff.positionTitle] || 0) + 1; return result; }, {})
+      },
       description: 'Administrator onboarded hospital staff in bulk'
     });
     return res.status(201).json({
       success: true,
       message: `${created.length} staff members onboarded`,
-      staff: created.map((staff) => ({ id: String(staff._id), firstName: staff.firstName, lastName: staff.lastName, email: staff.email, role: staff.systemRole, department: staff.assignment?.department }))
+      staff: created.map((staff) => ({
+        id: String(staff._id),
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        email: staff.email,
+        role: staff.systemRole,
+        positionCode: staff.positionCode,
+        positionTitle: staff.positionTitle,
+        department: staff.assignment?.department,
+        specialty: staff.clinicalSpecialty
+      }))
     });
   } catch (error) {
     console.error('[HOSPITAL STAFF ONBOARDING] Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to onboard hospital staff', detail: error.message });
+  }
+};
+
+export const updateHospitalStaff = async (req, res) => {
+  try {
+    const hospitalId = requireHospital(req, res);
+    if (!hospitalId) return;
+    const [hospital, staff] = await Promise.all([
+      Hospital.findById(hospitalId).select('departments').lean(),
+      ClinicalStaff.findOne({ _id: req.params.staffID, hospitalId }),
+    ]);
+    if (!hospital) return res.status(404).json({ success: false, message: 'Hospital not found' });
+    if (!staff) return res.status(404).json({ success: false, message: 'Staff member not found in this hospital' });
+
+    const positionCode = String(req.body?.positionCode || staff.positionCode || '').trim();
+    const position = findHospitalStaffRole(positionCode);
+    if (!position) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_STAFF_POSITION',
+        message: 'Select a valid staff position from the hospital role catalog'
+      });
+    }
+
+    const departmentInput = String(req.body?.assignment?.department || staff.assignment?.department || '').trim().toUpperCase();
+    const department = (hospital.departments || []).find((item) => (
+      item.isActive !== false
+      && (
+        String(item.name || '').trim().toUpperCase() === departmentInput
+        || String(item.departmentId || '').trim().toUpperCase() === departmentInput
+      )
+    ));
+    if (!department) {
+      return res.status(400).json({
+        success: false,
+        code: 'DEPARTMENT_NOT_CONFIGURED',
+        message: 'Select an active department configured for this hospital'
+      });
+    }
+
+    const requestedSpecialty = String(req.body?.clinicalSpecialty || req.body?.specialty || staff.clinicalSpecialty || '').trim();
+    const specialty = (department.specialties || [])
+      .map((item) => String(item?.name || item || '').trim())
+      .find((item) => item.toLowerCase() === requestedSpecialty.toLowerCase());
+    if (!specialty) {
+      return res.status(400).json({
+        success: false,
+        code: 'SPECIALTY_NOT_CONFIGURED',
+        message: `Select a specialty configured for ${department.name}`
+      });
+    }
+
+    const firstName = String(req.body?.firstName ?? staff.firstName).trim();
+    const lastName = String(req.body?.lastName ?? staff.lastName).trim();
+    const email = String(req.body?.email ?? staff.email).trim().toLowerCase();
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({ success: false, message: 'First name, last name, and work email are required' });
+    }
+    const duplicateEmail = await ClinicalStaff.findOne({
+      hospitalId,
+      email,
+      _id: { $ne: staff._id }
+    });
+    if (duplicateEmail) return res.status(409).json({ success: false, message: `Duplicate staff email: ${email}` });
+
+    const credentialsInput = req.body?.credentials || {};
+    const title = String(credentialsInput.title || '').trim();
+    const licenseNumber = String(credentialsInput.licenseNumber || '').trim();
+    const allowedTitles = ['MD', 'DO', 'RN', 'NP', 'PA', 'PhD'];
+    if (position.requiresCredentials && (!allowedTitles.includes(title) || !licenseNumber)) {
+      return res.status(400).json({
+        success: false,
+        code: 'STAFF_CREDENTIALS_REQUIRED',
+        message: `${position.label} requires a valid credential title and license number`
+      });
+    }
+    if (title && !allowedTitles.includes(title)) {
+      return res.status(400).json({ success: false, message: 'Select a valid credential title' });
+    }
+    const status = String(req.body?.status || staff.status || 'ACTIVE');
+    if (!['ACTIVE', 'ON_LEAVE', 'TERMINATED', 'PENDING_CREDENTIALING'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Select a valid staff status' });
+    }
+
+    const password = String(req.body?.password || '').trim();
+    if (password && password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long' });
+    }
+
+    staff.firstName = firstName;
+    staff.lastName = lastName;
+    staff.email = email;
+    staff.systemRole = position.systemRole;
+    staff.positionCode = position.code;
+    staff.positionTitle = position.label;
+    staff.positionCodeNeedsBackfill = false;
+    if (staff.clinicalSpecialty !== specialty) staff.clinicalSpecialtyId = null;
+    staff.clinicalSpecialty = specialty;
+    staff.assignment = { department: department.name, isOnCall: staff.assignment?.isOnCall || false };
+    staff.credentials = {
+      ...(position.requiresCredentials ? { title, licenseNumber } : {}),
+      ...(String(credentialsInput.npiNumber || '').trim() ? { npiNumber: String(credentialsInput.npiNumber).trim() } : {})
+    };
+    staff.status = status;
+    if (password) staff.password = await bcrypt.hash(password, 12);
+    await staff.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Staff member updated successfully',
+      staff: {
+        id: String(staff._id),
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        email: staff.email,
+        role: staff.systemRole,
+        positionCode: staff.positionCode,
+        positionTitle: staff.positionTitle,
+        department: staff.assignment?.department,
+        specialty: staff.clinicalSpecialty,
+        status: staff.status
+      }
+    });
+  } catch (error) {
+    console.error('[HOSPITAL STAFF UPDATE] Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update staff credentials' });
   }
 };
 
@@ -489,10 +661,22 @@ export const bulkCreateHospitalShifts = async (req, res) => {
     if (!hospitalId) return;
     const shifts = Array.isArray(req.body?.shifts) ? req.body.shifts : [];
     if (!shifts.length || shifts.length > 500) return res.status(400).json({ success: false, message: 'Provide between 1 and 500 shifts' });
+    const hospital = await Hospital.findById(hospitalId).select('departments').lean();
+    if (!hospital) return res.status(404).json({ success: false, message: 'Hospital not found' });
+    const configuredDepartments = new Map();
     for (const [index, input] of shifts.entries()) {
+      const configuredDepartment = resolveConfiguredDepartment(hospital.departments, input.departmentId || input.department);
+      if (!configuredDepartment) {
+        return res.status(400).json({
+          success: false,
+          code: 'DEPARTMENT_NOT_CONFIGURED',
+          message: `Shift row ${index + 1}: select an active department configured for this hospital`
+        });
+      }
+      configuredDepartments.set(index, configuredDepartment);
       const coverageError = await validateHospitalShiftCoverage({
         hospitalId,
-        departmentName: input.department,
+        departmentName: configuredDepartment.departmentName,
         specialty: input.specialty,
         wardId: input.wardId,
       });
@@ -525,13 +709,32 @@ export const bulkCreateHospitalShifts = async (req, res) => {
       getConfiguredHospitalServiceSpecialties(hospitalId)
     ]);
     const staffById = new Map(staff.map((member) => [String(member._id), member]));
+    const assignmentRolesByShift = new Map();
     for (const [index, input] of shifts.entries()) {
+      const assignmentsForShift = new Map();
       const unrecognizedStaffId = input.staffIds.map(String).find((staffId) => !staffById.has(staffId));
       if (unrecognizedStaffId) {
         return res.status(400).json({ success: false, message: `Shift row ${index + 1}: a selected staff member is inactive, missing, or belongs to another hospital` });
       }
       for (const staffId of input.staffIds.map(String)) {
         const member = staffById.get(staffId);
+        const team = input.teamAssignment || {};
+        const teamRole = String(team.triageNurseId || '') === staffId ? 'TRIAGE_NURSE'
+          : String(team.clinicalNurseId || '') === staffId ? 'CLINICAL_NURSE'
+            : String(team.physicianId || '') === staffId ? 'PHYSICIAN' : '';
+        const allowedDuties = getAllowedShiftDuties(member.positionCode, member.systemRole);
+        const requestedDuty = input.assignmentRoleByStaff?.[staffId] || teamRole
+          || (allowedDuties.length === 1 ? allowedDuties[0] : '');
+        try {
+          assignmentsForShift.set(staffId, normalizeShiftAssignmentRole(requestedDuty, member.systemRole, member.positionCode));
+        } catch (error) {
+          return res.status(400).json({
+            success: false,
+            code: error.code || 'INVALID_SHIFT_ASSIGNMENT',
+            message: `Shift row ${index + 1}: ${nameOf(member)}: ${error.message}`,
+            positionCodeNeedsBackfill: !member.positionCode
+          });
+        }
         const requestedService = input.serviceCoverageByStaff?.[staffId];
         const serviceCoverage = requestedService
           ? canonicalizeServiceCoverage(requestedService, configuredServices)
@@ -543,13 +746,17 @@ export const bulkCreateHospitalShifts = async (req, res) => {
           });
         }
       }
+      assignmentRolesByShift.set(index, assignmentsForShift);
     }
     const operations = shifts.map((input, index) => {
       const date = new Date(input.date || new Date());
       const assignments = (Array.isArray(input.staffIds) ? input.staffIds : []).map(String);
+      const assignmentRoles = assignmentRolesByShift.get(index);
       const assignedStaff = assignments.map((id) => staffById.get(id)).filter(Boolean).map((member) => ({
         staffID: member._id,
-        type: roleOf(member) === 'PHYSICIAN' ? 'PHYSICIAN' : 'NURSE',
+        type: roleOf(member),
+        assignmentRole: assignmentRoles.get(String(member._id)),
+        positionCodeNeedsBackfill: !member.positionCode,
         name: member.firstName,
         surname: member.lastName,
         specialty: member.clinicalSpecialty,
@@ -568,7 +775,9 @@ export const bulkCreateHospitalShifts = async (req, res) => {
               hospitalId,
               shiftID,
               shiftName: input.shiftName || `${input.department || 'Hospital'} clinical shift`,
-              department: input.department || 'ED',
+              department: configuredDepartments.get(index).departmentName,
+              departmentId: configuredDepartments.get(index).departmentId,
+              departmentName: configuredDepartments.get(index).departmentName,
               specialty: input.specialty,
               wardId: input.wardId || null,
               shiftStart: input.shiftStart || '08:00',

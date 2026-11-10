@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { getAllowedShiftDuties } from '../config/hospitalStaffRoleCatalog.js';
 
 const ROLE_CONTEXTS = {
   TRIAGE_NURSE: { role: 'NURSE', context: 'CLINICAL_NURSE_ER' },
@@ -6,22 +7,12 @@ const ROLE_CONTEXTS = {
   PHYSICIAN: { role: 'PHYSICIAN', context: 'PHYSICIAN_ER' },
 };
 
-const ROLE_SYSTEM_TYPES = {
-  TRIAGE_NURSE: ['NURSE'],
-  CLINICAL_NURSE: ['NURSE'],
-  PHYSICIAN: ['PHYSICIAN'],
-  PHARMACIST: ['PHARMACIST'],
-  RADIOLOGIST: ['RADIOLOGIST'],
-  PATHOLOGIST: ['PATHOLOGIST'],
-  SPECIALIST: ['SPECIALIST', 'PHYSICIAN', 'RADIOLOGIST', 'PATHOLOGIST', 'PHARMACIST'],
-  SUPPORT: ['ADMINISTRATIVE', 'TECHNICIAN', 'SUPERUSER'],
-};
-
-export const normalizeShiftAssignmentRole = (role, systemRole) => {
+export const normalizeShiftAssignmentRole = (role, systemRole, positionCode) => {
   const normalizedRole = String(role || '').toUpperCase().trim().replace(/[ -]+/g, '_');
+  const allowedDuties = getAllowedShiftDuties(positionCode, systemRole);
   const normalizedSystemRole = String(systemRole || '').toUpperCase().trim().replace(/[ -]+/g, '_');
-  if (!ROLE_SYSTEM_TYPES[normalizedRole]) throw new Error('An explicit valid shift assignment role is required');
-  if (!ROLE_SYSTEM_TYPES[normalizedRole].includes(normalizedSystemRole)) {
+  if (!normalizedRole || !allowedDuties.includes(normalizedRole)) {
+    if (!normalizedRole) throw new Error('An explicit valid shift assignment role is required');
     throw new Error(`Assignment role ${normalizedRole} is incompatible with staff role ${normalizedSystemRole || 'UNKNOWN'}`);
   }
   return normalizedRole;

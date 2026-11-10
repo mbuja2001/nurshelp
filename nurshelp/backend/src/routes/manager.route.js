@@ -12,6 +12,7 @@ import {
 } from "../controllers/manager.controller.js";
 import { protect } from "../middleware/authmiddleware.js";
 import { authorize, restrictByDepartment, auditLog } from "../middleware/rbac.js";
+import { updateHospitalStaff } from "../controllers/hospitalOperations.controller.js";
 
 const router = express.Router();
 
@@ -293,9 +294,8 @@ router.get(
   restrictByDepartment(),
   async (req, res) => {
     try {
-      const { role, isActive, search, includePassword } = req.query;
+      const { role, isActive, search } = req.query;
       const { ClinicalStaff } = await import("../models/clinicalstaff.model.js");
-      const allowPasswordRead = String(includePassword || '').toLowerCase() === 'true' && ['ADMIN', 'MANAGER'].includes(String(req.user?.role || '').toUpperCase());
 
       // DIAGNOSTIC LOGGING
       console.log('\n[STAFF LIST] Request received');
@@ -365,7 +365,7 @@ router.get(
       console.log('[STAFF LIST] Final query:', JSON.stringify(query));
 
       const staff = await ClinicalStaff.find(query)
-        .select(allowPasswordRead ? '+password' : '-password')
+        .select('-password')
         .sort({ firstName: 1 });
 
       console.log('[STAFF LIST] Query Results:');
@@ -414,49 +414,7 @@ router.put(
   authorize('MANAGER', 'ADMIN'),
   restrictByDepartment(),
   auditLog('STAFF_UPDATED'),
-  async (req, res) => {
-    try {
-      const { staffID } = req.params;
-      const updateData = { ...req.body };
-
-      if (typeof updateData.password === 'string' && updateData.password.trim()) {
-        if (updateData.password.trim().length < 8) {
-          return res.status(400).json({
-            success: false,
-            message: 'Password must be at least 8 characters long'
-          });
-        }
-
-        updateData.password = await bcrypt.hash(updateData.password.trim(), 12);
-      } else {
-        delete updateData.password;
-      }
-
-      const { ClinicalStaff } = await import("../models/clinicalstaff.model.js");
-
-      const staff = await ClinicalStaff.findByIdAndUpdate(staffID, updateData, { returnDocument: 'after' }).select('-password');
-
-      if (!staff) {
-        return res.status(404).json({
-          success: false,
-          message: 'Staff member not found'
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        message: 'Staff member updated successfully',
-        staff
-      });
-    } catch (err) {
-      console.error('Update staff error:', err);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update staff',
-        error: err.message
-      });
-    }
-  }
+  updateHospitalStaff
 );
 
 /**

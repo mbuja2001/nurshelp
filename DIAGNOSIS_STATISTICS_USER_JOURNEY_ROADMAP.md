@@ -79,6 +79,8 @@ Each role should be logged in separately, with the browser session restored to t
 The diagnosis journey depends on a persisted hospital structure and an authorized staffing workflow. Before using a triage nurse in the clinical journey:
 
 - Configure departments, specialties, and wards for the hospital; shift coverage must reference that configured structure rather than free-text labels.
+- Staff onboarding position codes, not permission roles, determine eligible shift duties. The server rejects position/duty mismatches; no cross-cover override is permitted. Legacy staff without a position code must choose an explicit compatible duty and be flagged for backfill.
+- Shifts persist the configured department ID/code and a department-name snapshot. Existing shifts must continue to load with their original department label after structure changes.
 - Use the shift calendar to review coverage month by month, including navigation across year boundaries and returning to the current month.
 - Provisioning or publishing a shift does not start it and must not clock staff in automatically.
 - An authorized hospital administrator explicitly starts the current-day shift. The persisted shift and audit trail must identify its status, approver, and start time.
@@ -352,28 +354,30 @@ Use one test patient for each specialist workflow and create separate work items
 #### Journey
 
 1. Physician creates or confirms a radiology request for the patient.
-2. Radiologist receives the study.
-3. Radiologist accepts it.
-4. Radiologist completes acquisition or processing.
-5. Radiologist signs and reports the result.
-6. The result is reviewed or returned.
-7. A correction or amendment is recorded if the test requires one.
-8. The radiologist reloads the queue and the result remains visible.
+2. Radiology accepts the request; the authorized technician worklist then tracks patient arrival, identity/order verification, and technician handoff.
+3. PACS/RIS or modality staff perform acquisition in their vendor system. NurseHelpDesk may record sequential, explicitly manual status observations for acquisition start/completion and image availability; these are not PACS events or proof of machine operation.
+4. When images are reported available, an optional organization-approved HTTPS cloud DICOM viewer link may be recorded. Image storage, viewing, and modality control remain outside NurseHelpDesk.
+5. A radiology staff member records that the request is ready for interpretation. The radiologist may then start interpretation and submit the report.
+6. The report and signature metadata are saved to the encounter/EHR; an authorized user can download a printable PDF. The generated PDF is a workflow copy, not a validated PDF/A document or qualified digital signature.
+7. The ordering physician reviews the report. A correction or amendment is recorded separately if the workflow supports it.
+8. The radiologist reloads the queue and the persisted report and status history remain visible.
 
 #### Required lifecycle
 
-`RECEIVED -> ACCEPTED -> IN_PROGRESS -> COMPLETED -> VERIFIED/REPORTED`
+`REQUESTED -> ACCEPTED -> PATIENT_ARRIVED -> IDENTITY_VERIFIED -> TECHNICIAN_HANDOFF -> ACQUISITION_STARTED -> ACQUISITION_COMPLETED -> IMAGES_AVAILABLE -> READY_FOR_INTERPRETATION -> REPORT_SUBMITTED -> PHYSICIAN_REVIEWED`
 
-Each transition must persist:
+Each recorded transition must persist:
 
 - hospital and encounter or study identifier;
-- role and specialist ID;
-- priority and modality;
-- received, started, completed, and verified timestamps;
-- status and reason code;
-- actor and authorization context;
+- role, staff ID, actor, and authorization context;
+- priority and requested modality;
+- timestamp and provenance (`MANUAL` or a future authenticated vendor event);
+- external acquisition completion time separately from radiologist interpretation and report-submission time;
+- optional viewer URL only when images are reported available;
 - correction, amendment, rejection, or clarification event;
 - turnaround calculations.
+
+The current manual workflow must not be presented as a live PACS/RIS integration. Queue labels, audit history, and analytics must preserve the manual source until an authenticated adapter is configured.
 
 #### Persistence and audit gates
 
@@ -591,7 +595,7 @@ Do not run builds as part of this roadmap. The requested verification path is br
 |---|---|---|
 | Product decisions | Pending | All plan decisions are approved |
 | Account and hospital setup | Complete for sandbox workflow | Hospital ownership and admin credentials verified |
-| Hospital structure and shift coverage | Implemented; browser verification pending | Calendar navigation, mapped coverage, administrator start/cancel audit, and pre-start clock-in rejection are verified after refresh |
+| Hospital structure and shift coverage | API/unit tests and frontend build verified; browser verification pending | Position-to-duty rules, configured-department validation, department snapshots, calendar navigation, administrator start/cancel audit, and pre-start clock-in rejection are verified after refresh |
 | Nurse triage | Pending | Triage persists, audits, refreshes, and analytics excludes it from final diagnosis |
 | Physician diagnosis | Pending | Final diagnosis persists atomically and audits correctly |
 | Diagnosis analytics | Pending | Final, triage, symptom, custom, and legacy metrics agree |

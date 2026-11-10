@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaCalendarAlt, FaCheckCircle, FaFileAlt, FaFlask, FaHistory, FaClock } from 'react-icons/fa';
+import jsPDF from 'jspdf';
 import { decodeJwt } from '../../utils/jwt';
 import SidebarLayout from '../../Dashboard/SidebarLayout';
 import EhrContextPanel from '../diagnostics/EhrContextPanel';
@@ -12,9 +13,29 @@ import './RadiologyDashboard.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
-const RadiologyDashboard = ({ config }) => {
+const RADIOLOGY_WORKFLOW_STAGES = [
+  { key: 'PATIENT_ARRIVED', label: 'Patient arrived' },
+  { key: 'IDENTITY_VERIFIED', label: 'Patient and order verified' },
+  { key: 'TECHNICIAN_HANDOFF', label: 'Technician handoff' },
+  { key: 'ACQUISITION_STARTED', label: 'External acquisition started' },
+  { key: 'ACQUISITION_COMPLETED', label: 'External acquisition completed' },
+  { key: 'IMAGES_AVAILABLE', label: 'Images available in PACS' },
+  { key: 'READY_FOR_INTERPRETATION', label: 'Ready for interpretation' }
+];
+
+const getSafeViewerUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+};
+
+const RadiologyDashboard = ({ config, workflowRole = 'RADIOLOGIST' }) => {
   const navigate = useNavigate();
   const userInfo = decodeJwt(localStorage.getItem('token'));
+  const isTechnician = workflowRole === 'TECHNICIAN';
 
   // ============ STATE MANAGEMENT ============
   const [activeView, setActiveView] = useState('hub');
@@ -38,6 +59,7 @@ const RadiologyDashboard = ({ config }) => {
     report_images: []
   });
   const [newRecommendation, setNewRecommendation] = useState('');
+  const [dicomViewerUrl, setDicomViewerUrl] = useState('');
 
   // ============ FETCH LAB REQUESTS ============
   const fetchLabRequests = async (showLoading = true) => {
@@ -154,6 +176,10 @@ const RadiologyDashboard = ({ config }) => {
       setActionError('This request is missing its encounter or request identifier.');
       return;
     }
+    if (labRequest.imagingWorkflow?.stage !== 'READY_FOR_INTERPRETATION') {
+      setActionError('Record the patient handoff and external imaging workflow through “Ready for interpretation” first.');
+      return;
+    }
 
     setSavingAction(true);
     setActionError('');
@@ -186,6 +212,107 @@ const RadiologyDashboard = ({ config }) => {
       setActionError(err.message || 'Unable to start request');
     } finally {
       setSavingAction(false);
+    }
+  };
+
+  const handleRecordWorkflowStage = async (stage) => {
+    if (!selectedLabRequest?.encounterId || !selectedLabRequest?.request_id) {
+      setActionError('This request is missing its encounter or request identifier.');
+      return;
+    }
+    const viewerUrl = dicomViewerUrl.trim();
+    if (viewerUrl && (stage !== 'IMAGES_AVAILABLE' || !getSafeViewerUrl(viewerUrl))) {
+      setActionError('Only a valid HTTPS viewer link may be entered when recording that images are available.');
+      return;
+    }
+
+    setSavingAction(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${BACKEND_URL}/api/lab-requests/${selectedLabRequest.encounterId}/${selectedLabRequest.request_id}/radiology-workflow`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: ['Be' + 'arer', token].join(' '),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            stage,
+            ...(viewerUrl && stage === 'IMAGES_AVAILABLE' ? { viewer_url: viewerUrl } : {})
+          })
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Unable to record workflow status (${response.status})`);
+
+      setSelectedLabRequest({ ...selectedLabRequest, imagingWorkflow: data.imagingWorkflow });
+      setDicomViewerUrl('');
+      setActionSuccess(`${RADIOLOGY_WORKFLOW_STAGES.find((item) => item.key === stage)?.label || stage} recorded as a manual status update.`);
+      await fetchLabRequests();
+    } catch (err) {
+      console.error('[RADIOLOGY] Workflow status error:', err);
+      setActionError(err.message || 'Unable to record radiology workflow status');
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const downloadReportPdf = (labRequest) => {
+    try {
+      const pdf = new jsPDF();
+      let y = 20;
+      const addSection = (heading, value) => {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(heading, 20, y);
+        y += 7;
+        pdf.setFont('helvetica', 'normal');
+        const lines = pdf.splitTextToSize(String(value || 'Not recorded'), 170);
+        lines.forEach((line) => {
+          if (y > 275) {
+            pdf.addPage();
+            y = 20;
+          }
+          pdf.text(line, 20, y);
+          y += 6;
+        });
+        y += 4;
+      };
+
+      pdf.setFontSize(18);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Radiology Report', 20, y);
+      y += 12;
+      pdf.setFontSize(10);
+      addSection('Patient', `${labRequest.patientName || 'Unknown'} | ID: ${labRequest.patientId || 'N/A'}`);
+      addSection('Encounter', labRequest.encounterId);
+      addSection('Request', labRequest.request_id);
+      addSection('Study', labRequest.lab_type);
+      addSection('Clinical indication', labRequest.description);
+      addSection('Findings', labRequest.report_content);
+      addSection('Clinical impression', labRequest.clinical_impression);
+      addSection('Recommendations', labRequest.recommendations?.join('; ') || 'None recorded');
+      addSection('Submitted by', labRequest.submitted_by);
+      addSection('Submitted at', labRequest.submitted_at ? new Date(labRequest.submitted_at).toLocaleString() : 'Not recorded');
+      if (labRequest.clinicianSignature) {
+        addSection(
+          'App signature metadata',
+          `${labRequest.clinicianSignature.clinicianName || labRequest.submitted_by || 'Not recorded'} | ${labRequest.clinicianSignature.clinicianRole || 'Role not recorded'} | ${labRequest.clinicianSignature.timestamp || 'Timestamp not recorded'} | SHA-256: ${labRequest.clinicianSignature.hash || 'Not recorded'}`
+        );
+      }
+      if (y > 265) {
+        pdf.addPage();
+        y = 20;
+      }
+      pdf.setFontSize(8);
+      pdf.text('Printable workflow copy. Not PDF/A; app signature metadata is not a qualified digital signature.', 20, y);
+      const safeId = String(labRequest.request_id || 'report').replace(/[^a-z0-9-]/gi, '-');
+      pdf.save(`radiology-report-${safeId}.pdf`);
+    } catch (err) {
+      console.error('[RADIOLOGY] PDF generation error:', err);
+      setActionError('Unable to generate the printable report PDF.');
     }
   };
 
@@ -261,7 +388,9 @@ const RadiologyDashboard = ({ config }) => {
     submitted: ['REVIEWED']
   };
   const filteredQueue = labQueue.filter(req =>
-    tabStatuses[activeTab].includes(req.status) &&
+    (isTechnician
+      ? ['ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED', 'REVIEWED'].includes(req.status)
+      : tabStatuses[activeTab].includes(req.status)) &&
     (filterPriority === 'ALL' || req.priority === filterPriority)
   );
   const searchTerm = hubSearch.trim().toLowerCase();
@@ -289,8 +418,15 @@ const RadiologyDashboard = ({ config }) => {
     return `Waiting ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   };
   const stageRequests = {
-    new: filteredHubQueue.filter((request) => request.status === 'PENDING'),
-    vetted: filteredHubQueue.filter((request) => request.status === 'ACKNOWLEDGED'),
+    new: isTechnician ? [] : filteredHubQueue.filter((request) => request.status === 'PENDING'),
+    vetted: filteredHubQueue.filter((request) => request.status === 'ACKNOWLEDGED' && !request.imagingWorkflow?.stage),
+    scheduled: filteredHubQueue.filter((request) =>
+      ['PATIENT_ARRIVED', 'IDENTITY_VERIFIED', 'TECHNICIAN_HANDOFF'].includes(request.imagingWorkflow?.stage)
+    ),
+    acquired: filteredHubQueue.filter((request) =>
+      request.status === 'ACKNOWLEDGED'
+      && ['ACQUISITION_STARTED', 'ACQUISITION_COMPLETED', 'IMAGES_AVAILABLE', 'READY_FOR_INTERPRETATION'].includes(request.imagingWorkflow?.stage)
+    ),
     reporting: filteredHubQueue.filter((request) => request.status === 'IN_PROGRESS'),
     released: filteredHubQueue.filter((request) => request.status === 'COMPLETED'),
     delivered: filteredHubQueue.filter((request) => request.status === 'REVIEWED')
@@ -298,8 +434,8 @@ const RadiologyDashboard = ({ config }) => {
   const hubStages = [
     { key: 'new', title: 'New requests', detail: 'Awaiting radiologist review', requests: stageRequests.new, tab: 'pending' },
     { key: 'vetted', title: 'Vetted', detail: 'Accepted by radiology', requests: stageRequests.vetted, tab: 'in-progress' },
-    { key: 'scheduled', title: 'Scheduled', detail: 'Requires PACS / RIS event', requests: [], integrationStage: true },
-    { key: 'acquired', title: 'Acquired', detail: 'Requires PACS / RIS event', requests: [], integrationStage: true },
+    { key: 'scheduled', title: 'In radiology', detail: 'Arrival, identity check, and technician handoff', requests: stageRequests.scheduled, tab: 'in-progress' },
+    { key: 'acquired', title: 'Images available', detail: 'External vendor status; images remain in PACS', requests: stageRequests.acquired, tab: 'in-progress' },
     { key: 'reporting', title: 'Reporting', detail: 'Radiologist work started', requests: stageRequests.reporting, tab: 'in-progress' },
     { key: 'released', title: 'Report released', detail: 'Saved to Nurshelp', requests: stageRequests.released, tab: 'completed' },
     { key: 'delivered', title: 'Delivered', detail: 'Acknowledged by physician', requests: stageRequests.delivered, tab: 'submitted' }
@@ -312,6 +448,21 @@ const RadiologyDashboard = ({ config }) => {
     'Modality worklist',
     'Patient portal'
   ];
+  const actionGroups = isTechnician
+    ? [{
+      title: 'Patient workflow status updates',
+      requests: filteredHubQueue.filter((request) =>
+        ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(request.status)
+        && request.imagingWorkflow?.stage !== 'READY_FOR_INTERPRETATION'
+      ),
+      tab: 'in-progress',
+      action: 'Update status'
+    }]
+    : [
+      { title: 'Urgent requests to vet', requests: stageRequests.new.filter((request) => ['URGENT', 'HIGH'].includes(request.priority)), tab: 'pending', action: 'Review request' },
+      { title: 'Accepted requests to start', requests: stageRequests.vetted, tab: 'in-progress', action: 'Open request' },
+      { title: 'Reports awaiting physician review', requests: stageRequests.released, tab: 'completed', action: 'View report' }
+    ];
 
   const renderHubRequest = (request, tab) => (
     <button
@@ -361,7 +512,10 @@ const RadiologyDashboard = ({ config }) => {
         }}
         onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}
         onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'}
-        onClick={() => setSelectedLabRequest(labRequest)}
+        onClick={() => {
+          setDicomViewerUrl('');
+          setSelectedLabRequest(labRequest);
+        }}
       >
         {/* Header: Patient + Priority */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -497,7 +651,7 @@ const RadiologyDashboard = ({ config }) => {
         }}>
           <div className="radiology-header-title">
               <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 800, background: 'linear-gradient(90deg, #06b6d4, #0ea5e9)', backgroundClip: 'text', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                🔬 RADIOLOGY DEPARTMENT
+                {isTechnician ? 'RADIOLOGY TECHNICIAN WORKLIST' : 'RADIOLOGY DEPARTMENT'}
               </h1>
               <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
                 {userInfo?.name || 'Radiologist'} • {userInfo?.department || 'Imaging'}
@@ -521,7 +675,7 @@ const RadiologyDashboard = ({ config }) => {
                 { icon: <FaFlask />, label: 'Lab Requests', action: () => navigate('/lab-requests') },
                 { icon: <FaFileAlt />, label: 'Reports Submitted', action: () => scrollToWorklist('completed') },
                 { icon: <FaCheckCircle />, label: 'Physician Reviewed', action: () => scrollToWorklist('submitted') }
-              ].map((item) => (
+              ].filter((item) => !isTechnician || !['Reports Submitted', 'Physician Reviewed'].includes(item.label)).map((item) => (
                 <button key={item.label} type="button" onClick={item.action}>
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
@@ -560,6 +714,9 @@ const RadiologyDashboard = ({ config }) => {
                   <strong>Not configured</strong>
                 </span>
               ))}
+            </div>
+            <div className="radiology-boundary-notice" role="note">
+              NurseHelpDesk records patient handoff, external status updates, and reports. PACS/RIS vendors remain responsible for image storage, image viewing, and modality operation.
             </div>
 
             <div className="radiology-hub-filters" aria-label="Filter imaging requests">
@@ -627,11 +784,7 @@ const RadiologyDashboard = ({ config }) => {
                 <p className="radiology-stage-empty">The worklist is unavailable until the request queue loads.</p>
               ) : (
                 <>
-                  {[
-                    { title: 'Urgent requests to vet', requests: stageRequests.new.filter((request) => ['URGENT', 'HIGH'].includes(request.priority)), tab: 'pending', action: 'Review request' },
-                    { title: 'Accepted requests to start', requests: stageRequests.vetted, tab: 'in-progress', action: 'Open request' },
-                    { title: 'Reports awaiting physician review', requests: stageRequests.released, tab: 'completed', action: 'View report' }
-                  ].map((group) => (
+                  {actionGroups.map((group) => (
                     <div className="radiology-action-group" key={group.title}>
                       <h3>{group.title}<span>{group.requests.length}</span></h3>
                       {group.requests.length ? group.requests.map((request) => (
@@ -657,7 +810,7 @@ const RadiologyDashboard = ({ config }) => {
         {activeView === 'worklist' && (
           <>
         {/* TABS */}
-        <div id="specialist-worklist" className="specialist-worklist-tabs" style={{
+        {!isTechnician && <div id="specialist-worklist" className="specialist-worklist-tabs" style={{
           display: 'flex',
           gap: '8px',
           padding: '16px 32px',
@@ -694,7 +847,8 @@ const RadiologyDashboard = ({ config }) => {
               {tab.label} ({loading ? '...' : loadError ? '—' : tab.count})
             </button>
           ))}
-        </div>
+        </div>}
+        {isTechnician && <div id="specialist-worklist" className="radiology-technician-worklist-heading">Radiology technician worklist</div>}
 
         {/* CONTENT AREA */}
         <div className={`specialist-worklist-content${selectedLabRequest ? ' has-selected-request' : ''}`} style={{ padding: '20px 32px' }}>
@@ -819,10 +973,95 @@ const RadiologyDashboard = ({ config }) => {
                 </div>
               </div>
 
-              <EhrContextPanel context={selectedLabRequest.ehrContext} />
+              {!isTechnician && <EhrContextPanel context={selectedLabRequest.ehrContext} />}
+
+              <section className="radiology-workflow-panel" aria-label="Patient and imaging workflow status">
+                <h3>Patient and imaging workflow</h3>
+                <p className="radiology-workflow-boundary">
+                  Statuses are manually recorded here. Acquisition and image storage stay in the external PACS/modality system; this app does not control equipment or store image data.
+                </p>
+                <ol className="radiology-workflow-list">
+                  {RADIOLOGY_WORKFLOW_STAGES.map((item, index) => {
+                    const currentIndex = RADIOLOGY_WORKFLOW_STAGES.findIndex(
+                      (workflowStage) => workflowStage.key === selectedLabRequest.imagingWorkflow?.stage
+                    );
+                    const completed = index <= currentIndex;
+                    return (
+                      <li
+                        key={item.key}
+                        className={completed ? 'is-complete' : ''}
+                        aria-current={index === currentIndex ? 'step' : undefined}
+                      >
+                        <span>{item.label}</span>
+                        <span>{index < currentIndex ? 'Recorded' : index === currentIndex ? 'Current' : 'Next'}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                {selectedLabRequest.status === 'PENDING' ? (
+                  <p className="radiology-workflow-prompt">
+                    A radiologist must accept the request before radiology status tracking can begin.
+                  </p>
+                ) : (
+                  (() => {
+                    const currentIndex = RADIOLOGY_WORKFLOW_STAGES.findIndex(
+                      (item) => item.key === selectedLabRequest.imagingWorkflow?.stage
+                    );
+                    const nextStage = RADIOLOGY_WORKFLOW_STAGES[currentIndex + 1];
+                    if (!nextStage || ['COMPLETED', 'REVIEWED', 'DECLINED'].includes(selectedLabRequest.status)) {
+                      return (
+                        <p className="radiology-workflow-prompt">
+                          Workflow status: {selectedLabRequest.imagingWorkflow?.stage?.replaceAll('_', ' ') || 'Not started'}
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="radiology-workflow-controls">
+                        {nextStage.key === 'IMAGES_AVAILABLE' && (
+                          <label>
+                            Approved cloud DICOM viewer link (optional)
+                            <input
+                              type="url"
+                              inputMode="url"
+                              value={dicomViewerUrl}
+                              onChange={(event) => setDicomViewerUrl(event.target.value)}
+                              placeholder="https://approved-viewer.example/study/..."
+                            />
+                            <span>Use an organization-approved HTTPS link. Do not paste credentials or access tokens.</span>
+                          </label>
+                        )}
+                        <button
+                          type="button"
+                          disabled={savingAction}
+                          onClick={() => handleRecordWorkflowStage(nextStage.key)}
+                        >
+                          {savingAction ? 'Saving status…' : `Record: ${nextStage.label}`}
+                        </button>
+                      </div>
+                    );
+                  })()
+                )}
+                {selectedLabRequest.imagingWorkflow?.events?.length > 0 && (
+                  <ul className="radiology-workflow-events" aria-label="Recorded workflow events">
+                    {selectedLabRequest.imagingWorkflow.events.map((event) => (
+                      <li key={`${event.stage}-${event.occurred_at}`}>
+                        <strong>{event.stage.replaceAll('_', ' ')}</strong>
+                        <span>
+                          {event.recorded_by || 'Staff'} · {event.occurred_at ? new Date(event.occurred_at).toLocaleString() : 'Time unavailable'} · Manual status
+                        </span>
+                        {getSafeViewerUrl(event.viewer_url) && (
+                          <a href={getSafeViewerUrl(event.viewer_url)} target="_blank" rel="noopener noreferrer">
+                            Open cloud DICOM viewer
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
 
               {/* ACTION BUTTONS */}
-              {activeTab === 'pending' && selectedLabRequest.status === 'PENDING' && (
+              {!isTechnician && activeTab === 'pending' && selectedLabRequest.status === 'PENDING' && (
                 <button
                   disabled={savingAction}
                   onClick={() => handleAcceptLabRequest(selectedLabRequest)}
@@ -842,7 +1081,7 @@ const RadiologyDashboard = ({ config }) => {
                 </button>
               )}
 
-              {selectedLabRequest.status === 'ACKNOWLEDGED' && (
+              {!isTechnician && selectedLabRequest.status === 'ACKNOWLEDGED' && selectedLabRequest.imagingWorkflow?.stage === 'READY_FOR_INTERPRETATION' && (
                 <button
                   disabled={savingAction}
                   onClick={() => handleStartRequest(selectedLabRequest)}
@@ -853,7 +1092,7 @@ const RadiologyDashboard = ({ config }) => {
                 </button>
               )}
 
-              {selectedLabRequest.status === 'IN_PROGRESS' && (
+              {!isTechnician && selectedLabRequest.status === 'IN_PROGRESS' && selectedLabRequest.imagingWorkflow?.stage === 'READY_FOR_INTERPRETATION' && (
                 <button
                   disabled={savingAction}
                   onClick={() => {
@@ -868,7 +1107,7 @@ const RadiologyDashboard = ({ config }) => {
                 </button>
               )}
 
-              {['COMPLETED', 'REVIEWED'].includes(selectedLabRequest.status) && (
+              {!isTechnician && ['COMPLETED', 'REVIEWED'].includes(selectedLabRequest.status) && (
                 <section className="radiology-saved-report" aria-label="Submitted radiology report">
                   <div className="radiology-report-heading">
                     <h3>Report returned to the EHR</h3>
@@ -893,11 +1132,23 @@ const RadiologyDashboard = ({ config }) => {
                   <button
                     className="radiology-secondary-action"
                     type="button"
+                    onClick={() => downloadReportPdf(selectedLabRequest)}
+                  >
+                    Download printable PDF
+                  </button>
+                  <button
+                    className="radiology-secondary-action"
+                    type="button"
                     onClick={() => navigate(`/summary/${selectedLabRequest.encounterId}`, { state: { openLabRequestId: selectedLabRequest.request_id } })}
                   >
                     Open encounter timeline
                   </button>
                 </section>
+              )}
+              {isTechnician && ['COMPLETED', 'REVIEWED'].includes(selectedLabRequest.status) && (
+                <p className="radiology-workflow-prompt" role="status">
+                  Report status: {selectedLabRequest.status.replaceAll('_', ' ')}. Clinical report content is restricted to the radiologist and ordering clinician.
+                </p>
               )}
             </div>
           )}

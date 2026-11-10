@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiClock, FiCalendar, FiBarChart2 } from 'react-icons/fi';
+import { FiClock, FiCalendar, FiBarChart2, FiUser } from 'react-icons/fi';
 import { FaHistory } from 'react-icons/fa';
 import NurseDashboard from '../../Dashboard/NurseDashboard';
+import SidebarLayout from '../../Dashboard/SidebarLayout';
 import ClockInOutBoard from '../../Dashboard/Pages/ClockInOutBoard';
 import ClinicalNurseDashboard from './ClinicalNurseDashboard';
 import PhysicianDashboard from './PhysicianDashboard';
 import PharmacistDashboard from './PharmacistDashboard';
 import RadiologyDashboard from './RadiologyDashboard';
 import PathologyDashboard from './PathologyDashboard';
-import TechnicianDashboard from './TechnicianDashboard';
 import DashboardLogoutButton from './DashboardLogoutButton';
 import { decodeJwt, normalizeRoleLabel } from '../../utils/jwt';
 import { resolveShiftDashboardContext } from '../../utils/shiftDashboardContext';
@@ -23,9 +23,11 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
  * MAIN ORCHESTRATOR for shift-based conditional dashboard rendering
  * 
  * Flow:
- * 1. Resolve today's assigned shift using the authenticated staff session.
- * 2. Send staff with no verifiable shift to the shared clock-in board.
- * 3. Require an assigned shift and verified clock-in before rendering a work dashboard.
+ * 1. On mount, calls GET /api/dashboard/config
+ * 2. Backend checks if user is assigned to today's shift (via JWT)
+ * 3. Returns config.context based on which role matches (TRIAGE_NURSE, CLINICAL_NURSE_ER, PHYSICIAN_ER, NO_SHIFT)
+ * 4. Conditionally renders the appropriate dashboard component
+ * 5. If not assigned: Shows 403 error "Contact your manager"
  */
 
 const DashboardRouter = () => {
@@ -57,8 +59,15 @@ const DashboardRouter = () => {
 
         const decoded = decodeJwt(token);
         if (!decoded) {
-          console.error('[DASHBOARD ROUTER] Unable to decode the session token; showing the shared clock-in board');
-          setConfig({ context: 'SHIFT_UNVERIFIED', hasShiftToday: false, assignedRole: 'STAFF' });
+          // fallback to server-side config
+          console.log('[DASHBOARD ROUTER] Token decode failed, falling back to server config');
+          const fallback = await fetch('http://localhost:5001/api/dashboard/config', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+          });
+          if (!fallback.ok) throw new Error('Failed fallback dashboard config');
+          const fallbackData = await fallback.json();
+          setConfig(fallbackData.config);
           return;
         }
 
@@ -67,9 +76,7 @@ const DashboardRouter = () => {
           return;
         }
 
-        const tokenRole = decoded.systemRole || decoded.role;
-        const tokenSpecialty = decoded.specialty || decoded.clinicalSpecialty || decoded.department;
-        const normalizedRole = normalizeRoleLabel(tokenRole, tokenSpecialty);
+        const normalizedRole = normalizeRoleLabel(decoded.role, decoded.specialty || decoded.clinicalSpecialty || decoded.department);
         // Primary flow: call authoritative endpoint that returns user's assigned shift for TODAY
         const shiftResp = await fetch('http://localhost:5001/api/shifts/assigned/today', {
           method: 'GET',
@@ -77,13 +84,15 @@ const DashboardRouter = () => {
         });
 
         if (!shiftResp.ok) {
-          console.error(`[DASHBOARD ROUTER] Unable to verify assigned shift (HTTP ${shiftResp.status}); showing the shared clock-in board`);
-          setConfig({
-            context: 'SHIFT_UNVERIFIED',
-            hasShiftToday: false,
-            assignedRole: normalizedRole,
-            department: decoded.department || ''
+          // If server returns 401/403 or other, fallback to dashboard/config
+          console.log('[DASHBOARD ROUTER] assigned/today returned', shiftResp.status, ' - falling back');
+          const fallback = await fetch('http://localhost:5001/api/dashboard/config', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
           });
+          if (!fallback.ok) throw new Error('Failed fallback dashboard config');
+          const fallbackData = await fallback.json();
+          setConfig(fallbackData.config);
           return;
         }
 
@@ -101,7 +110,7 @@ const DashboardRouter = () => {
 
         const shift = shiftData.shift;
         const userId = decoded.id || decoded.sub || null;
-        const context = resolveShiftDashboardContext({ userId, role: tokenRole, specialty: tokenSpecialty, shift });
+        const context = resolveShiftDashboardContext({ userId, role: normalizedRole, shift });
 
         // Build a minimal config object compatible with existing components
         const cfg = {
@@ -123,13 +132,8 @@ const DashboardRouter = () => {
 
         setConfig(cfg);
       } catch (err) {
-        if (localStorage.getItem('token')) {
-          console.error('[DASHBOARD ROUTER] Shift verification failed; showing the shared clock-in board:', err);
-          setConfig({ context: 'SHIFT_UNVERIFIED', hasShiftToday: false, assignedRole: 'STAFF' });
-        } else {
-          console.error('[DASHBOARD ROUTER] Error:', err);
-          setError(err.message || 'Failed to load dashboard');
-        }
+        console.error('[DASHBOARD ROUTER] Error:', err);
+        setError(err.message || 'Failed to load dashboard');
       } finally {
         setLoading(false);
       }
@@ -247,11 +251,10 @@ const DashboardRouter = () => {
   const staffTabs = [
     { id: 'clock', label: 'Clock In/Out', icon: FiClock },
     { id: 'myshifts', label: 'My Schedule', icon: FiCalendar },
-    { id: 'history', label: 'Attendance History', icon: FaHistory }
+    { id: 'history', label: 'Attendance History', icon: FaHistory },
+    { id: 'profile', label: 'Profile', icon: FiUser }
   ];
-  const needsStaffAccess = ['NO_SHIFT', 'SHIFT_UNVERIFIED'].includes(config.context)
-    || !config.hasShiftToday
-    || !isClockedIn;
+  const needsStaffAccess = !config.hasShiftToday || !isClockedIn;
   if (needsStaffAccess) {
     const token = localStorage.getItem('token');
     const user = token ? decodeJwt(token) : {};
@@ -282,7 +285,6 @@ const DashboardRouter = () => {
             }} />
           </section>
         </section>
-        <DashboardLogoutButton />
       </main>
     );
   }
@@ -294,57 +296,49 @@ const DashboardRouter = () => {
 
   switch (context) {
     case 'TRIAGE_NURSE':
-      return <NurseDashboard navigate={navigate} config={{ ...config, clockStatusVerified: true, isClockedIn, clockRecord }} />;
+      return <NurseDashboard config={{ ...config, clockStatusVerified: true, isClockedIn, clockRecord }} />;
 
     case 'CLINICAL_NURSE_ER':
-      return <ClinicalNurseDashboard config={config} context="ER" />;
+      return <><DashboardLogoutButton /><ClinicalNurseDashboard config={config} context="ER" /></>;
 
     case 'CLINICAL_NURSE_ICU':
-      return <ClinicalNurseDashboard config={config} context="ICU" />;
+      return <><DashboardLogoutButton /><ClinicalNurseDashboard config={config} context="ICU" /></>;
 
     case 'CLINICAL_NURSE_SURGICAL':
-      return <ClinicalNurseDashboard config={config} context="SURGICAL" />;
+      return <><DashboardLogoutButton /><ClinicalNurseDashboard config={config} context="SURGICAL" /></>;
 
     case 'PHYSICIAN_ER':
-      return <><DashboardLogoutButton /><PhysicianDashboard config={config} context="ER" /></>;
+      return (
+        <SidebarLayout username={config.staffName || 'Physician'}>
+          <PhysicianDashboard config={config} context="ER" />
+        </SidebarLayout>
+      );
 
     case 'PHYSICIAN_ICU':
-      return <><DashboardLogoutButton /><PhysicianDashboard config={config} context="ICU" /></>;
+      return (
+        <SidebarLayout username={config.staffName || 'Physician'}>
+          <PhysicianDashboard config={config} context="ICU" />
+        </SidebarLayout>
+      );
 
     case 'PHYSICIAN_SURGICAL':
-      return <><DashboardLogoutButton /><PhysicianDashboard config={config} context="SURGICAL" /></>;
+      return (
+        <SidebarLayout username={config.staffName || 'Physician'}>
+          <PhysicianDashboard config={config} context="SURGICAL" />
+        </SidebarLayout>
+      );
 
     case 'PHARMACY':
       return <><DashboardLogoutButton /><PharmacistDashboard config={config} /></>;
 
     case 'RADIOLOGY':
-      return <RadiologyDashboard config={config} />;
-
-    case 'PATHOLOGY':
-      return <PathologyDashboard config={config} />;
-
-    case 'TECHNICIAN_PHARMACY':
-      return <TechnicianDashboard config={config} specialty="PHARMACY" />;
+      return <><DashboardLogoutButton /><RadiologyDashboard config={config} /></>;
 
     case 'TECHNICIAN_RADIOLOGY':
-      return <TechnicianDashboard config={config} specialty="RADIOLOGY" />;
+      return <><DashboardLogoutButton /><RadiologyDashboard config={config} workflowRole="TECHNICIAN" /></>;
 
-    case 'TECHNICIAN_PATHOLOGY':
-      return <TechnicianDashboard config={config} specialty="PATHOLOGY" />;
-
-    case 'TECHNICIAN_UNCONFIGURED':
-      return (
-        <main className="technician-access-denied">
-          <section className="technician-access-card" role="alert">
-            <p className="technician-eyebrow">Technician access</p>
-            <h1>Specialty assignment required</h1>
-            <p>Your account or shift does not have a recognized technician specialty. No specialist workspace has been opened.</p>
-            <p>Please contact your coordinator to confirm your role, specialty, and shift assignment.</p>
-            <button className="btn-retry" onClick={() => setRetryCount(count => count + 1)}>Check again</button>
-          </section>
-          <DashboardLogoutButton />
-        </main>
-      );
+    case 'PATHOLOGY':
+      return <><DashboardLogoutButton /><PathologyDashboard config={config} /></>;
 
     default:
       return (

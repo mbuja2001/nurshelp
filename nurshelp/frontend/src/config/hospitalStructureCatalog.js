@@ -6,7 +6,10 @@ export const HOSPITAL_DEPARTMENTS = [
   { name: 'Medical-Surgical', serviceTypes: ['OUTPATIENT', 'INPATIENT'] },
   { name: 'Pediatrics', serviceTypes: ['OUTPATIENT', 'INPATIENT'] },
   { name: 'Psychiatry', serviceTypes: ['OUTPATIENT', 'INPATIENT'] },
-  { name: 'General', serviceTypes: ['OUTPATIENT', 'INPATIENT', 'CLINICAL_SUPPORT'] }
+  { name: 'General', serviceTypes: ['OUTPATIENT', 'INPATIENT', 'CLINICAL_SUPPORT'] },
+  { name: 'Pharmacy', serviceTypes: ['CLINICAL_SUPPORT'] },
+  { name: 'Radiology', serviceTypes: ['CLINICAL_SUPPORT'] },
+  { name: 'Pathology', serviceTypes: ['CLINICAL_SUPPORT'] }
 ];
 
 export const HOSPITAL_SPECIALTIES = [

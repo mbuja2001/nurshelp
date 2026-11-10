@@ -49,6 +49,37 @@ export const canManageSpecialtyRequest = (req, specialty) => {
   return String(req.user?.role || req.userRole || '').toUpperCase() === expectedRole;
 };
 
+const RADIOLOGY_WORKFLOW_STAGES = [
+  'PATIENT_ARRIVED',
+  'IDENTITY_VERIFIED',
+  'TECHNICIAN_HANDOFF',
+  'ACQUISITION_STARTED',
+  'ACQUISITION_COMPLETED',
+  'IMAGES_AVAILABLE',
+  'READY_FOR_INTERPRETATION'
+];
+
+const isRadiologyTechnician = (req) => {
+  const role = String(req.user?.role || req.userRole || '').toUpperCase();
+  const specialty = String(
+    req.user?.specialty || req.user?.clinicalSpecialty || req.user?.department || ''
+  ).toUpperCase();
+  return ['TECHNICIAN', 'RADIOLOGY_TECHNICIAN', 'LAB_TECHNICIAN', 'LABORATORY_TECHNICIAN'].includes(role)
+    && /\bRADIOLOGY\b|\bRADIOLOGIST\b/.test(specialty);
+};
+
+const canManageRadiologyWorkflow = (req) =>
+  String(req.user?.role || req.userRole || '').toUpperCase() === 'RADIOLOGIST' || isRadiologyTechnician(req);
+
+const isSecureViewerUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Lab Request Controller
  * Handles complete lab request workflow for Radiology & Pathology departments
@@ -235,6 +266,13 @@ export const getLabRequestsForSpecialty = async (req, res) => {
     if (!specialty || !['RADIOLOGY', 'PATHOLOGY'].includes(specialty)) {
       return res.status(400).json({ message: 'Invalid or missing specialty parameter' });
     }
+    const role = String(req.user?.role || req.userRole || '').toUpperCase();
+    const authorizedForQueue = specialty === 'RADIOLOGY'
+      ? role === 'RADIOLOGIST' || isRadiologyTechnician(req)
+      : role === 'PATHOLOGIST';
+    if (!authorizedForQueue) {
+      return res.status(403).json({ message: 'Access denied to this specialty work queue' });
+    }
 
     // Find all encounters with pending lab requests for this specialty
     const query = {
@@ -273,24 +311,29 @@ export const getLabRequestsForSpecialty = async (req, res) => {
           assigned_at: labReq.assigned_at,
           started_at: labReq.started_at,
           started_by: labReq.started_by,
-          report_content: labReq.report_content,
-          clinical_impression: labReq.clinical_impression,
-          recommendations: labReq.recommendations || [],
-          submitted_at: labReq.submitted_at,
-          submitted_by: labReq.submitted_by,
-          reviewed_at: labReq.reviewed_at,
-          reviewed_by: labReq.reviewed_by,
-          review_notes: labReq.review_notes,
-          clinicianSignature: labReq.clinicianSignature || null,
+          ...(isRadiologyTechnician(req) ? {} : {
+            report_content: labReq.report_content,
+            clinical_impression: labReq.clinical_impression,
+            recommendations: labReq.recommendations || [],
+            submitted_at: labReq.submitted_at,
+            submitted_by: labReq.submitted_by,
+            reviewed_at: labReq.reviewed_at,
+            reviewed_by: labReq.reviewed_by,
+            review_notes: labReq.review_notes,
+            clinicianSignature: labReq.clinicianSignature || null
+          }),
+          imagingWorkflow: labReq.imagingWorkflow || { stage: null, events: [] },
           
           // Encounter context for specialist
           patientName: encounter.patient?.name || encounter.patientName || 'Unknown',
           patientAge: encounter.patient?.age || 'N/A',
           patientId: encounter.patient?.id_number || 'N/A',
-          vitals: encounter.vitals || {},
-          diagnosis: encounter.diagnosis || '',
-          assignedPhysicianName: encounter.assignedPhysicianName || encounter.assigned_physician?.name || 'N/A',
-          ehrContext: labReq.ehrContext || null
+          ...(isRadiologyTechnician(req) ? {} : {
+            vitals: encounter.vitals || {},
+            diagnosis: encounter.diagnosis || '',
+            assignedPhysicianName: encounter.assignedPhysicianName || encounter.assigned_physician?.name || 'N/A',
+            ehrContext: labReq.ehrContext || null
+          })
         });
       });
     });
@@ -314,6 +357,92 @@ export const getLabRequestsForSpecialty = async (req, res) => {
   } catch (err) {
     console.error('[LAB CONTROLLER] getLabRequestsForSpecialty error:', err);
     return res.status(500).json({ message: 'Error fetching lab requests', error: err.message });
+  }
+};
+
+export const recordRadiologyWorkflowEvent = async (req, res) => {
+  try {
+    const { encounterId, requestId } = req.params;
+    const { stage, note, viewer_url } = req.body;
+    if (!RADIOLOGY_WORKFLOW_STAGES.includes(stage)) {
+      return res.status(400).json({ message: 'Invalid radiology workflow stage' });
+    }
+    if (typeof note === 'string' && note.length > 500) {
+      return res.status(400).json({ message: 'Workflow note must be 500 characters or fewer' });
+    }
+    if (viewer_url && (
+      typeof viewer_url !== 'string'
+      || viewer_url.length > 2048
+      || !isSecureViewerUrl(viewer_url)
+    )) {
+      return res.status(400).json({ message: 'Viewer links must be valid HTTPS URLs without embedded credentials' });
+    }
+    if (viewer_url && stage !== 'IMAGES_AVAILABLE') {
+      return res.status(400).json({ message: 'A cloud viewer link can only be recorded when images are available' });
+    }
+    if (!canManageRadiologyWorkflow(req)) {
+      return res.status(403).json({ message: 'Only radiology staff may record imaging workflow status' });
+    }
+
+    const encounter = await Encounter.findById(encounterId);
+    if (!encounter) {
+      return res.status(404).json({ message: 'Encounter not found' });
+    }
+    const encounterHospitalId = encounter.hospitalId?.toString();
+    const userHospitalId = (req.user?.hospitalId || req.hospitalId)?.toString();
+    if (!encounterHospitalId || !userHospitalId || encounterHospitalId !== userHospitalId) {
+      return res.status(403).json({ message: 'Access denied to this encounter' });
+    }
+
+    const labRequest = encounter.lab_requests?.find((request) => request.request_id.toString() === requestId);
+    if (!labRequest || labRequest.specialty !== 'RADIOLOGY') {
+      return res.status(404).json({ message: 'Radiology request not found' });
+    }
+    if (!['ACKNOWLEDGED', 'IN_PROGRESS'].includes(labRequest.status)) {
+      return res.status(409).json({ message: 'The radiology request must be accepted before workflow status can be recorded' });
+    }
+
+    const workflow = labRequest.imagingWorkflow || { stage: null, events: [] };
+    const currentStageIndex = RADIOLOGY_WORKFLOW_STAGES.indexOf(workflow.stage);
+    const nextStage = RADIOLOGY_WORKFLOW_STAGES[currentStageIndex + 1] || RADIOLOGY_WORKFLOW_STAGES[0];
+    if (stage !== nextStage) {
+      return res.status(409).json({
+        message: `Expected workflow stage ${nextStage}; received ${stage}`,
+        current_stage: workflow.stage || null
+      });
+    }
+
+    const occurredAt = new Date();
+    workflow.events ||= [];
+    workflow.events.push({
+      stage,
+      occurred_at: occurredAt,
+      recorded_by: req.user.name,
+      recorded_by_id: req.user._id || req.user.id,
+      recorded_by_role: String(req.user.role || req.userRole || '').toUpperCase(),
+      source: 'MANUAL',
+      note: typeof note === 'string' ? note.trim() : '',
+      viewer_url: viewer_url || undefined
+    });
+    workflow.stage = stage;
+    labRequest.imagingWorkflow = workflow;
+    labRequest.updated_at = occurredAt;
+    encounter.status_history ||= [];
+    encounter.status_history.push({
+      status: `RADIOLOGY_WORKFLOW_${stage}`,
+      changed_by: req.user.id || req.user._id,
+      changed_at: occurredAt,
+      notes: `${stage} recorded manually by ${req.user.name}`
+    });
+
+    await encounter.save();
+    return res.status(200).json({
+      message: 'Radiology workflow status recorded',
+      imagingWorkflow: labRequest.imagingWorkflow
+    });
+  } catch (err) {
+    console.error('[LAB CONTROLLER] recordRadiologyWorkflowEvent error:', err);
+    return res.status(500).json({ message: 'Error recording radiology workflow status', error: err.message });
   }
 };
 
@@ -402,6 +531,12 @@ export const startLabRequest = async (req, res) => {
     if (labRequest.status !== 'ACKNOWLEDGED') {
       return res.status(409).json({ message: `Request cannot be started from status ${labRequest.status}` });
     }
+    if (
+      labRequest.specialty === 'RADIOLOGY'
+      && labRequest.imagingWorkflow?.stage !== 'READY_FOR_INTERPRETATION'
+    ) {
+      return res.status(409).json({ message: 'Radiology workflow must be ready for interpretation before radiologist work starts' });
+    }
 
     const startedAt = new Date();
     labRequest.status = 'IN_PROGRESS';
@@ -465,6 +600,12 @@ export const submitLabReport = async (req, res) => {
     }
     if (labRequest.status !== 'IN_PROGRESS') {
       return res.status(409).json({ message: `Report cannot be submitted from status ${labRequest.status}` });
+    }
+    if (
+      labRequest.specialty === 'RADIOLOGY'
+      && labRequest.imagingWorkflow?.stage !== 'READY_FOR_INTERPRETATION'
+    ) {
+      return res.status(409).json({ message: 'Radiology workflow must be ready for interpretation before report submission' });
     }
     if (!String(report_content || '').trim() || !String(clinical_impression || '').trim()) {
       return res.status(400).json({ message: 'Findings and clinical impression are required' });

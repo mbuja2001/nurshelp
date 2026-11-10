@@ -272,6 +272,45 @@ const encounterSchema = new mongoose.Schema({
       submitted_at: Date,
       submitted_by: String, // Specialist who submitted report
       submitted_by_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
+      clinicianSignature: { type: mongoose.Schema.Types.Mixed, default: null },
+
+      // Manual workflow observations; acquisition and image storage remain external.
+      imagingWorkflow: {
+        stage: {
+          type: String,
+          enum: [
+            'PATIENT_ARRIVED',
+            'IDENTITY_VERIFIED',
+            'TECHNICIAN_HANDOFF',
+            'ACQUISITION_STARTED',
+            'ACQUISITION_COMPLETED',
+            'IMAGES_AVAILABLE',
+            'READY_FOR_INTERPRETATION'
+          ]
+        },
+        events: [{
+          stage: {
+            type: String,
+            enum: [
+              'PATIENT_ARRIVED',
+              'IDENTITY_VERIFIED',
+              'TECHNICIAN_HANDOFF',
+              'ACQUISITION_STARTED',
+              'ACQUISITION_COMPLETED',
+              'IMAGES_AVAILABLE',
+              'READY_FOR_INTERPRETATION'
+            ],
+            required: true
+          },
+          occurred_at: { type: Date, required: true },
+          recorded_by: { type: String, required: true },
+          recorded_by_id: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', default: null },
+          recorded_by_role: { type: String, required: true },
+          source: { type: String, enum: ['MANUAL'], default: 'MANUAL', required: true },
+          note: { type: String, maxlength: 500 },
+          viewer_url: { type: String, maxlength: 2048 }
+        }]
+      },
       
       // Status tracking
       status: { type: String, enum: ['PENDING', 'ACKNOWLEDGED', 'IN_PROGRESS', 'COMPLETED', 'REVIEWED', 'DECLINED'], default: 'PENDING' },

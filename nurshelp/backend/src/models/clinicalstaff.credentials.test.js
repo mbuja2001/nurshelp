@@ -20,6 +20,13 @@ describe('ClinicalStaff professional credential requirements', () => {
     await assert.doesNotReject(staffRecord('TECHNICIAN').validate());
   });
 
+  it('allows support positions without clinical credentials in specialty departments', async () => {
+    const staff = staffRecord('SUPPORT');
+    staff.positionTitle = 'Patient transporter';
+    staff.assignment.department = 'Cardiology';
+    await assert.doesNotReject(staff.validate());
+  });
+
   it('continues requiring title and license for non-technician clinical staff', async () => {
     const staff = staffRecord('RADIOLOGIST');
     await assert.rejects(staff.validate(), (error) => {

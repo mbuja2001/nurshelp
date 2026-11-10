@@ -5,10 +5,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RadiologyDashboard from './RadiologyDashboard';
 
-const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
+const { navigate, pdfSave } = vi.hoisted(() => ({ navigate: vi.fn(), pdfSave: vi.fn() }));
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
 vi.mock('../../utils/jwt', () => ({ decodeJwt: () => ({ name: 'QA Radiologist' }) }));
+vi.mock('jspdf', () => ({
+  default: vi.fn(() => ({
+    setFont: vi.fn(),
+    setFontSize: vi.fn(),
+    text: vi.fn(),
+    splitTextToSize: (text) => [text],
+    addPage: vi.fn(),
+    save: pdfSave
+  }))
+}));
 vi.mock('../../Dashboard/SidebarLayout', () => ({
   default: ({ children }) => <div>{children}</div>
 }));
@@ -60,6 +70,23 @@ beforeEach(() => {
       return makeResponse({ status: 'IN_PROGRESS', started_by: 'QA Radiologist', started_at: new Date().toISOString() });
     }
 
+    if (String(url).endsWith('/radiology-workflow')) {
+      const body = JSON.parse(options.body);
+      const current = requests[0].imagingWorkflow || { stage: null, events: [] };
+      const imagingWorkflow = {
+        stage: body.stage,
+        events: [...current.events, {
+          stage: body.stage,
+          occurred_at: new Date().toISOString(),
+          recorded_by: 'QA Radiologist',
+          source: 'MANUAL',
+          viewer_url: body.viewer_url
+        }]
+      };
+      requests = [{ ...requests[0], imagingWorkflow }];
+      return makeResponse({ imagingWorkflow });
+    }
+
     if (String(url).endsWith('/submit-report')) {
       const body = JSON.parse(options.body);
       requests = [{
@@ -85,6 +112,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   navigate.mockReset();
+  pdfSave.mockReset();
 });
 
 describe('RadiologyDashboard', () => {
@@ -98,6 +126,21 @@ describe('RadiologyDashboard', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Accept & vet request' }));
     await waitFor(() => expect(requests[0].status).toBe('ACKNOWLEDGED'));
+
+    const workflow = [
+      ['PATIENT_ARRIVED', 'Record: Patient arrived'],
+      ['IDENTITY_VERIFIED', 'Record: Patient and order verified'],
+      ['TECHNICIAN_HANDOFF', 'Record: Technician handoff'],
+      ['ACQUISITION_STARTED', 'Record: External acquisition started'],
+      ['ACQUISITION_COMPLETED', 'Record: External acquisition completed'],
+      ['IMAGES_AVAILABLE', 'Record: Images available in PACS'],
+      ['READY_FOR_INTERPRETATION', 'Record: Ready for interpretation']
+    ];
+    for (const [stage, buttonName] of workflow) {
+      fireEvent.click(await screen.findByRole('button', { name: buttonName }));
+      await waitFor(() => expect(requests[0].imagingWorkflow?.stage).toBe(stage));
+    }
+
     fireEvent.click(await screen.findByRole('button', { name: 'Start radiologist work' }));
     await waitFor(() => expect(requests[0].status).toBe('IN_PROGRESS'));
 
@@ -120,7 +163,7 @@ describe('RadiologyDashboard', () => {
       .not.toHaveProperty('report_images');
   });
 
-  it('uses the seven-stage live queue and labels PACS/RIS-only stages without fabricated requests', async () => {
+  it('shows empty live stages and clearly reports unavailable vendor integrations', async () => {
     requests = [];
     render(<RadiologyDashboard config={{ shiftId: 'shift-qa-1' }} />);
 
@@ -130,5 +173,40 @@ describe('RadiologyDashboard', () => {
     expect(screen.getAllByText('Not configured')).toHaveLength(6);
     expect(screen.getAllByText('No requests at this stage.').length).toBeGreaterThan(0);
     expect(screen.queryByText('John Doe')).toBeNull();
+  });
+
+  it('lets a radiology technician record manual status without specialist report actions', async () => {
+    requests = [{ ...request, status: 'ACKNOWLEDGED', assigned_technician: 'QA Radiologist' }];
+    render(<RadiologyDashboard config={{ shiftId: 'shift-qa-1' }} workflowRole="TECHNICIAN" />);
+
+    await screen.findByText('Radiology request pipeline');
+    fireEvent.click(await screen.findByRole('button', { name: /Chest X-ray/i }));
+
+    expect(await screen.findByRole('button', { name: 'Record: Patient arrived' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Create & submit report' })).toBeNull();
+    expect(screen.queryByText('Encounter context')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Record: Patient arrived' }));
+    await waitFor(() => expect(requests[0].imagingWorkflow?.stage).toBe('PATIENT_ARRIVED'));
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/request-qa-1/radiology-workflow'),
+      expect.objectContaining({ method: 'PATCH' })
+    );
+  });
+
+  it('downloads a printable PDF for a saved radiology report', async () => {
+    requests = [{
+      ...request,
+      status: 'COMPLETED',
+      report_content: 'Synthetic findings.',
+      clinical_impression: 'Synthetic impression.',
+      submitted_by: 'QA Radiologist',
+      submitted_at: new Date().toISOString()
+    }];
+    render(<RadiologyDashboard config={{ shiftId: 'shift-qa-1' }} />);
+
+    await screen.findByText('Radiology request pipeline');
+    fireEvent.click(await screen.findByRole('button', { name: /Chest X-ray/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Download printable PDF' }));
+    expect(pdfSave).toHaveBeenCalledWith('radiology-report-request-qa-1.pdf');
   });
 });

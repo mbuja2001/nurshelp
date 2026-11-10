@@ -30,6 +30,15 @@ test('keeps triage and clinical nurse shift roles explicit and distinct', () => 
   assert.equal(normalizeShiftAssignmentRole('CLINICAL_NURSE', 'NURSE'), 'CLINICAL_NURSE');
 });
 
+test('validates shift duties against the staff position catalog', () => {
+  assert.equal(normalizeShiftAssignmentRole('PHARMACIST', 'PHARMACIST', 'PHARMACIST'), 'PHARMACIST');
+  assert.throws(
+    () => normalizeShiftAssignmentRole('SUPPORT', 'PHARMACIST', 'PHARMACIST'),
+    /Assignment role SUPPORT is incompatible with staff role PHARMACIST/
+  );
+  assert.equal(normalizeShiftAssignmentRole('SUPPORT', 'SUPPORT', 'PHARMACY_ASSISTANT'), 'SUPPORT');
+});
+
 test('rejects missing or system-role-incompatible shift assignments', () => {
   assert.throws(() => normalizeShiftAssignmentRole('', 'NURSE'), /explicit valid shift assignment role/);
   assert.throws(() => normalizeShiftAssignmentRole('TRIAGE_NURSE', 'PHYSICIAN'), /incompatible/);

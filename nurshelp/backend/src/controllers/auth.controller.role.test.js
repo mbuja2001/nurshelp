@@ -12,4 +12,9 @@ describe('deriveTokenRole', () => {
     assert.equal(deriveTokenRole('PATHOLOGIST'), 'PATHOLOGIST');
     assert.equal(deriveTokenRole('PHARMACIST'), 'PHARMACIST');
   });
+
+  it('keeps support staff out of the administrator role', () => {
+    assert.equal(deriveTokenRole('SUPPORT'), 'SUPPORT');
+    assert.equal(deriveTokenRole('ADMINISTRATIVE'), 'ADMIN');
+  });
 });

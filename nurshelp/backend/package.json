@@ -5,7 +5,9 @@
     "start": "node src/server.js",
     "seed": "node test-physician-apis-live.js",
     "seed:history-stress": "node scripts/seed-patient-history-stress.js",
-    "test:history-context": "node scripts/test-patient-history-context-payload.js"
+    "test:history-context": "node scripts/test-patient-history-context-payload.js",
+    "migrate:staff-position-backfill": "node scripts/backfill-staff-position-flags.js",
+    "migrate:shift-department-snapshots": "node scripts/backfill-shift-departments.js"
   },
   "dependencies": {
     "axios": "^1.13.6",

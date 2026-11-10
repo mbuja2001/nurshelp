@@ -609,7 +609,8 @@ const NurseDashboard = ({
       { id: 'clock', label: 'Clock In/Out', icon: FiClock },
       { id: 'myshifts', label: 'My Schedule', icon: FiCalendar },
       { id: 'history', label: 'Attendance History', icon: FaHistory },
-      { id: 'statistics', label: 'Statistics', icon: FiBarChart2 }
+      { id: 'statistics', label: 'Statistics', icon: FiBarChart2 },
+      { id: 'profile', label: 'Profile', icon: FiUser }
     ];
     return (
       <main style={{ minHeight: '100vh', width: '100%', boxSizing: 'border-box', padding: '32px 24px', background: '#f8fafc' }}>
@@ -637,7 +638,7 @@ const NurseDashboard = ({
           <section role="tabpanel" aria-label={staffTabs.find((tab) => tab.id === staffAccessTab)?.label}>
             {staffAccessTab === 'statistics'
               ? <StatisticsPage token={token} />
-              : <ClockInOutBoard token={token} user={user} activeTab={staffAccessTab} />}
+              : <ClockInOutBoard token={token} user={user} activeTab={staffAccessTab} onLogout={handleLogout} />}
           </section>
         </section>
       </main>
@@ -658,33 +659,9 @@ const NurseDashboard = ({
         }
         .priority-queue-launcher-count { position: absolute; top: -5px; right: -5px; min-width: 21px; height: 21px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: #dc2626; color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; }
         .priority-queue-modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.48); }
-        .priority-queue-modal { width: min(560px, 100%); min-width: 0; max-height: min(78vh, 720px); overflow: hidden; display: flex; flex-direction: column; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
-        .priority-queue-modal-list { min-width: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
-        .priority-queue-modal-workload { min-width: 0; flex: 0 0 auto; max-height: 190px; overflow-y: auto; overflow-x: hidden; }
-        .nurse-workload-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; align-items: center; min-width: 0; margin-bottom: 12px; }
-        .nurse-workload-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: #1e293b; }
-        .nurse-workload-percent { padding: 3px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 800; white-space: nowrap; }
-        .nurse-workload-meter { grid-column: 1 / -1; height: 8px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
-        .nurse-workload-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px 10px; min-width: 0; color: #64748b; font-size: 10px; line-height: 1.4; }
-        .priority-queue-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; padding: 12px 18px; border-bottom: 1px solid #f1f5f9; }
-        .priority-queue-entry-details { min-width: 0; overflow: hidden; }
-        .priority-queue-entry-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin-top: 3px; color: #64748b; font-size: 10px; line-height: 1.4; }
-        .priority-queue-entry-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-        .priority-queue-entry-status { padding: 3px 6px; border-radius: 999px; font-size: 9px; font-weight: 800; white-space: nowrap; }
-        .priority-queue-entry-view { flex-shrink: 0; padding: 7px 9px; border: 0; border-radius: 5px; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
-        .nurse-dashboard-main-header { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start !important; gap: 16px 24px !important; }
-        .nurse-dashboard-main-header > div:first-child { min-width: 0 !important; grid-column: 1; grid-row: 1; }
-        .nurse-dashboard-header-status { display: contents !important; }
-        .nurse-dashboard-status-row { grid-column: 2; grid-row: 1; display: flex; width: auto; max-width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; justify-self: end; gap: 8px; }
-        .nurse-dashboard-status-pill { min-width: 0; max-width: 100%; min-height: 40px; flex: 0 1 auto; line-height: 1.25; }
-        .nurse-dashboard-actions { grid-column: 1 / -1; grid-row: 2; display: grid !important; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); width: 100%; max-width: 100%; gap: 8px !important; margin-top: 0 !important; }
-        .nurse-dashboard-actions button { display: inline-flex; min-width: 0; width: 100%; max-width: 100%; justify-content: center; white-space: nowrap; }
-        @media (max-width: 900px) {
-          .nurse-dashboard-main-header { grid-template-columns: minmax(0, 1fr); gap: 14px !important; }
-          .nurse-dashboard-main-header > div:first-child { grid-column: 1; grid-row: 1; }
-          .nurse-dashboard-status-row { grid-column: 1; grid-row: 2; justify-self: start; justify-content: flex-start; }
-          .nurse-dashboard-actions { grid-column: 1; grid-row: 3; }
-        }
+        .priority-queue-modal { width: min(560px, 100%); max-height: min(78vh, 720px); overflow: hidden; display: flex; flex-direction: column; border-radius: 14px; background: #ffffff; box-shadow: 0 24px 70px rgba(15,23,42,.35); }
+        .priority-queue-modal-list { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
+        .priority-queue-modal-workload { flex: 0 0 auto; max-height: 190px; overflow-y: auto; }
         @media (max-width: 640px) {
           .nurse-dashboard-main-header {
             padding: 16px !important;
@@ -712,14 +689,9 @@ const NurseDashboard = ({
             overflow: hidden;
             text-overflow: ellipsis;
           }
-          .nurse-dashboard-actions {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
           .nurse-dashboard-actions button {
             min-width: 0;
-            width: 100%;
-            min-height: 42px;
-            flex: initial;
+            flex: 0 1 42px;
             padding: 10px !important;
             justify-content: center;
           }
@@ -727,8 +699,6 @@ const NurseDashboard = ({
           .priority-queue-modal-backdrop { padding: 16px; }
           .priority-queue-modal { max-height: 84vh; border-radius: 12px; }
           .priority-queue-modal-workload { max-height: 170px; }
-          .priority-queue-entry { grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; padding: 11px 12px; }
-          .priority-queue-entry-view { grid-column: 2; justify-self: start; }
         }
         .nurse-responsive-table-shell { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
         .nurse-responsive-table { min-width: 860px; }
@@ -740,12 +710,21 @@ const NurseDashboard = ({
             justify-content: flex-start !important;
             flex-wrap: wrap;
           }
-          .nurse-dashboard-status-pill { min-height: 40px; flex: 1 1 150px; justify-content: center; }
+          .nurse-dashboard-status-pill {
+            min-height: 40px;
+            flex: 1 1 150px;
+            justify-content: center;
+          }
           .nurse-dashboard-status-row {
             width: 100%;
             flex-wrap: wrap;
           }
-          .nurse-dashboard-actions { width: 100%; margin-top: 0 !important; }
+          .nurse-dashboard-actions {
+            width: 100%;
+            margin-top: 0 !important;
+            flex-direction: row !important;
+            justify-content: flex-start !important;
+          }
           .nurse-responsive-table-shell { overflow-x: visible; }
           .nurse-responsive-table { min-width: 0 !important; width: 100% !important; display: block; }
           .nurse-responsive-table thead { display: none; }
@@ -840,15 +819,18 @@ const NurseDashboard = ({
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
               {providerLoadEntries.map((provider) => (
-                <div key={provider.clinicianId || provider.name} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
-                  <div className="nurse-workload-name">{provider.name}</div>
-                  <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
-                  <div className="nurse-workload-meter">
-                    <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
-                  </div>
-                  <div className="nurse-workload-details">
-                    <span>{provider.count} active cases</span>
-                    <span>{provider.activeWorkload} weighted units</span>
+                <div key={provider.name} title={`Capacity source: ${provider.capacitySource}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{provider.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ position: 'relative', height: 10, flex: 1, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${provider.workloadPercent ?? 0}%`,
+                        height: '100%',
+                        background: provider.name === 'Dr. S. Tan' ? '#ef4444' : provider.name === 'Dr. J. Wong' ? '#f59e0b' : '#2bb3c2',
+                        borderRadius: 999
+                      }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', fontWeight: 700, minWidth: 92, textAlign: 'right' }}>{provider.count} cases · {provider.activeWorkload} load · {provider.workloadPercent === null ? 'Unconfigured' : `${provider.workloadPercent}%`}</div>
                   </div>
                 </div>
               ))}
@@ -1425,7 +1407,6 @@ const NurseDashboard = ({
         <>
           {assignedRole === 'CLINICAL_NURSE' && (
             <ClinicalNurseDashboard 
-              embedded
               config={{
                 staffName: username,
                 staffDepartment: assignedContext || 'ER',
@@ -1462,7 +1443,7 @@ const NurseDashboard = ({
               flexWrap: 'wrap',
               gap: 20
             }}>
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: '280px' }}>
                 <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 800, color: '#0f172a' }}>Triage Nurse Dashboard</h1>
                 <p style={{ margin: 0, fontSize: '14px', color: '#475569' }}>
                   {userName} • {assignedContext || 'ER'}
@@ -1783,8 +1764,8 @@ const NurseDashboard = ({
                         // Get specialty from assigned physician first, fall back to aiTriageReport or assigned_specialty
                         const specialty = physician?.specialty || enc.triage?.specialty || enc.triage?.assigned_specialty || 'General';
                       
-                        const priority = computePriority(enc, now);
-                        const esiLevel = ({ Red: 1, Orange: 2, Yellow: 3, Green: 4 })[priority.category] || 4;
+                        const rpt = enc.triage?.aiTriageReport || enc.triage?.manualTriageReport || {};
+                        const esiLevel = rpt.esiLevel || rpt.ESI || enc.severity || 4;
                       
                         const severityConfig = {
                           1: { label: 'CRITICAL', color: '#991b1b', bg: '#fee2e2', icon: '🔴' },
@@ -1806,6 +1787,7 @@ const NurseDashboard = ({
                         const physicianStatusConfig = statusColors[physicianStatus] || statusColors['NOTIFIED'];
                         const nurseStatusConfig = statusColors[nurseStatus] || statusColors['NOTIFIED'];
                       
+                        const priority = computePriority(enc, now);
                         const waitStart = waitStartFor(enc);
                         const waitStartMs = waitStart ? new Date(waitStart).getTime() : NaN;
                         const waitTime = Number.isFinite(waitStartMs) ? formatWaitDetailed(Math.max(0, now - waitStartMs)) : 'N/A';
@@ -2037,8 +2019,8 @@ const NurseDashboard = ({
                         const hasAcknowledged = handovers.some((handover) => ACKNOWLEDGED_HANDOVER_STATUSES.includes(handover?.handover_status));
                         if (!hasAcknowledged) return null;
                       
-                        const priorityCategory = computePriority(enc, now).category;
-                        const esiLevel = ({ Red: 1, Orange: 2, Yellow: 3, Green: 4 })[priorityCategory] || 4;
+                        const rpt = enc.triage?.aiTriageReport || enc.triage?.manualTriageReport || {};
+                        const esiLevel = rpt.esiLevel || rpt.ESI || enc.severity || 4;
                       
                         const severityConfig = {
                           1: { label: 'CRITICAL', color: '#991b1b', bg: '#fee2e2', icon: '🔴' },
@@ -2154,32 +2136,23 @@ const NurseDashboard = ({
               <div className="priority-queue-modal-workload" style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 10 }}>Clinician Workload</div>
                 {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 5).map((provider) => (
-                  <div key={`modal-workload-${provider.clinicianId || provider.name}`} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
-                    <div className="nurse-workload-name">{provider.name}</div>
-                    <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
-                    <div className="nurse-workload-meter">
-                      <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
-                    </div>
-                    <div className="nurse-workload-details">
-                      <span>{provider.count} active cases</span>
-                      <span>{provider.activeWorkload} weighted units</span>
-                    </div>
+                  <div key={`modal-workload-${provider.name}`} title={`Capacity source: ${provider.capacitySource}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 82px 52px', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{provider.name}</div>
+                    <div style={{ height: 7, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}><div style={{ width: `${provider.workloadPercent ?? 0}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2' }} /></div>
+                    <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, textAlign: 'right' }}>{provider.count} cases · {provider.activeWorkload} load · {provider.workloadPercent === null ? 'Unconfigured' : `${provider.workloadPercent}%`}</div>
                   </div>
                 ))}
               </div>
               <div className="priority-queue-modal-list">
                 {queueManagerEntries.map((patient, idx) => (
-                  <div key={`${patient.id}-modal-prio`} className="priority-queue-entry" style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                    <div style={{ padding: '6px 7px', textAlign: 'center', borderRadius: 7, background: patient.category === 'Red' ? '#fee2e2' : patient.category === 'Orange' ? '#ffedd5' : patient.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: patient.category === 'Red' ? '#991b1b' : patient.category === 'Orange' ? '#9a3412' : patient.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11, whiteSpace: 'nowrap' }}>{patient.categoryEmoji} {patient.category}</div>
-                    <div className="priority-queue-entry-details">
+                  <div key={`${patient.id}-modal-prio`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                    <div style={{ minWidth: 42, padding: '8px 5px', textAlign: 'center', borderRadius: 7, background: patient.category === 'Red' ? '#fee2e2' : patient.category === 'Orange' ? '#ffedd5' : patient.category === 'Yellow' ? '#fef3c7' : '#dcfce7', color: patient.category === 'Red' ? '#991b1b' : patient.category === 'Orange' ? '#9a3412' : patient.category === 'Yellow' ? '#92400e' : '#166534', fontWeight: 800, fontSize: 11 }}>{patient.categoryEmoji} {patient.category}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div>
-                      <div className="priority-queue-entry-meta" title={`${patient.type} • ${patient.waitLabel}`}>
-                        <span>{patient.type}</span>
-                        <span>{patient.waitLabel}</span>
-                        <span className="priority-queue-entry-status" style={{ color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9' }}>{patient.status}</span>
-                      </div>
+                      <div title={`${patient.type} • ${patient.waitLabel}`} style={{ marginTop: 3, color: '#64748b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type} • {patient.waitLabel}</div>
                     </div>
-                    <button type="button" className="priority-queue-entry-view" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${patient.id}`); }}>View</button>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: patient.status === 'NEXT UP' ? '#b45309' : '#475569', background: patient.status === 'NEXT UP' ? '#fef3c7' : '#f1f5f9', borderRadius: 999, padding: '5px 7px', whiteSpace: 'nowrap' }}>{patient.status}</span>
+                    <button type="button" onClick={() => { setShowPriorityQueueModal(false); navigate(`/report/triage/${patient.id}`); }} style={{ padding: '7px 9px', border: 0, borderRadius: 5, background: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View</button>
                   </div>
                 ))}
               </div>
@@ -2204,27 +2177,21 @@ const NurseDashboard = ({
               </div>
               <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sorted by severity & wait time</p>
             </div>
-            <div style={{ padding: 16, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
+            <div style={{ padding: 16, overflowY: 'auto' }}>
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 12 }}>Clinician Workload</div>
                 {providerLoadEntries.length === 0 ? <div style={{ color: '#94a3b8', fontSize: 12 }}>No active provider workload</div> : providerLoadEntries.slice(0, 3).map((provider) => (
-                  <div key={provider.clinicianId || provider.name} className="nurse-workload-summary" title={`Capacity source: ${provider.capacitySource}`}>
-                    <div className="nurse-workload-name">{provider.name}</div>
-                    <span className="nurse-workload-percent">{provider.workloadPercent == null ? 'No limit' : `${provider.workloadPercent}%`}</span>
-                    <div className="nurse-workload-meter">
-                      <div style={{ width: `${Math.min(Math.max(Number(provider.workloadPercent) || 0, 0), 100)}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} />
-                    </div>
-                    <div className="nurse-workload-details">
-                      <span>{provider.count} active cases</span>
-                      <span>{provider.activeWorkload} weighted units</span>
-                    </div>
+                  <div key={provider.name} title={`Capacity source: ${provider.capacitySource}`} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 34px', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{provider.name}</div>
+                    <div style={{ height: 9, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}><div style={{ width: `${provider.workloadPercent ?? 0}%`, height: '100%', background: provider.workloadPercent >= 100 ? '#ef4444' : provider.workloadPercent >= 80 ? '#f59e0b' : '#2bb3c2', borderRadius: 999 }} /></div>
+                    <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textAlign: 'right' }}>{provider.count} cases · {provider.activeWorkload} load · {provider.workloadPercent === null ? 'Unconfigured' : `${provider.workloadPercent}%`}</div>
                   </div>
                 ))}
               </div>
               <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16 }}>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Patient Queue</div>
                 {queueManagerEntries.length === 0 ? <div style={{ padding: '18px 0', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>No patients in queue</div> : queueManagerEntries.map((patient, index) => (
-                  <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                  <div key={patient.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 0', borderBottom: index === queueManagerEntries.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                     <span aria-hidden="true" style={{ width: 18, flexShrink: 0, fontSize: 14, lineHeight: 1 }}>{patient.categoryEmoji}</span>
                     <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.name}</div><div title={patient.type} style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{patient.type}</div></div>
                     <span style={{ fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>{patient.waitLabel}</span>

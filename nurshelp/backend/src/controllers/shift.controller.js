@@ -11,12 +11,6 @@ import {
   normalizeShiftAssignmentRole,
   validateClinicalTeam,
 } from '../utils/shiftTeamAssignment.js';
-import {
-  canonicalizeServiceCoverage,
-  getConfiguredHospitalServiceSpecialties,
-  inferAssignmentServiceCoverage,
-  validateHospitalShiftCoverage,
-} from '../utils/hospitalShiftCoverage.js';
 
 // Helper function to generate Shift ID
 const generateShiftID = () => `SHIFT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -24,7 +18,7 @@ const generateShiftID = () => `SHIFT-${Date.now()}-${Math.random().toString(36).
 // ============ CREATE SHIFT ============
 export const createShift = async (req, res) => {
   try {
-    const { shiftName, department, specialty, shiftStart, shiftEnd, date, dayOfWeek, recurrence, recurrenceEndDate, maxStaffRequired, notes, assignedStaff } = req.body;
+    const { shiftName, department, shiftStart, shiftEnd, date, dayOfWeek, recurrence, recurrenceEndDate, maxStaffRequired, notes, assignedStaff } = req.body;
     const managerID = req.user.id;
     const hospitalId = req.hospitalId;
 
@@ -43,14 +37,12 @@ export const createShift = async (req, res) => {
     }
 
     // Validate required fields
-    if (!shiftName || !department || !shiftStart || !shiftEnd || !maxStaffRequired) {
+    if (!shiftName || !shiftStart || !shiftEnd || !maxStaffRequired) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: shiftName, department, specialty, shiftStart, shiftEnd, maxStaffRequired'
+        message: 'Missing required fields: shiftName, shiftStart, shiftEnd, maxStaffRequired'
       });
     }
-    const coverageError = await validateHospitalShiftCoverage({ hospitalId, departmentName: department, specialty });
-    if (coverageError) return res.status(400).json({ success: false, message: coverageError });
 
     // Calculate duration
     const [startHour, startMin] = shiftStart.split(':').map(Number);
@@ -74,7 +66,6 @@ export const createShift = async (req, res) => {
       return res.status(400).json({ success: false, message: 'One or more assigned staff are inactive, missing, or outside this hospital' });
     }
 
-    const configuredServices = await getConfiguredHospitalServiceSpecialties(hospitalId);
     const canonicalAssignments = [];
     const teamAssignment = {
       triageNurseId: null,
@@ -90,18 +81,18 @@ export const createShift = async (req, res) => {
       const canonicalStaff = staffById.get(String(input.staffID));
       let assignmentRole;
       try {
-        assignmentRole = normalizeShiftAssignmentRole(input.assignmentRole || input.role, canonicalStaff.systemRole);
+        assignmentRole = normalizeShiftAssignmentRole(input.assignmentRole || input.role, canonicalStaff.systemRole, canonicalStaff.positionCode);
       } catch (error) {
-        return res.status(400).json({ success: false, message: `${canonicalStaff.firstName} ${canonicalStaff.lastName}: ${error.message}` });
-      }
-      const requestedService = String(input.serviceCoverage || '').trim();
-      const serviceCoverage = requestedService
-        ? canonicalizeServiceCoverage(requestedService, configuredServices)
-        : inferAssignmentServiceCoverage({ staff: canonicalStaff, assignmentRole, configuredSpecialties: configuredServices });
-      if (!serviceCoverage) {
+        const missingDuty = !String(input.assignmentRole || input.role || '').trim();
         return res.status(400).json({
           success: false,
-          message: `Choose a service mapped in the hospital structure for ${canonicalStaff.firstName} ${canonicalStaff.lastName}`
+          code: missingDuty
+            ? 'SHIFT_DUTY_REQUIRED'
+            : canonicalStaff.positionCode
+              ? 'DUTY_NOT_PERMITTED_FOR_POSITION'
+              : 'DUTY_NOT_PERMITTED_FOR_SYSTEM_ROLE',
+          ...(missingDuty && !canonicalStaff.positionCode ? { positionCodeNeedsBackfill: true } : {}),
+          message: `${canonicalStaff.firstName} ${canonicalStaff.lastName}: ${error.message}`,
         });
       }
       const assignment = {
@@ -111,7 +102,6 @@ export const createShift = async (req, res) => {
         name: `${canonicalStaff.firstName || ''} ${canonicalStaff.lastName || ''}`.trim(),
         surname: canonicalStaff.lastName || '',
         specialty: canonicalStaff.clinicalSpecialty || '',
-        serviceCoverage,
         status: 'ASSIGNED',
       };
       canonicalAssignments.push(assignment);
@@ -123,8 +113,7 @@ export const createShift = async (req, res) => {
       hospitalId,
       shiftID: generateShiftID(),
       shiftName,
-      department,
-      specialty,
+      department: typeof department === 'string' && department.trim() ? department.trim() : null,
       shiftStart,
       shiftEnd,
       duration,
@@ -503,7 +492,7 @@ export const publishShift = async (req, res) => {
 export const assignStaffToShift = async (req, res) => {
   try {
     const { shiftID } = req.params;
-    const { staffID, assignmentRole, serviceCoverage: requestedServiceCoverage } = req.body;
+    const { staffID, assignmentRole } = req.body;
 
     if (!staffID || !assignmentRole) {
       return res.status(400).json({
@@ -542,16 +531,9 @@ export const assignStaffToShift = async (req, res) => {
 
     let canonicalRole;
     try {
-      canonicalRole = normalizeShiftAssignmentRole(assignmentRole, staff.systemRole);
+      canonicalRole = normalizeShiftAssignmentRole(assignmentRole, staff.systemRole, staff.positionCode);
     } catch (error) {
       return res.status(400).json({ success: false, message: error.message });
-    }
-    const configuredServices = await getConfiguredHospitalServiceSpecialties(req.hospitalId);
-    const serviceCoverage = requestedServiceCoverage
-      ? canonicalizeServiceCoverage(requestedServiceCoverage, configuredServices)
-      : inferAssignmentServiceCoverage({ staff, assignmentRole: canonicalRole, configuredSpecialties: configuredServices });
-    if (!serviceCoverage) {
-      return res.status(400).json({ success: false, message: `Choose a service mapped in the hospital structure for ${staff.firstName} ${staff.lastName}` });
     }
 
     // Check if staff is already assigned
@@ -590,7 +572,6 @@ export const assignStaffToShift = async (req, res) => {
       name: `${staff.firstName || ''} ${staff.lastName || ''}`.trim(),
       surname: staff.lastName,
       specialty: staff.clinicalSpecialty,
-      serviceCoverage,
       status: 'ASSIGNED'
     });
 
@@ -654,17 +635,7 @@ export const removeStaffFromShift = async (req, res) => {
 export const updateShift = async (req, res) => {
   try {
     const { shiftID } = req.params;
-    const updateData = { ...req.body };
-    const assignmentServices = updateData.assignmentServices;
-    delete updateData.assignmentServices;
-
-    const shift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId });
-    if (!shift) {
-      return res.status(404).json({
-        success: false,
-        message: 'Shift not found'
-      });
-    }
+    const updateData = req.body;
 
     // Recalculate duration if times changed
     if (updateData.shiftStart && updateData.shiftEnd) {
@@ -675,51 +646,18 @@ export const updateShift = async (req, res) => {
       updateData.duration = (endTime - startTime) / 60;
     }
 
-    if (updateData.department !== undefined || updateData.specialty !== undefined || updateData.wardId !== undefined) {
-      if (!['DRAFT', 'PUBLISHED'].includes(shift.status)) {
-        return res.status(409).json({ success: false, message: 'Department, specialty, and ward can only be changed before a shift starts' });
-      }
-      const coverageError = await validateHospitalShiftCoverage({
-        hospitalId: req.hospitalId,
-        departmentName: updateData.department ?? shift.department,
-        specialty: updateData.specialty ?? shift.specialty,
-        wardId: updateData.wardId ?? shift.wardId,
-      });
-      if (coverageError) return res.status(400).json({ success: false, message: coverageError });
-    }
+    const shift = await Shift.findOneAndUpdate(
+      { shiftID, hospitalId: req.hospitalId },
+      updateData,
+      { new: true, runValidators: true }
+    );
 
-    if (assignmentServices !== undefined) {
-      if (!Array.isArray(assignmentServices)) {
-        return res.status(400).json({ success: false, message: 'assignmentServices must be an array' });
-      }
-      if (!['DRAFT', 'PUBLISHED'].includes(shift.status)) {
-        return res.status(409).json({ success: false, message: 'Roster service coverage can only be changed before a shift starts' });
-      }
-
-      const configuredServices = await getConfiguredHospitalServiceSpecialties(req.hospitalId);
-      const requestedByStaff = new Map();
-      for (const assignment of assignmentServices) {
-        const staffId = String(assignment?.staffID || '');
-        const serviceCoverage = canonicalizeServiceCoverage(assignment?.serviceCoverage, configuredServices);
-        if (!staffId || !serviceCoverage || requestedByStaff.has(staffId)) {
-          return res.status(400).json({ success: false, message: 'Every roster service entry needs a unique staffID and a hospital-mapped serviceCoverage' });
-        }
-        requestedByStaff.set(staffId, serviceCoverage);
-      }
-
-      const shiftStaffIds = new Set(shift.assignedStaff.map((assignment) => String(assignment.staffID?._id || assignment.staffID)));
-      const unassignedStaffId = [...requestedByStaff.keys()].find((staffId) => !shiftStaffIds.has(staffId));
-      if (unassignedStaffId) {
-        return res.status(400).json({ success: false, message: 'Roster service coverage can only be updated for staff assigned to this shift' });
-      }
-      shift.assignedStaff.forEach((assignment) => {
-        const staffId = String(assignment.staffID?._id || assignment.staffID);
-        if (requestedByStaff.has(staffId)) assignment.serviceCoverage = requestedByStaff.get(staffId);
+    if (!shift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shift not found'
       });
     }
-
-    Object.assign(shift, updateData);
-    await shift.save();
 
     res.status(200).json({
       success: true,
@@ -765,47 +703,59 @@ export const deleteShift = async (req, res) => {
   }
 };
 
-// ============ CANCEL SHIFT ============
 export const cancelShift = async (req, res) => {
   try {
     const { shiftID } = req.params;
-    const cancellationReason = req.body?.reason?.trim() || null;
+    const cancellationReason = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim()
+      : '';
+    if (!cancellationReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'A cancellation reason is required'
+      });
+    }
+    if (cancellationReason.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cancellation reason must be 500 characters or fewer'
+      });
+    }
 
     const shift = await Shift.findOneAndUpdate(
-      { shiftID, hospitalId: req.hospitalId, status: { $nin: ['CANCELLED', 'COMPLETED'] } },
+      { shiftID, hospitalId: req.hospitalId, status: { $in: ['DRAFT', 'PUBLISHED'] } },
       {
         $set: {
           status: 'CANCELLED',
-          cancelledBy: req.user.id,
+          cancelledBy: req.user.id || req.user._id,
           cancelledAt: new Date(),
-          cancellationReason,
-        },
+          cancellationReason
+        }
       },
       { new: true, runValidators: true }
     );
-
     if (!shift) {
-      const existingShift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId }).select('status');
+      const existingShift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId });
       if (!existingShift) {
         return res.status(404).json({ success: false, message: 'Shift not found' });
       }
       return res.status(409).json({
         success: false,
-        message: `Cannot cancel a ${existingShift.status.toLowerCase()} shift`,
+        message: `Cannot cancel a ${String(existingShift.status).toLowerCase()} shift`
       });
     }
 
     return res.status(200).json({
       success: true,
       message: 'Shift cancelled successfully',
-      shift,
+      shift
     });
   } catch (err) {
     console.error('Error cancelling shift:', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to cancel shift',
-      error: err.message,
+      error: err.message
     });
   }
 };

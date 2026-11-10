@@ -25,7 +25,7 @@ const practitionerSchema = new Schema({
   // 3. System role (permissions)
   systemRole: {
     type: String,
-    enum: ['PHYSICIAN', 'NURSE', 'ADMINISTRATIVE', 'TECHNICIAN', 'SUPERUSER', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST'],
+    enum: ['PHYSICIAN', 'NURSE', 'ADMINISTRATIVE', 'TECHNICIAN', 'SUPPORT', 'SUPERUSER', 'PHARMACIST', 'RADIOLOGIST', 'PATHOLOGIST'],
     required: true,
     index: true,
   },
@@ -43,17 +43,20 @@ const practitionerSchema = new Schema({
     required: true,
     default: 'General Practice',
   },
+  positionCode: { type: String, trim: true, default: null },
+  positionTitle: { type: String, trim: true, default: null },
+  positionCodeNeedsBackfill: { type: Boolean, default: false, index: true },
 
   // 5. Professional credentials
   credentials: {
     title: {
       type: String,
       enum: ['MD', 'DO', 'RN', 'NP', 'PA', 'PhD'],
-      required: function () { return this.systemRole !== 'TECHNICIAN'; }
+      required: function () { return !['TECHNICIAN', 'SUPPORT'].includes(this.systemRole); }
     },
     licenseNumber: {
       type: String,
-      required: function () { return this.systemRole !== 'TECHNICIAN'; }
+      required: function () { return !['TECHNICIAN', 'SUPPORT'].includes(this.systemRole); }
     },
     npiNumber: { type: String, sparse: true },
   },
@@ -62,7 +65,7 @@ const practitionerSchema = new Schema({
   assignment: {
     department: {
       type: String,
-      enum: ['EMERGENCY', 'CARDIOLOGY', 'ICU', 'PEDIATRICS', 'RADIOLOGY', 'GENERAL_WARD'],
+      trim: true,
       required: true,
     },
     isOnCall: { type: Boolean, default: false },

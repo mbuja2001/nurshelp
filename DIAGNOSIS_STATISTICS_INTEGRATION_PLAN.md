@@ -21,6 +21,8 @@ The physician final diagnosis is the source of truth for final-diagnosis statist
 
 Hospital departments, specialties, wards, and shift coverage are persisted operational records. A shift must reference configured hospital structure, but staffing or attendance by itself is not evidence that specialist work was completed and must not be used as a specialist performance metric.
 
+Onboarding position codes are the source of truth for shift-duty eligibility; permission roles alone are insufficient. Enforce the same position-to-duty map in the UI and API, require explicit compatible duties for legacy staff without a position code, and flag those records for backfill. Do not permit cross-cover overrides. Validate shift departments against active hospital configuration and persist both the stable department ID/code and the department-name snapshot so existing shifts remain readable after renames.
+
 Publishing or provisioning coverage does not start a shift. An authorized hospital administrator must explicitly start it, with the actor and timestamp audited; staff clock-in is valid only after that transition. Pre-start cancellation requires a reason and preserves an auditable cancelled record. The calendar must expose the same persisted shift state across month and year navigation. These controls are prerequisites for the browser diagnosis journey and are tracked in the user-journey roadmap.
 
 ## 2. Current code baseline

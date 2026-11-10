@@ -25,6 +25,9 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
   const [clockInBlockReason, setClockInBlockReason] = useState('');
   const [attendanceHistory, setAttendanceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [profile, setProfile] = useState(user || null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
 
   useEffect(() => {
     fetchTodayRecord();
@@ -50,6 +53,7 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
 
   useEffect(() => {
     if (activeTab === 'myshifts') fetchAssignedShifts();
+    if (activeTab === 'profile') fetchProfile();
     if (activeTab === 'history') {
       fetchAttendanceHistory();
       // Refresh attendance history every 30 seconds to catch new absences
@@ -64,6 +68,26 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       return () => clearInterval(autoClockOutCheckInterval);
     }
   }, [activeTab]);
+
+  const fetchProfile = async () => {
+    if (!token) return;
+    setProfileLoading(true);
+    setProfileError('');
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/staff/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Unable to load profile (HTTP ${response.status})`);
+      setProfile(data);
+    } catch (fetchError) {
+      console.error('Failed to fetch staff profile', fetchError);
+      setProfileError(fetchError.message || 'Unable to load your profile.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   // Check if current time is within 5 mins before shift start to end of shift
   useEffect(() => {
@@ -496,6 +520,43 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
           <span>{successMessage}</span>
           <button onClick={() => setSuccessMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontSize: 18 }}>×</button>
         </div>
+      )}
+
+      {activeTab === 'profile' && (
+        <section aria-labelledby="staff-profile-heading" style={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+            <div>
+              <h2 id="staff-profile-heading" style={{ margin: '0 0 6px', color: '#0f172a', fontSize: 20 }}>Your Profile</h2>
+              <p style={{ margin: 0, color: '#64748b', fontSize: 14 }}>Personal information for the signed-in staff account.</p>
+            </div>
+            <button type="button" onClick={handleLogout} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 13px', border: '1px solid #fecaca', borderRadius: 8, background: '#fff7f7', color: '#b91c1c', fontWeight: 700, cursor: 'pointer' }}>
+              <FaSignOutAlt aria-hidden="true" /> Sign out
+            </button>
+          </div>
+          {profileError && <div role="alert" style={{ marginBottom: 16, padding: 12, border: '1px solid #fca5a5', borderRadius: 8, background: '#fef2f2', color: '#991b1b' }}>{profileError}</div>}
+          {profileLoading ? (
+            <div role="status" style={{ padding: '28px 0', color: '#64748b' }}>Loading your profile...</div>
+          ) : profile ? (
+            <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, margin: 0 }}>
+              {[
+                ['Name', [profile.firstName, profile.lastName].filter(Boolean).join(' ') || user?.name || '—'],
+                ['Email', profile.email || user?.email || '—'],
+                ['Role', profile.positionTitle || profile.role || user?.role || '—'],
+                ['Department', profile.department || '—'],
+                ['Specialty', profile.specialty || '—'],
+                ['Employee ID', profile.employeeId || '—'],
+                ['Staff ID', profile.idNumber || '—'],
+              ].map(([label, value]) => (
+                <div key={label} style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+                  <dt style={{ marginBottom: 5, color: '#64748b', fontSize: 12, fontWeight: 700 }}>{label}</dt>
+                  <dd style={{ margin: 0, color: '#0f172a', fontSize: 14, fontWeight: 600, overflowWrap: 'anywhere' }}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div style={{ padding: '28px 0', color: '#64748b' }}>Profile information is not available.</div>
+          )}
+        </section>
       )}
 
       {/* Clock View */}

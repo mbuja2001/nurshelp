@@ -120,7 +120,9 @@ const hospitalSchema = new mongoose.Schema(
       {
         name: {
           type: String,
-          enum: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General'],
+          trim: true,
+          minlength: 2,
+          maxlength: 60,
           required: true,
         },
         departmentId: { type: String, default: null },
