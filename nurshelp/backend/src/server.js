@@ -50,6 +50,7 @@ import operationsRouter from "./routes/operations.routes.js";
 import hospitalOperationsRouter from "./routes/hospitalOperations.routes.js";
 import patientRouter from "./routes/patient.routes.js";
 import clinicalChartSessionRouter from "./routes/clinicalChartSession.routes.js";
+import supportTicketRouter from "./routes/supportTicket.routes.js";
 
 dotenv.config();
 
@@ -294,6 +295,7 @@ app.use("/api/patients", patientRouter);  // Patient search and EHR retrieval
 app.use("/api/notifications", notificationRouter);  // Handover notifications
 app.use("/api/operations", operationsRouter);  // Shared live operations feed
 app.use("/api/chart-sessions", clinicalChartSessionRouter);
+app.use("/api/support-tickets", supportTicketRouter);
 app.use("/api/admin/hospital-operations", hospitalOperationsRouter);  // Administrator live hospital population
 
 // ============================================

@@ -11,6 +11,7 @@ import LabRequestsPage from './LabRequestsPage';
 import AdminAnalyticsPage from './AdminAnalyticsPage';
 import AdminLabRequestsPage from './AdminLabRequestsPage';
 import AdminPharmacyPage from './AdminPharmacyPage';
+import SupportTicketInbox from './SupportTicketInbox';
 import { getAdminWorkspaceViewRegistration } from '../../utils/adminDashboardViews';
 import { HOSPITAL_DEPARTMENTS, HOSPITAL_SPECIALTIES } from '../../config/hospitalStructureCatalog';
 import {
@@ -2320,6 +2321,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     const diagnosisColors = ['#0369a1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
     const pharmacyStockTotal = pharmacyInventory.reduce((total, item) => total + Number(item.quantity || 0), 0);
 
+    if (workspaceView === 'it-support' && isAdmin) {
+      return <SupportTicketInbox />;
+    }
+
     if (workspaceView === 'overview') {
       return (
         <div id="hospital-operations-overview" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16, minWidth: 0, width: '100%' }}>
@@ -3623,7 +3628,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     { label: 'EHR Configurations', target: 'ehr-configurations' },
     { label: 'Labs Configurations', target: 'labs-configurations' },
     { label: 'Pharmacy Configurations', target: 'pharmacy-configurations' },
-    { label: 'Analytics', target: 'analytics' }
+    { label: 'Analytics', target: 'analytics' },
+    { label: 'IT Support', target: 'it-support' }
   ];
 
   // ============ RENDER ============

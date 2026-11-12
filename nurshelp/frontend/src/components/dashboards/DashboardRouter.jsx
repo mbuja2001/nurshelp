@@ -11,6 +11,7 @@ import PharmacistDashboard from './PharmacistDashboard';
 import RadiologyDashboard from './RadiologyDashboard';
 import PathologyDashboard from './PathologyDashboard';
 import DashboardLogoutButton from './DashboardLogoutButton';
+import DashboardLoadError from './DashboardLoadError';
 import { decodeJwt, normalizeRoleLabel } from '../../utils/jwt';
 import { resolveShiftDashboardContext } from '../../utils/shiftDashboardContext';
 import './DashboardRouter.css';
@@ -50,8 +51,7 @@ const DashboardRouter = () => {
         // Get JWT token from localStorage
         const token = localStorage.getItem('token');
         if (!token) {
-          setError('No authentication token. Please log in.');
-          navigate('/login');
+          navigate('/dashboard?login=1', { replace: true });
           return;
         }
 
@@ -61,12 +61,15 @@ const DashboardRouter = () => {
         if (!decoded) {
           // fallback to server-side config
           console.log('[DASHBOARD ROUTER] Token decode failed, falling back to server config');
-          const fallback = await fetch('http://localhost:5001/api/dashboard/config', {
+          const fallback = await fetch(`${BACKEND_URL}/api/dashboard/config`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
           });
-          if (!fallback.ok) throw new Error('Failed fallback dashboard config');
-          const fallbackData = await fallback.json();
+          const fallbackData = await fallback.json().catch(() => ({}));
+          if (!fallback.ok || !fallbackData.success || !fallbackData.config) {
+            setError(createDashboardLoadError({ fallbackStatus: fallback.status }));
+            return;
+          }
           setConfig(fallbackData.config);
           return;
         }
@@ -78,7 +81,7 @@ const DashboardRouter = () => {
 
         const normalizedRole = normalizeRoleLabel(decoded.role, decoded.specialty || decoded.clinicalSpecialty || decoded.department);
         // Primary flow: call authoritative endpoint that returns user's assigned shift for TODAY
-        const shiftResp = await fetch('http://localhost:5001/api/shifts/assigned/today', {
+        const shiftResp = await fetch(`${BACKEND_URL}/api/shifts/assigned/today`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
         });
@@ -86,12 +89,18 @@ const DashboardRouter = () => {
         if (!shiftResp.ok) {
           // If server returns 401/403 or other, fallback to dashboard/config
           console.log('[DASHBOARD ROUTER] assigned/today returned', shiftResp.status, ' - falling back');
-          const fallback = await fetch('http://localhost:5001/api/dashboard/config', {
+          const fallback = await fetch(`${BACKEND_URL}/api/dashboard/config`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
           });
-          if (!fallback.ok) throw new Error('Failed fallback dashboard config');
-          const fallbackData = await fallback.json();
+          const fallbackData = await fallback.json().catch(() => ({}));
+          if (!fallback.ok || !fallbackData.success || !fallbackData.config) {
+            setError(createDashboardLoadError({
+              primaryStatus: shiftResp.status,
+              fallbackStatus: fallback.status
+            }));
+            return;
+          }
           setConfig(fallbackData.config);
           return;
         }
@@ -133,7 +142,7 @@ const DashboardRouter = () => {
         setConfig(cfg);
       } catch (err) {
         console.error('[DASHBOARD ROUTER] Error:', err);
-        setError(err.message || 'Failed to load dashboard');
+        setError(createDashboardLoadError());
       } finally {
         setLoading(false);
       }
@@ -218,19 +227,8 @@ const DashboardRouter = () => {
     );
   }
 
-  // ERROR STATE: Other errors
-  if (error && typeof error === 'string') {
-    return (
-      <div className="dashboard-error">
-        <div className="alert alert-danger">
-          <h2>❌ Error Loading Dashboard</h2>
-          <p>{error}</p>
-          <button className="btn-retry" onClick={() => setRetryCount(c => c + 1)}>
-            🔄 Retry
-          </button>
-        </div>
-      </div>
-    );
+  if (error) {
+    return <DashboardLoadError error={error} onRetry={() => setRetryCount((count) => count + 1)} />;
   }
 
   // NO CONFIG
@@ -353,6 +351,27 @@ const DashboardRouter = () => {
         </div>
       );
   }
+};
+
+const createDashboardLoadError = ({ primaryStatus, fallbackStatus } = {}) => {
+  let message = 'The dashboard service could not verify your staff workspace. Retry, sign out and sign in again, or report the issue to IT support.';
+  if (fallbackStatus === 401) {
+    message = 'Your sign-in could not be verified by the dashboard service. Sign out and sign in again, or report the issue if it continues.';
+  } else if (fallbackStatus === 403) {
+    message = 'Your account was authenticated, but the dashboard configuration request was denied. Contact your hospital administrator or report this issue to IT support.';
+  } else if (fallbackStatus >= 500) {
+    message = 'The dashboard service encountered an internal error while loading your workspace. Retry or report this issue to IT support.';
+  }
+
+  return {
+    code: 'DASHBOARD_CONFIG_FAILED',
+    message,
+    technicalMessage: 'Dashboard configuration request failed',
+    failedRequest: '/api/dashboard/config',
+    primaryStatus,
+    fallbackStatus,
+    occurredAt: new Date().toISOString()
+  };
 };
 
 export default DashboardRouter;
