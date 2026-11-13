@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DashboardRouter from './DashboardRouter';
+
+vi.mock('../../Dashboard/NurseDashboard', () => ({
+  default: ({ navigate }) => React.createElement(
+    'button',
+    { type: 'button', onClick: () => navigate('/triaged') },
+    'Assigned Patients'
+  )
+}));
 
 const LocationProbe = () => {
   const location = useLocation();
@@ -14,6 +22,7 @@ const LocationProbe = () => {
 const createToken = () => `header.${btoa(JSON.stringify({ id: 'staff-1', role: 'NURSE' }))}.signature`;
 
 afterEach(() => {
+  cleanup();
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -42,5 +51,45 @@ describe('DashboardRouter fallback error page', () => {
 
     expect(localStorage.getItem('token')).toBeNull();
     expect(screen.getByTestId('current-location').textContent).toBe('/dashboard?login=1');
+  });
+
+  it('passes router navigation to the triage nurse dashboard header buttons', async () => {
+    localStorage.setItem('token', createToken());
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes('/api/shifts/assigned/today')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            shift: {
+              _id: 'shift-1',
+              shiftName: 'Day shift',
+              shiftStart: '08:00',
+              shiftEnd: '16:00',
+              assignedStaff: [{ staffID: 'staff-1', assignmentRole: 'TRIAGE_NURSE' }]
+            }
+          })
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, record: { status: 'CLOCKED_IN' } })
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <MemoryRouter initialEntries={['/shift-dashboard']}>
+        <DashboardRouter />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Assigned Patients' }));
+
+    expect(screen.getByTestId('current-location').textContent).toBe('/triaged');
   });
 });

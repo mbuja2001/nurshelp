@@ -294,7 +294,7 @@ const DashboardRouter = () => {
 
   switch (context) {
     case 'TRIAGE_NURSE':
-      return <NurseDashboard config={{ ...config, clockStatusVerified: true, isClockedIn, clockRecord }} />;
+      return <NurseDashboard navigate={navigate} config={{ ...config, clockStatusVerified: true, isClockedIn, clockRecord }} />;
 
     case 'CLINICAL_NURSE_ER':
       return <><DashboardLogoutButton /><ClinicalNurseDashboard config={config} context="ER" /></>;
