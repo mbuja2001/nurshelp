@@ -367,6 +367,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   });
   const [dayShiftAssignments, setDayShiftAssignments] = useState({
     triageNurseId: '',
+    clinicalNurseId: '',
     pharmacistId: '',
     radiologistId: '',
     pathologistId: ''
@@ -416,7 +417,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   };
 
   const buildDefaultCoverageAssignments = (roster = []) => {
-    const nextAssignments = { triageNurseId: '', pharmacistId: '', radiologistId: '', pathologistId: '' };
+    const nextAssignments = { triageNurseId: '', clinicalNurseId: '', pharmacistId: '', radiologistId: '', pathologistId: '' };
     const matchRole = (patterns) => {
       const staff = roster.find((person) => {
         const role = (person.systemRole || person.role || person.userRole || '').toUpperCase();
@@ -426,7 +427,11 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       return staff?._id || '';
     };
 
-    nextAssignments.triageNurseId = matchRole(['TRIAGE_NURSE', 'NURSE', 'EMERGENCY']);
+    nextAssignments.triageNurseId = matchRole(['TRIAGE_NURSE']) || matchRole(['NURSE', 'EMERGENCY']);
+    nextAssignments.clinicalNurseId = roster.find((person) => (
+      String(person._id) !== String(nextAssignments.triageNurseId)
+      && getAllowedShiftDuties(person.positionCode, person.systemRole || person.role).includes('CLINICAL_NURSE')
+    ))?._id || '';
     nextAssignments.pharmacistId = matchRole(['PHARMACIST']);
     nextAssignments.radiologistId = matchRole(['RADIOLOGIST', 'RADIOLOGY']);
     nextAssignments.pathologistId = matchRole(['PATHOLOGIST', 'LAB']);
@@ -757,6 +762,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     try {
       const dutyByHospitalDayAssignment = {
         triageNurseId: 'TRIAGE_NURSE',
+        clinicalNurseId: 'CLINICAL_NURSE',
         pharmacistId: 'PHARMACIST',
         radiologistId: 'RADIOLOGIST',
         pathologistId: 'PATHOLOGIST',
@@ -4130,6 +4136,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                           {[
                             { key: 'triageNurseId', label: 'Triage Nurse', defaults: ['TRIAGE_NURSE', 'NURSE', 'EMERGENCY'] },
+                            { key: 'clinicalNurseId', label: 'Clinical Nurse', defaults: ['NURSE'] },
                             { key: 'pharmacistId', label: 'Pharmacist', defaults: ['PHARMACIST'] },
                             { key: 'radiologistId', label: 'Radiologist', defaults: ['RADIOLOGIST', 'RADIOLOGY'] },
                             { key: 'pathologistId', label: 'Pathologist', defaults: ['PATHOLOGIST', 'LAB'] }

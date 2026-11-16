@@ -39,12 +39,12 @@ export const allowedShiftDuties = Object.freeze({
 
 export const legacySystemRoleDuties = Object.freeze({
   NURSE: Object.freeze(['TRIAGE_NURSE', 'CLINICAL_NURSE']),
-  PHYSICIAN: Object.freeze(['PHYSICIAN', 'SPECIALIST']),
+  PHYSICIAN: Object.freeze(['PHYSICIAN']),
   SPECIALIST: Object.freeze(['SPECIALIST']),
-  RADIOLOGIST: Object.freeze(['RADIOLOGIST', 'SPECIALIST']),
-  PATHOLOGIST: Object.freeze(['PATHOLOGIST', 'SPECIALIST']),
-  PHARMACIST: Object.freeze(['PHARMACIST', 'SPECIALIST']),
-  TECHNICIAN: Object.freeze(['TECHNICIAN', 'SUPPORT']),
+  RADIOLOGIST: Object.freeze(['RADIOLOGIST']),
+  PATHOLOGIST: Object.freeze(['PATHOLOGIST']),
+  PHARMACIST: Object.freeze(['PHARMACIST']),
+  TECHNICIAN: Object.freeze(['TECHNICIAN']),
   SUPPORT: Object.freeze(['SUPPORT']),
   SUPERUSER: Object.freeze(['SUPPORT']),
   ADMINISTRATIVE: Object.freeze(['SUPPORT']),
@@ -74,7 +74,7 @@ export const resolveShiftAssignmentDuty = (staff, selectedDuty = '') => {
   const positionCode = String(staff?.positionCode || '').trim();
   const allowedDuties = getAllowedShiftDuties(positionCode, staff?.systemRole || staff?.role);
   if (allowedDuties.includes(selectedDuty)) return selectedDuty;
-  return positionCode && allowedDuties.length === 1 ? allowedDuties[0] : '';
+  return allowedDuties.length === 1 ? allowedDuties[0] : '';
 };
 
 export const isShiftDutyAllowed = (staff, duty) => (

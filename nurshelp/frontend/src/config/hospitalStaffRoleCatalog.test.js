@@ -24,6 +24,24 @@ describe('shared staff shift duties', () => {
     expect(getAllowedShiftDuties('', 'NURSE')).toEqual(['TRIAGE_NURSE', 'CLINICAL_NURSE']);
   });
 
+  it('defaults legacy specialist roles to their specialty duty only', () => {
+    const specializedDuties = [
+      ['PHYSICIAN', 'PHYSICIAN'],
+      ['SPECIALIST', 'SPECIALIST'],
+      ['RADIOLOGIST', 'RADIOLOGIST'],
+      ['PATHOLOGIST', 'PATHOLOGIST'],
+      ['PHARMACIST', 'PHARMACIST'],
+      ['TECHNICIAN', 'TECHNICIAN'],
+    ];
+
+    specializedDuties.forEach(([systemRole, duty]) => {
+      const staff = { systemRole };
+      expect(getAllowedShiftDuties('', systemRole)).toEqual([duty]);
+      expect(resolveShiftAssignmentDuty(staff)).toBe(duty);
+      expect(resolveShiftAssignmentDuty(staff, 'SUPPORT')).toBe(duty);
+    });
+  });
+
   it('uses the pharmacist duty for pharmacist positions and replaces stale incompatible selections', () => {
     const pharmacist = { positionCode: 'PHARMACIST', systemRole: 'PHARMACIST' };
     expect(getAllowedShiftDuties(pharmacist.positionCode, pharmacist.systemRole)).toEqual(['PHARMACIST']);
