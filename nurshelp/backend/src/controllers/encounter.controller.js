@@ -27,7 +27,7 @@ const parseTranscript = (transcript) => {
   return [];
 };
 
-const PYTHON_URL = process.env.PYTHON_URL || "http://localhost:5000/triage";
+const PYTHON_URL = process.env.ESI_ENGINE_URL || process.env.PYTHON_URL || "http://localhost:5000/triage";
 
 /** Waiting severity mapping (SA context) */
 const calculateWaitingSeverity = (createdAt, currentTime = Date.now()) => {

@@ -26,6 +26,8 @@ import {
   resolveStaffPositionCode
 } from '../../utils/hospitalStaffOnboarding';
 import { ehrConfigurationBlueprint, protocolAdapterInterface } from './ehrConfigBlueprint';
+import { getScheduledShiftWindow, getStartablePublishedShifts } from '../../utils/shiftLifecycle';
+import { getHospitalDayShiftSchedule } from '../../utils/shiftSchedule';
 
 const OverviewDiagnosisPieChart = ({ data }) => {
   const [animateSlices, setAnimateSlices] = useState(false);
@@ -337,6 +339,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   const [hospitalStructureLoading, setHospitalStructureLoading] = useState(false);
   const [hospitalStructureSaving, setHospitalStructureSaving] = useState(false);
   const [hospitalStructureWizardOpen, setHospitalStructureWizardOpen] = useState(false);
+  const hospitalStructureWizardSaveLockRef = useRef(false);
   const [hospitalStructureStep, setHospitalStructureStep] = useState(0);
   const [hospitalStructureDepartmentIndex, setHospitalStructureDepartmentIndex] = useState(0);
   const [hospitalStructureWardIndex, setHospitalStructureWardIndex] = useState(0);
@@ -356,6 +359,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       endedAt: event.timestamp
     }));
   const [hospitalDayWizardOpen, setHospitalDayWizardOpen] = useState(false);
+  const [hospitalDayStarting, setHospitalDayStarting] = useState(false);
+  const hospitalDayStartLockRef = useRef(false);
+  const hospitalDayStartRequestRef = useRef(null);
+  const hospitalSetupSubmitLockRef = useRef(false);
   const [hospitalDayStep, setHospitalDayStep] = useState(0);
   const [daySystemReadiness, setDaySystemReadiness] = useState({
     beds: true,
@@ -363,7 +370,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     imaging: true,
     lab: true,
     pharmacy: true,
-    telemetry: true
+    telemetry: true,
+    syntheticPatients: true
   });
   const [dayShiftAssignments, setDayShiftAssignments] = useState({
     triageNurseId: '',
@@ -380,11 +388,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   const [dayShiftEnd, setDayShiftEnd] = useState('16:00');
   const [dayClockedInStaff, setDayClockedInStaff] = useState([]);
   const [staffActivityLoading, setStaffActivityLoading] = useState(false);
-  const [hospitalDayPatientRows, setHospitalDayPatientRows] = useState([
-    { name: 'Amina Okafor', note: '' },
-    { name: 'Daniel Mensah', note: '' },
-    { name: 'Grace Williams', note: '' }
-  ]);
+  const [hospitalDayPatientRows, setHospitalDayPatientRows] = useState([]);
   const activeShiftSession = shiftSession || (hospitalDayRunning ? {
     shiftName: 'Active hospital shift',
     department: 'Hospital operations',
@@ -395,16 +399,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   } : null);
 
   const isShiftCurrent = (shift) => {
-    if (!shift?.shiftStart || !shift?.shiftEnd) return false;
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const [startHour, startMinute] = shift.shiftStart.split(':').map(Number);
-    const [endHour, endMinute] = shift.shiftEnd.split(':').map(Number);
-    const startMinutes = startHour * 60 + startMinute;
-    const endMinutes = endHour * 60 + endMinute;
-    return startMinutes <= endMinutes
-      ? currentMinutes >= startMinutes && currentMinutes <= endMinutes
-      : currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+    return shift?.status === 'IN_PROGRESS';
   };
 
   const getShiftDuration = (start, end) => {
@@ -454,9 +449,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   const [hospitalOperationsStatus, setHospitalOperationsStatus] = useState(null);
   const [hospitalOperationsLoading, setHospitalOperationsLoading] = useState(false);
   const [hospitalOperationsAction, setHospitalOperationsAction] = useState('');
-  const [hospitalOperationsEncounterCount, setHospitalOperationsEncounterCount] = useState(8);
+  const [hospitalOperationsEncounterCount, setHospitalOperationsEncounterCount] = useState(0);
   const [hospitalOperationsHistoricalDays, setHospitalOperationsHistoricalDays] = useState(30);
-  const [hospitalOperationsPatientNames, setHospitalOperationsPatientNames] = useState('Amina Okafor\nDaniel Mensah\nGrace Williams');
+  const [hospitalOperationsPatientNames, setHospitalOperationsPatientNames] = useState('');
   const [hospitalOperationsComplaintType, setHospitalOperationsComplaintType] = useState('FEVER');
   const [hospitalOperationsCustomComplaint, setHospitalOperationsCustomComplaint] = useState('');
   const [hospitalOperationsPriority, setHospitalOperationsPriority] = useState('MIXED');
@@ -618,10 +613,30 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       ]);
 
       const roster = staffResults?.length ? staffResults : (filteredStaff.length ? filteredStaff : staffList);
-      const currentShift = (shifts || todaySchedule).find(isShiftCurrent) || (shifts || todaySchedule).find((shift) => shift.status === 'PUBLISHED');
+      const availableShifts = shifts || todaySchedule;
+      const activeShift = availableShifts.find((shift) => shift.status === 'IN_PROGRESS');
+      if (activeShift) {
+        setHospitalDayRunning(true);
+        setShiftSession({
+          id: activeShift._id,
+          shiftID: activeShift.shiftID,
+          shiftName: activeShift.shiftName,
+          department: activeShift.department || 'Hospital operations',
+          shiftStart: activeShift.shiftStart,
+          shiftEnd: activeShift.shiftEnd,
+          date: activeShift.date,
+          startedAt: activeShift.startedAt,
+          staffCount: activeShift.assignedStaff?.filter((assignment) => assignment.status !== 'ABSENT').length || 0
+        });
+        setHospitalDayWizardOpen(false);
+        return;
+      }
+      const currentShift = getStartablePublishedShifts(availableShifts).find((shift) => (
+        shift.status === 'PUBLISHED' && String(shift.date || '').slice(0, 10) === String(targetDate || '').slice(0, 10)
+      ));
       console.log('[HOSPITAL DAY] Readiness data loaded', {
         staffCount: roster.length,
-        scheduledShiftCount: (shifts || todaySchedule).length,
+        scheduledShiftCount: availableShifts.length,
         selectedExistingShift: currentShift ? { id: currentShift._id, shiftID: currentShift.shiftID, name: currentShift.shiftName, start: currentShift.shiftStart, end: currentShift.shiftEnd, assigned: currentShift.assignedStaff?.length || 0 } : null,
         clockedInCount: clockedInResults?.length || 0
       });
@@ -662,7 +677,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     const response = await fetch(`${BACKEND_URL}/api/admin/hospital-operations/shift-events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ event, shift: session })
+      body: JSON.stringify({ event, shift: session, ...(session.reason ? { reason: session.reason } : {}), ...(session.earlyStopConfirmed ? { earlyStopConfirmed: true } : {}) })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.message || `Unable to record shift ${event.toLowerCase()} event (${response.status})`);
@@ -800,6 +815,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       }
 
       if (existingShift) {
+        const existingShiftWindow = getScheduledShiftWindow(existingShift);
+        if (existingShift.status !== 'PUBLISHED' || !existingShiftWindow || existingShiftWindow.endAt <= new Date()) {
+          throw new Error('Only a published shift that has not passed its scheduled end can be started.');
+        }
         console.log('[HOSPITAL DAY] Reusing scheduled shift', {
           id: existingShift._id,
           shiftID: existingShift.shiftID,
@@ -809,7 +828,11 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           toAssign: roster.length
         });
         const assignedIds = new Set((existingShift.assignedStaff || []).map((staff) => String(staff.staffID?._id || staff.staffID)));
-        for (const staff of roster.filter((person) => !assignedIds.has(String(person._id)))) {
+        const missingAssignments = roster.filter((person) => !assignedIds.has(String(person._id)));
+        if (existingShiftWindow.startAt <= new Date() && missingAssignments.length) {
+          throw new Error('The scheduled shift has already started. Add its staff before the scheduled start time, or use a roster that is already assigned.');
+        }
+        for (const staff of missingAssignments) {
           console.log('[HOSPITAL DAY] Assigning staff to existing shift', { shiftID: existingShift.shiftID, staffId: staff._id, name: staff.firstName || staff.name });
           const assignResponse = await fetch(`${BACKEND_URL}/api/shifts/${existingShift.shiftID}/assign-staff`, {
             method: 'POST',
@@ -837,12 +860,28 @@ const StaffScheduleManager = ({ onLogout = null }) => {
 
       const shiftPayload = {
         shiftName: dayShiftName.trim() || 'Hospital Day Coverage',
-        shiftStart: dayShiftStart,
-        shiftEnd: dayShiftEnd,
-        date: shiftDate,
+        ...(dayShiftMode === 'new' ? getHospitalDayShiftSchedule({
+          date: shiftDate,
+          shiftStart: dayShiftStart,
+          shiftEnd: dayShiftEnd
+        }) : {
+          date: shiftDate,
+          shiftStart: dayShiftStart,
+          shiftEnd: dayShiftEnd
+        }),
         maxStaffRequired: assignedStaffData.length,
         assignedStaff: assignedStaffData
       };
+      if (!shiftPayload.date || !shiftPayload.shiftStart || !shiftPayload.shiftEnd) {
+        throw new Error('Choose a valid shift date and time. A new hospital day must be scheduled for today or a future date.');
+      }
+
+      const requestFingerprint = JSON.stringify(shiftPayload);
+      if (hospitalDayStartRequestRef.current?.fingerprint !== requestFingerprint) {
+        const requestId = window.crypto?.randomUUID?.()
+          || `hospital-day-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        hospitalDayStartRequestRef.current = { fingerprint: requestFingerprint, key: requestId };
+      }
 
       console.log('[HOSPITAL DAY] Creating new shift payload', shiftPayload);
 
@@ -852,7 +891,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(shiftPayload)
+        body: JSON.stringify({ ...shiftPayload, idempotencyKey: hospitalDayStartRequestRef.current.key })
       });
 
       const data = await res.json();
@@ -866,7 +905,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         throw new Error('The shift was created, but the server did not return its persisted ID. Refresh the schedule before starting the hospital day.');
       }
       console.log('[HOSPITAL DAY] Created coverage shift from live roster:', data.shift._id || data.shift.shiftID);
-      return data.shift;
+      return { ...data.shift, scheduleAdjusted: shiftPayload.adjusted };
     } catch (error) {
       setMessages({ success: '', error: error.message || 'Failed to create the coverage shift schedule.' });
       return false;
@@ -874,64 +913,107 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   };
 
   const startHospitalDay = async () => {
+    if (hospitalDayStartLockRef.current) return;
+    hospitalDayStartLockRef.current = true;
+    setHospitalDayStarting(true);
     console.log('[HOSPITAL DAY] Final start action clicked');
-    const persistedShift = await createCoverageShiftSchedule();
-    console.log('[HOSPITAL DAY] Schedule/assignment result', { shiftId: persistedShift?._id, shiftID: persistedShift?.shiftID });
-    if (!persistedShift) {
-      console.warn('[HOSPITAL DAY] Start aborted because schedule setup failed');
-      return;
-    }
-
-    const startedAt = new Date().toISOString();
-    const session = {
-      id: persistedShift._id,
-      shiftID: persistedShift.shiftID,
-      shiftName: dayShiftName || 'Hospital Day Coverage',
-      shiftStart: dayShiftStart,
-      shiftEnd: dayShiftEnd,
-      startedAt,
-      staffCount: daySelectedStaffIds.length,
-      autoClockOutAt: (() => {
-        const deadline = new Date(startedAt);
-        const [hours, minutes] = dayShiftEnd.split(':').map(Number);
-        deadline.setHours(hours, minutes, 0, 0);
-        if (deadline <= new Date(startedAt)) deadline.setDate(deadline.getDate() + 1);
-        deadline.setMinutes(deadline.getMinutes() + 5);
-        return deadline.toISOString();
-      })()
-    };
     try {
+      const persistedShift = await createCoverageShiftSchedule();
+      console.log('[HOSPITAL DAY] Schedule/assignment result', { shiftId: persistedShift?._id, shiftID: persistedShift?.shiftID });
+      if (!persistedShift) {
+        console.warn('[HOSPITAL DAY] Start aborted because schedule setup failed');
+        setHospitalDayWizardOpen(false);
+        setHospitalDayStep(0);
+        return;
+      }
+
+      const startedAt = new Date().toISOString();
+      const sessionShiftStart = persistedShift.shiftStart || dayShiftStart;
+      const sessionShiftEnd = persistedShift.shiftEnd || dayShiftEnd;
+      const session = {
+        id: persistedShift._id,
+        shiftID: persistedShift.shiftID,
+        shiftName: persistedShift.shiftName || dayShiftName || 'Hospital Day Coverage',
+        shiftStart: sessionShiftStart,
+        shiftEnd: sessionShiftEnd,
+        date: persistedShift.date || targetDate,
+        startedAt,
+        staffCount: daySelectedStaffIds.length,
+        autoClockOutAt: (() => {
+          const deadline = new Date(startedAt);
+          const [hours, minutes] = sessionShiftEnd.split(':').map(Number);
+          deadline.setHours(hours, minutes, 0, 0);
+          if (deadline <= new Date(startedAt)) deadline.setDate(deadline.getDate() + 1);
+          deadline.setMinutes(deadline.getMinutes() + 5);
+          return deadline.toISOString();
+        })()
+      };
       await recordHospitalShiftEvent('STARTED', session);
       await fetchHospitalActivity();
+      setHospitalDayRunning(true);
+      setShiftSession(session);
+      setHospitalDayWizardOpen(false);
+      setWorkspaceView('shifts');
+      setActiveTab('shifts');
+      setMessages({
+        success: persistedShift.scheduleAdjusted
+          ? `Hospital day started. The requested start time had passed, so the new coverage shift was scheduled for ${sessionShiftStart}–${sessionShiftEnd}.`
+          : 'Hospital day started and the coverage shift schedule was created from the live roster.',
+        error: ''
+      });
+      hospitalDayStartRequestRef.current = null;
+      console.log('[HOSPITAL DAY] Hospital day marked active', { selectedShiftId: daySelectedShiftId, selectedStaffCount: daySelectedStaffIds.length });
+      setHospitalDayStep(0);
     } catch (error) {
-      console.error('[HOSPITAL DAY] Shift start audit failed', error);
-      setMessages({ success: '', error: error.message });
-      return;
+      console.error('[HOSPITAL DAY] Shift start failed', error);
+      setMessages({ success: '', error: error.message || 'Unable to start the hospital day.' });
+      setHospitalDayWizardOpen(false);
+      setHospitalDayStep(0);
+    } finally {
+      hospitalDayStartLockRef.current = false;
+      setHospitalDayStarting(false);
     }
-    setHospitalDayRunning(true);
-    setShiftSession(session);
-    setHospitalDayWizardOpen(false);
-    setWorkspaceView('shifts');
-    setActiveTab('shifts');
-    setMessages({ success: 'Hospital day started and the coverage shift schedule was created from the live roster.', error: '' });
-    console.log('[HOSPITAL DAY] Hospital day marked active', { selectedShiftId: daySelectedShiftId, selectedStaffCount: daySelectedStaffIds.length });
-    setHospitalDayStep(0);
   };
 
   const endHospitalDay = async () => {
     const endedAt = new Date().toISOString();
+    const activeSession = shiftSession || {};
+    const shiftWindow = getScheduledShiftWindow(activeSession);
+    const isEarlyStop = Boolean(shiftWindow && Date.now() < shiftWindow.endAt.getTime());
+    let event = 'ENDED';
+    let eventDetails = { ...activeSession, endedAt };
+
+    if (isEarlyStop) {
+      const warning = `The scheduled shift ends at ${shiftWindow.endAt.toLocaleString()}. Stopping now will cancel the active shift and preserve the reason in the audit history.`;
+      if (!window.confirm(warning)) return;
+      const reason = window.prompt('Enter the required reason for stopping this shift early (up to 500 characters):');
+      if (reason === null) return;
+      const cancellationReason = reason.trim();
+      if (!cancellationReason || cancellationReason.length > 500) {
+        setMessages({ success: '', error: 'A cancellation reason of 1 to 500 characters is required.' });
+        return;
+      }
+      event = 'CANCELLED';
+      eventDetails = { ...eventDetails, reason: cancellationReason, earlyStopConfirmed: true };
+    }
+
     try {
-      await autoClockOutStaff();
-      await recordHospitalShiftEvent('ENDED', { ...(shiftSession || { shiftName: 'Hospital shift', staffCount: 0 }), endedAt });
+      await recordHospitalShiftEvent(event, eventDetails);
       await fetchHospitalActivity();
     } catch (error) {
       console.error('[HOSPITAL DAY] Shift end audit failed', error);
+      await Promise.all([fetchHospitalActivity(), fetchTodaySchedule()]);
       setMessages({ success: '', error: error.message });
       return;
     }
     setHospitalDayRunning(false);
     setShiftSession(null);
-    setMessages({ success: 'Hospital shift ended. The shift has been recorded in the shift log.', error: '' });
+    try {
+      await autoClockOutStaff();
+      setMessages({ success: event === 'CANCELLED' ? 'Active shift stopped early and cancelled with an audited reason.' : 'Hospital shift ended. The shift has been recorded in the shift log.', error: '' });
+    } catch (error) {
+      setMessages({ success: event === 'CANCELLED' ? 'Active shift was cancelled.' : 'Hospital shift ended.', error: `Shift state was recorded, but staff clock-out failed: ${error.message}` });
+    }
   };
 
   useEffect(() => {
@@ -1218,7 +1300,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || `Unable to load hospital activity (${response.status})`);
       setHospitalActivity(data);
-      const latestShiftEvent = (data.activity || []).find((event) => ['HOSPITAL_SHIFT_STARTED', 'HOSPITAL_SHIFT_ENDED'].includes(event.action));
+      const latestShiftEvent = (data.activity || []).find((event) => [
+        'HOSPITAL_SHIFT_STARTED',
+        'HOSPITAL_SHIFT_ENDED',
+        'HOSPITAL_SHIFT_CANCELLED',
+        'HOSPITAL_SHIFT_AUTO_ENDED'
+      ].includes(event.action));
       if (latestShiftEvent?.action === 'HOSPITAL_SHIFT_STARTED') {
         const session = latestShiftEvent.changeDetails || {};
         setHospitalDayRunning(true);
@@ -1227,7 +1314,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           startedAt: session.startedAt || latestShiftEvent.timestamp,
           autoClockOutAt: session.autoClockOutAt || null
         });
-      } else if (latestShiftEvent?.action === 'HOSPITAL_SHIFT_ENDED') {
+      } else if (latestShiftEvent) {
         setHospitalDayRunning(false);
         setShiftSession(null);
       }
@@ -1303,6 +1390,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         acuityLevelAllowed: ward.acuityLevelAllowed?.length ? ward.acuityLevelAllowed : ['Yellow', 'Green', 'Blue'],
         totalBeds: ward.totalBeds || 1,
         location: { floor: ward.location?.floor || 1, wing: ward.location?.wing || 'Main', area: ward.location?.area || '' },
+        rooms: (ward.rooms || []).map((room) => ({ roomNumber: room.roomNumber || '', roomName: room.roomName || '' })),
         isActive: ward.isActive !== false
       })));
     } catch (error) {
@@ -1313,6 +1401,17 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   };
 
   const saveHospitalWards = async () => {
+    for (const ward of hospitalWardDrafts) {
+      const roomNumbers = (ward.rooms || []).map((room) => String(room.roomNumber || '').trim().toLowerCase());
+      if (roomNumbers.some((roomNumber) => !roomNumber)) {
+        setMessages({ success: '', error: `Enter a room number for every room in ${ward.wardName || ward.wardId}.` });
+        return false;
+      }
+      if (new Set(roomNumbers).size !== roomNumbers.length) {
+        setMessages({ success: '', error: `Room numbers must be unique within ${ward.wardName || ward.wardId}.` });
+        return false;
+      }
+    }
     setHospitalWardsSaving(true);
     try {
       const response = await fetch(`${BACKEND_URL}/api/operations/hospital-wards`, {
@@ -1332,6 +1431,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         acuityLevelAllowed: ward.acuityLevelAllowed || [],
         totalBeds: ward.totalBeds,
         location: ward.location || { floor: 1, wing: 'Main', area: '' },
+        rooms: (ward.rooms || []).map((room) => ({ roomNumber: room.roomNumber || '', roomName: room.roomName || '' })),
         isActive: ward.isActive !== false
       })));
       setMessages({ success: `Ward configuration saved and audited (event ${data.eventId}).`, error: '' });
@@ -1357,12 +1457,31 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       acuityLevelAllowed: ['Yellow', 'Green', 'Blue'],
       totalBeds: 1,
       location: { floor: 1, wing: 'Main', area: '' },
+      rooms: [],
       isActive: true
     }]);
   };
 
   const updateWardDraft = (index, field, value) => {
     setHospitalWardDrafts((current) => current.map((ward, wardIndex) => wardIndex === index ? { ...ward, [field]: value } : ward));
+  };
+
+  const addWardRoom = (wardIndex) => {
+    setHospitalWardDrafts((current) => current.map((ward, index) => index === wardIndex
+      ? { ...ward, rooms: [...(ward.rooms || []), { roomNumber: '', roomName: '' }] }
+      : ward));
+  };
+
+  const updateWardRoom = (wardIndex, roomIndex, field, value) => {
+    setHospitalWardDrafts((current) => current.map((ward, index) => index === wardIndex
+      ? { ...ward, rooms: (ward.rooms || []).map((room, currentRoomIndex) => currentRoomIndex === roomIndex ? { ...room, [field]: value } : room) }
+      : ward));
+  };
+
+  const removeWardRoom = (wardIndex, roomIndex) => {
+    setHospitalWardDrafts((current) => current.map((ward, index) => index === wardIndex
+      ? { ...ward, rooms: (ward.rooms || []).filter((_, currentRoomIndex) => currentRoomIndex !== roomIndex) }
+      : ward));
   };
 
   const saveHospitalStructure = async () => {
@@ -1550,9 +1669,13 @@ const StaffScheduleManager = ({ onLogout = null }) => {
 
   const submitHospitalBootstrap = async () => {
     console.log('[HOSPITAL] Add hospital bootstrap requested', hospitalBootstrap);
+    if (hospitalSetupSubmitLockRef.current) return;
+    hospitalSetupSubmitLockRef.current = true;
     const { hospitalName, managerName, managerSurname, managerEmail, managerPassword } = hospitalBootstrap;
     if (!hospitalName || !managerName || !managerSurname || !managerEmail || !managerPassword) {
       setMessages({ success: '', error: 'Hospital, manager, and login details are required before creating the facility.' });
+      setHospitalSetupOpen(false);
+      hospitalSetupSubmitLockRef.current = false;
       return;
     }
 
@@ -1570,6 +1693,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     if (invalidStaff) {
       setMessages({ success: '', error: 'Complete every staff row with a valid position, selected hospital department, configured specialty, and password of at least 8 characters.' });
       setSetupStep(1);
+      setHospitalSetupOpen(false);
+      hospitalSetupSubmitLockRef.current = false;
       return;
     }
 
@@ -1637,12 +1762,16 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       });
       setBootstrapStaffRows([{ firstName: '', lastName: '', email: '', password: '', role: 'NURSE', positionCode: 'TRIAGE_NURSE', department: 'ED', specialty: '' }]);
       setSetupAutoFilled(false);
+      setHospitalSetupOpen(false);
       await fetchManagedHospitals();
-      setTimeout(() => window.location.reload(), 600);
+      setTimeout(() => window.location.reload(), 1800);
     } catch (error) {
       setMessages({ success: '', error: error.message });
+      setHospitalSetupOpen(false);
+      await fetchManagedHospitals();
     } finally {
       setManagedHospitalLoading(false);
+      hospitalSetupSubmitLockRef.current = false;
     }
   };
 
@@ -2760,6 +2889,19 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                           <label style={adminFieldStyle}>Wing<input value={ward.location.wing} onChange={(event) => updateWardDraft(hospitalStructureWardIndex, 'location', { ...ward.location, wing: event.target.value })} style={policyInputStyle} /></label>
                         </div>
                         <div style={{ marginTop: 14 }}><strong style={{ display: 'block', marginBottom: 7, color: '#334155', fontSize: 12 }}>Accepted SATS acuity</strong><div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>{['Red', 'Orange', 'Yellow', 'Green', 'Blue'].map((color) => <label key={color} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#475569', fontSize: 12 }}><input type="checkbox" checked={ward.acuityLevelAllowed.includes(color)} onChange={(event) => updateWardDraft(hospitalStructureWardIndex, 'acuityLevelAllowed', event.target.checked ? [...ward.acuityLevelAllowed, color] : ward.acuityLevelAllowed.filter((item) => item !== color))} />{color}</label>)}</div></div>
+                        <section style={{ marginTop: 16, padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <div><strong style={{ color: '#0f172a', fontSize: 13 }}>Rooms in this ward</strong><div style={{ marginTop: 3, color: '#64748b', fontSize: 11 }}>Beds can only be placed in rooms configured here.</div></div>
+                            <button type="button" onClick={() => addWardRoom(hospitalStructureWardIndex)} style={secondaryButtonStyle}><FiPlus size={14} /> Add room</button>
+                          </div>
+                          {!ward.rooms?.length ? <div style={{ marginTop: 10, color: '#64748b', fontSize: 12 }}>No rooms configured yet. Add each physical room before assigning beds.</div> : <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                            {ward.rooms.map((room, roomIndex) => <div key={`${ward.wardId}-room-${roomIndex}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr)) auto', alignItems: 'end', gap: 8 }}>
+                              <label style={adminFieldStyle}>Room number<input required maxLength={64} value={room.roomNumber} onChange={(event) => updateWardRoom(hospitalStructureWardIndex, roomIndex, 'roomNumber', event.target.value)} placeholder="e.g. E101" style={policyInputStyle} /></label>
+                              <label style={adminFieldStyle}>Room name (optional)<input maxLength={100} value={room.roomName} onChange={(event) => updateWardRoom(hospitalStructureWardIndex, roomIndex, 'roomName', event.target.value)} placeholder="e.g. East observation room" style={policyInputStyle} /></label>
+                              <button type="button" onClick={() => removeWardRoom(hospitalStructureWardIndex, roomIndex)} aria-label={`Remove room ${room.roomNumber || roomIndex + 1}`} style={removeRowButtonStyle}>Remove</button>
+                            </div>)}
+                          </div>}
+                        </section>
                         <button type="button" onClick={() => setHospitalWardDrafts((wards) => wards.map((item, index) => index === hospitalStructureWardIndex ? { ...item, isActive: !item.isActive } : item))} style={{ ...removeRowButtonStyle, marginTop: 12 }}>{ward.isActive ? 'Deactivate this ward' : 'Reactivate this ward'}</button>
                       </>;
                     })()}
@@ -2768,7 +2910,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                   {hospitalStructureStep === 3 && <div style={{ display: 'grid', gap: 14 }}>
                     <div style={{ padding: 14, borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}><strong style={{ color: '#0f172a' }}>{hospitalStructureDraft.length} departments</strong><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{hospitalStructureDraft.map((department) => <span key={department.name} style={{ padding: '4px 7px', borderRadius: 4, background: '#e2e8f0', color: '#334155', fontSize: 11 }}>{department.name}</span>)}</div></div>
                     <div style={{ padding: 14, borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}><strong style={{ color: '#0f172a' }}>{hospitalStructureDraft.reduce((count, department) => count + department.specialties.length, 0)} specialty assignments</strong><div style={{ marginTop: 7, display: 'grid', gap: 6 }}>{hospitalStructureDraft.map((department) => <div key={department.name} style={{ fontSize: 12, color: '#475569' }}><strong>{department.name}:</strong> {department.specialties.map((specialty) => typeof specialty === 'string' ? specialty : specialty?.name).filter(Boolean).join(', ') || 'None selected'}</div>)}</div></div>
-                    <div style={{ padding: 14, borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}><strong style={{ color: '#0f172a' }}>{hospitalWardDrafts.length} wards / units</strong><div style={{ marginTop: 7, display: 'grid', gap: 6 }}>{hospitalWardDrafts.map((ward) => <div key={ward.wardId} style={{ fontSize: 12, color: '#475569' }}><strong>{ward.wardName || ward.wardId}:</strong> {ward.departmentName} · {ward.careTier.replaceAll('_', ' ')} · {ward.totalBeds} beds · {ward.acuityLevelAllowed.join(', ')}</div>)}</div></div>
+                    <div style={{ padding: 14, borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}><strong style={{ color: '#0f172a' }}>{hospitalWardDrafts.length} wards / units</strong><div style={{ marginTop: 7, display: 'grid', gap: 6 }}>{hospitalWardDrafts.map((ward) => <div key={ward.wardId} style={{ fontSize: 12, color: '#475569' }}><strong>{ward.wardName || ward.wardId}:</strong> {ward.departmentName} · {ward.careTier.replaceAll('_', ' ')} · {ward.totalBeds} beds · {(ward.rooms || []).length} rooms{ward.rooms?.length ? ` (${ward.rooms.map((room) => room.roomNumber || 'unnumbered').join(', ')})` : ''} · {ward.acuityLevelAllowed.join(', ')}</div>)}</div></div>
                     <p style={{ margin: 0, color: '#64748b', fontSize: 11 }}>Saving writes hospital departments and ward records separately. It does not create or alter individual live bed assignments.</p>
                   </div>}
                 </div>
@@ -2792,13 +2934,26 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                     setMessages({ success: '', error: '' });
                     setHospitalStructureStep((step) => step + 1);
                   }} style={policyButtonStyle}>Next <FiChevronRight size={15} /></button> : <button type="button" disabled={hospitalStructureSaving || hospitalWardsSaving} onClick={async () => {
-                    const departmentsSaved = await saveHospitalStructure();
-                    if (!departmentsSaved) return;
-                    if (hospitalWardDrafts.length) {
-                      const wardsSaved = await saveHospitalWards();
-                      if (!wardsSaved) return;
+                    if (hospitalStructureWizardSaveLockRef.current) return;
+                    hospitalStructureWizardSaveLockRef.current = true;
+                    try {
+                      const departmentsSaved = await saveHospitalStructure();
+                      if (!departmentsSaved) {
+                        setHospitalStructureWizardOpen(false);
+                        return;
+                      }
+                      if (hospitalWardDrafts.length) {
+                        const wardsSaved = await saveHospitalWards();
+                        if (!wardsSaved) {
+                          setHospitalStructureWizardOpen(false);
+                          return;
+                        }
+                      }
+                      setMessages({ success: 'Hospital structure configuration saved and audited.', error: '' });
+                      setHospitalStructureWizardOpen(false);
+                    } finally {
+                      hospitalStructureWizardSaveLockRef.current = false;
                     }
-                    setHospitalStructureWizardOpen(false);
                   }} style={policyButtonStyle}><FiSave size={15} /> {hospitalStructureSaving || hospitalWardsSaving ? 'Saving...' : 'Save structure'}</button>}
                 </footer>
               </section>
@@ -3316,10 +3471,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         <section id="patients-seeding" style={{ background: '#fff', padding: 22, borderRadius: 8, border: '1px solid #dbeafe' }}>
           <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#0f766e' }}>Hospital administration</div>
           <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#0f172a' }}>Patients</h2>
-          <p style={{ margin: '6px 0 14px', color: '#64748b', fontSize: 13 }}>Provision hospital-scoped encounter records for triage, role dashboards, workload, and downstream actions. This does not modify real patient records.</p>
+          <p style={{ margin: '6px 0 14px', color: '#64748b', fontSize: 13 }}>Optionally add synthetic discharged encounters for historical simulation. Nurses create today's live encounters through triage.</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 240px))', gap: 12, alignItems: 'end' }}>
-            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Encounter count<input type="number" min="1" max="1000" value={hospitalOperationsEncounterCount} onChange={(event) => setHospitalOperationsEncounterCount(event.target.value)} style={policyInputStyle} /></label>
-            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical span in days<input type="number" min="0" max="3650" value={hospitalOperationsHistoricalDays} onChange={(event) => setHospitalOperationsHistoricalDays(event.target.value)} style={policyInputStyle} /></label>
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical encounter count<input type="number" min="0" max="1000" value={hospitalOperationsEncounterCount} onChange={(event) => setHospitalOperationsEncounterCount(event.target.value)} style={policyInputStyle} /></label>
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical span in days<input type="number" min="1" max="3650" value={hospitalOperationsHistoricalDays} onChange={(event) => setHospitalOperationsHistoricalDays(event.target.value)} style={policyInputStyle} /></label>
           </div>
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Complaint<select value={hospitalOperationsComplaintType} onChange={(event) => setHospitalOperationsComplaintType(event.target.value)} style={policyInputStyle}><option value="FEVER">Fever and weakness</option><option value="CHEST_PAIN">Chest pain</option><option value="ABDOMINAL_PAIN">Abdominal pain</option><option value="TRAUMA">Trauma</option><option value="HEADACHE">Severe headache</option><option value="RESPIRATORY">Respiratory distress</option><option value="CUSTOM">Custom complaint</option></select></label>
@@ -3327,10 +3482,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Lifecycle status<select value={hospitalOperationsLifecycle} onChange={(event) => setHospitalOperationsLifecycle(event.target.value)} style={policyInputStyle}><option value="TRIAGE_IN_PROGRESS">Triage in progress</option><option value="OFFICIAL_REPORT">Official report</option><option value="AWAITING_PHYSICIAN">Awaiting physician</option><option value="SEEN">Seen</option><option value="DIAGNOSED">Diagnosed</option><option value="HOSPITALIZED">Hospitalized</option><option value="DISCHARGED">Discharged</option></select></label>
           </div>
           {hospitalOperationsComplaintType === 'CUSTOM' && <label style={{ display: 'grid', gap: 5, marginTop: 12, fontSize: 12, fontWeight: 700, color: '#334155' }}>Custom complaint<input value={hospitalOperationsCustomComplaint} onChange={(event) => setHospitalOperationsCustomComplaint(event.target.value)} placeholder="Describe the presenting complaint" style={policyInputStyle} /></label>}
-          <label style={{ display: 'grid', gap: 5, marginTop: 12, fontSize: 12, fontWeight: 700, color: '#334155' }}>Patient names, one per line<input value={hospitalOperationsPatientNames} onChange={(event) => setHospitalOperationsPatientNames(event.target.value)} style={policyInputStyle} /></label>
+          <label style={{ display: 'grid', gap: 5, marginTop: 12, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical patient names, one per line<input value={hospitalOperationsPatientNames} onChange={(event) => setHospitalOperationsPatientNames(event.target.value)} style={policyInputStyle} /></label>
           <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => runHospitalOperationsAction('encounters/bulk', { count: Number(hospitalOperationsEncounterCount), historicalDays: Number(hospitalOperationsHistoricalDays), patientNames: hospitalOperationsPatientNames.split(/\r?\n|,/).map((name) => name.trim()).filter(Boolean), complaintType: hospitalOperationsComplaintType, complaint: hospitalOperationsCustomComplaint, priority: hospitalOperationsPriority === 'MIXED' ? '' : hospitalOperationsPriority, lifecycleStatus: hospitalOperationsLifecycle, triageNurseId: hospitalOperationsTriageNurseId || undefined })} disabled={hospitalOperationsAction === 'encounters/bulk'} style={policyButtonStyle}><FiPlus size={15} /> {hospitalOperationsAction === 'encounters/bulk' ? 'Provisioning...' : 'Provision encounters'}</button>
-            <span style={{ color: '#64748b', fontSize: 12 }}>Names and selected lifecycle will be written into synthetic records and audit metadata.</span>
+            <button type="button" onClick={() => runHospitalOperationsAction('encounters/bulk', { count: Number(hospitalOperationsEncounterCount), historicalDays: Number(hospitalOperationsHistoricalDays), patientNames: hospitalOperationsPatientNames.split(/\r?\n|,/).map((name) => name.trim()).filter(Boolean), complaintType: hospitalOperationsComplaintType, complaint: hospitalOperationsCustomComplaint, priority: hospitalOperationsPriority === 'MIXED' ? '' : hospitalOperationsPriority, lifecycleStatus: hospitalOperationsLifecycle, triageNurseId: hospitalOperationsTriageNurseId || undefined })} disabled={hospitalOperationsAction === 'encounters/bulk' || Number(hospitalOperationsEncounterCount) < 1} style={policyButtonStyle}><FiPlus size={15} /> {hospitalOperationsAction === 'encounters/bulk' ? 'Provisioning...' : 'Provision historical encounters'}</button>
+            <span style={{ color: '#64748b', fontSize: 12 }}>Historical records are synthetic and separate from live triage.</span>
           </div>
         </section>
       );
@@ -3418,7 +3573,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                     </div>
                     {String(editingShiftId) !== String(shift._id) && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                       <button type="button" onClick={() => { setEditingShiftId(shift._id); setEditingShiftName(shift.shiftName || ''); }} style={{ ...secondaryButtonStyle, minHeight: 34, padding: '7px 10px', fontSize: 11 }}>Rename shift</button>
-                      <button type="button" onClick={() => handleDeleteShift(shift)} style={{ ...removeRowButtonStyle, marginTop: 0, minHeight: 34, padding: '7px 10px', fontSize: 11 }}>Cancel shift</button>
+                      {['DRAFT', 'PUBLISHED'].includes(shift.status) && <button type="button" onClick={() => handleDeleteShift(shift)} style={{ ...removeRowButtonStyle, marginTop: 0, minHeight: 34, padding: '7px 10px', fontSize: 11 }}>Cancel shift</button>}
                     </div>}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
                       <button type="button" onClick={() => { setSelectedShiftId(shift._id); setAssignmentStaffId(''); setAssignmentRole(''); }} style={{ ...secondaryButtonStyle, padding: '8px 12px', borderColor: isSelected ? '#0f766e' : '#9adbcf', background: isSelected ? '#ccfbf1' : '#fff' }}>
@@ -3914,7 +4069,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                                   <div style={{ fontSize: 13, fontWeight: 800, color: '#134e4a' }}>Scheduled shift for this hospital day</div>
                                   <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>{selectedShift ? `${selectedShift.shiftName}${selectedShift.department ? ` • ${selectedShift.department}` : ''} • ${selectedShift.shiftStart}-${selectedShift.shiftEnd}` : 'No scheduled shift selected'}</div>
                                 </div>
-                                <span style={{ padding: '4px 8px', borderRadius: 999, background: selectedShift && isShiftCurrent(selectedShift) ? '#dcfce7' : '#fef3c7', color: selectedShift && isShiftCurrent(selectedShift) ? '#166534' : '#92400e', fontSize: 11, fontWeight: 800 }}>{selectedShift && isShiftCurrent(selectedShift) ? 'CURRENTLY ACTIVE' : 'SCHEDULED'}</span>
+                                <span style={{ padding: '4px 8px', borderRadius: 999, background: selectedShift && isShiftCurrent(selectedShift) ? '#dcfce7' : '#fef3c7', color: selectedShift && isShiftCurrent(selectedShift) ? '#166534' : '#92400e', fontSize: 11, fontWeight: 800 }}>{selectedShift?.status === 'IN_PROGRESS' ? 'ACTIVE — STOPPABLE' : selectedShift?.status || 'NO SHIFT SELECTED'}</span>
                               </div>
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, fontSize: 12 }}>
                                 <div><strong>Assigned:</strong> {assignedRoster.length || selectedShift?.assignedStaff?.length || 0}</div>
@@ -3965,15 +4120,16 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                             },
                             {
                               key: 'syntheticPatients',
-                              label: 'Synthetic patient load',
-                              ready: Number(hospitalOperationsStatus?.encounters?.total || hospitalActivity?.summary?.encounters || 0) > 0,
-                              detail: `${Number(hospitalOperationsStatus?.encounters?.total || hospitalActivity?.summary?.encounters || 0)} active cases`
+                              label: 'Historical seeding (optional)',
+                              ready: true,
+                              detail: 'Optional; live encounters are created through nurse triage.'
                             }
                           ].map((item) => (
                             <button
                               key={item.key}
                               type="button"
                               onClick={() => setDaySystemReadiness((current) => ({ ...current, [item.key]: !current[item.key] }))}
+                              disabled={item.key === 'syntheticPatients'}
                               style={{
                                 display: 'grid',
                                 gap: 8,
@@ -3985,7 +4141,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                                 background: item.ready ? '#ecfdf5' : '#fff7ed',
                                 color: '#0f172a',
                                 textAlign: 'left',
-                                cursor: 'pointer',
+                                cursor: item.key === 'syntheticPatients' ? 'default' : 'pointer',
                                 fontWeight: 700,
                                 fontSize: 13,
                                 lineHeight: 1.3,
@@ -4046,7 +4202,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                               Select scheduled shift
                               <select value={daySelectedShiftId} onChange={(event) => { const next = todaySchedule.find((shift) => String(shift._id) === String(event.target.value)); setDaySelectedShiftId(event.target.value); if (next) { setDayShiftName(next.shiftName || 'Hospital Day Coverage'); setDayShiftStart(next.shiftStart || '08:00'); setDayShiftEnd(next.shiftEnd || '16:00'); } }} style={{ ...policyInputStyle, background: '#fff' }}>
                                 <option value="">Choose a scheduled shift</option>
-                                {todaySchedule.map((shift) => <option key={shift._id} value={shift._id}>{shift.shiftName} • {shift.shiftStart}-{shift.shiftEnd} • {shift.assignedStaff?.length || 0}/{shift.maxStaffRequired} assigned</option>)}
+                                {getStartablePublishedShifts(todaySchedule)
+                                  .filter((shift) => String(shift.date || '').slice(0, 10) === String(targetDate || '').slice(0, 10))
+                                  .map((shift) => <option key={shift._id} value={shift._id}>{shift.shiftName} • {shift.shiftStart}-{shift.shiftEnd} • {shift.assignedStaff?.length || 0}/{shift.maxStaffRequired} assigned</option>)}
                               </select>
                             </label>
                           ) : (
@@ -4072,7 +4230,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                                   <div style={{ fontSize: 13, fontWeight: 800, color: '#134e4a' }}>Scheduled shift for this hospital day</div>
                                   <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>{selectedShift ? `${selectedShift.shiftName}${selectedShift.department ? ` • ${selectedShift.department}` : ''} • ${selectedShift.shiftStart}-${selectedShift.shiftEnd}` : 'No scheduled shift selected'}</div>
                                 </div>
-                                <span style={{ padding: '4px 8px', borderRadius: 999, background: selectedShift && isShiftCurrent(selectedShift) ? '#dcfce7' : '#fef3c7', color: selectedShift && isShiftCurrent(selectedShift) ? '#166534' : '#92400e', fontSize: 11, fontWeight: 800 }}>{selectedShift && isShiftCurrent(selectedShift) ? 'CURRENTLY ACTIVE' : 'SCHEDULED'}</span>
+                                <span style={{ padding: '4px 8px', borderRadius: 999, background: selectedShift && isShiftCurrent(selectedShift) ? '#dcfce7' : selectedShift?.status === 'COMPLETED' ? '#e2e8f0' : selectedShift?.status === 'CANCELLED' ? '#fee2e2' : '#fef3c7', color: selectedShift && isShiftCurrent(selectedShift) ? '#166534' : '#92400e', fontSize: 11, fontWeight: 800 }}>{selectedShift?.status === 'IN_PROGRESS' ? 'ACTIVE — STOPPABLE' : selectedShift?.status || 'NO SHIFT SELECTED'}</span>
                               </div>
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, fontSize: 12 }}>
                                 <div><strong>Assigned:</strong> {assignedRoster.length || selectedShift?.assignedStaff?.length || 0}</div>
@@ -4171,18 +4329,18 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                       <div style={{ display: 'grid', gap: 14 }}>
                         <div style={{ padding: 14, borderRadius: 14, border: '1px solid #dbeafe', background: '#f8fbff' }}>
                           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Synthetic patient data</div>
-                          <div style={{ marginTop: 6, color: '#475569', fontSize: 13 }}>Seed hospital-scoped synthetic encounters for the day simulation. These records are clearly synthetic and do not modify real patient records.</div>
+                          <div style={{ marginTop: 6, color: '#475569', fontSize: 13 }}>Historical seeding is optional and creates synthetic discharged encounters from prior days. Leave the count at 0 to start with an empty live queue; today's encounters are created through nurse triage.</div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155' }}>Encounter count<input type="number" min="1" max="1000" value={hospitalOperationsEncounterCount} onChange={(event) => setHospitalOperationsEncounterCount(event.target.value)} style={policyInputStyle} /></label>
-                          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical span in days<input type="number" min="0" max="3650" value={hospitalOperationsHistoricalDays} onChange={(event) => setHospitalOperationsHistoricalDays(event.target.value)} style={policyInputStyle} /></label>
+                          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical encounter count<input type="number" min="0" max="1000" value={hospitalOperationsEncounterCount} onChange={(event) => setHospitalOperationsEncounterCount(event.target.value)} style={policyInputStyle} /></label>
+                          <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155' }}>Historical span in days<input type="number" min="1" max="3650" value={hospitalOperationsHistoricalDays} onChange={(event) => setHospitalOperationsHistoricalDays(event.target.value)} style={policyInputStyle} /></label>
                           <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: '#334155' }}>Priority<select value={hospitalOperationsPriority} onChange={(event) => setHospitalOperationsPriority(event.target.value)} style={{ ...policyInputStyle, background: '#fff' }}><option value="MIXED">Mixed acuity</option><option value="RED">RED</option><option value="ORANGE">ORANGE</option><option value="YELLOW">YELLOW</option><option value="GREEN">GREEN</option></select></label>
                         </div>
                         <div style={{ display: 'grid', gap: 12, padding: 16, borderRadius: 14, border: '1px solid #cbd5e1', background: '#ffffff' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                             <div>
-                              <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Synthetic patient roster</div>
-                              <div style={{ marginTop: 4, fontSize: 12, color: '#64748b', maxWidth: 620 }}>Add each simulated patient as a separate record. Use realistic names for scenario tracking; these records are synthetic and remain hospital-scoped.</div>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Historical patient roster</div>
+                              <div style={{ marginTop: 4, fontSize: 12, color: '#64748b', maxWidth: 620 }}>Add optional names for synthetic discharged history. Current-shift patients are created through the triage workflow.</div>
                             </div>
                             <span style={{ padding: '5px 9px', borderRadius: 999, background: '#ecfeff', color: '#0f766e', fontSize: 11, fontWeight: 800 }}>{hospitalDayPatientRows.filter((row) => row.name.trim()).length} named patients</span>
                           </div>
@@ -4203,10 +4361,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                           </div>
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                             <button type="button" onClick={() => setHospitalDayPatientRows((rows) => [...rows, { name: '', note: '' }])} style={{ ...secondaryButtonStyle, minHeight: 38, padding: '8px 12px' }}><FiPlus size={14} /> Add patient</button>
-                            <span style={{ fontSize: 11, color: '#64748b' }}>The encounter count controls how many records are generated; named rows provide the scenario identities.</span>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>Named rows are optional identities for historical records only.</span>
                           </div>
                         </div>
-                        <button type="button" onClick={() => runHospitalOperationsAction('encounters/bulk', { count: Number(hospitalOperationsEncounterCount), historicalDays: Number(hospitalOperationsHistoricalDays), patientNames: hospitalDayPatientRows.map((row) => row.name.trim()).filter(Boolean), complaintType: hospitalOperationsComplaintType, complaint: hospitalOperationsCustomComplaint, priority: hospitalOperationsPriority === 'MIXED' ? '' : hospitalOperationsPriority, lifecycleStatus: hospitalOperationsLifecycle, triageNurseId: hospitalOperationsTriageNurseId || undefined })} disabled={hospitalOperationsAction === 'encounters/bulk'} style={policyButtonStyle}><FiPlus size={15} /> {hospitalOperationsAction === 'encounters/bulk' ? 'Seeding...' : 'Seed synthetic encounters'}</button>
+                        <button type="button" onClick={() => runHospitalOperationsAction('encounters/bulk', { count: Number(hospitalOperationsEncounterCount), historicalDays: Number(hospitalOperationsHistoricalDays), patientNames: hospitalDayPatientRows.map((row) => row.name.trim()).filter(Boolean), complaintType: hospitalOperationsComplaintType, complaint: hospitalOperationsCustomComplaint, priority: hospitalOperationsPriority === 'MIXED' ? '' : hospitalOperationsPriority, lifecycleStatus: hospitalOperationsLifecycle, triageNurseId: hospitalOperationsTriageNurseId || undefined })} disabled={hospitalOperationsAction === 'encounters/bulk' || Number(hospitalOperationsEncounterCount) < 1} style={policyButtonStyle}><FiPlus size={15} /> {hospitalOperationsAction === 'encounters/bulk' ? 'Seeding...' : 'Seed historical encounters'}</button>
                       </div>
                     )}
 
@@ -4223,7 +4381,13 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                             ['Staff clock-in', daySystemReadiness.staff, `${staffList.length || filteredStaff.length || 0} on roster`],
                             ['Shift coverage', daySystemReadiness.shifts, `${Number(hospitalOperationsStatus?.shifts?.today || todaySchedule.length || 0)} scheduled today`],
                             ['Workload policy', daySystemReadiness.workload, capacityConfig?.policies?.defaultCapacityByRole ? 'Configured' : 'Needs setup'],
-                            ['Synthetic patient load', daySystemReadiness.syntheticPatients, `${Number(hospitalOperationsEncounterCount) || 0} encounters requested`]
+                            [
+                              'Historical seeding (optional)',
+                              true,
+                              Number(hospitalOperationsEncounterCount) > 0
+                                ? `${Number(hospitalOperationsEncounterCount)} historical encounters requested over ${hospitalOperationsHistoricalDays} days`
+                                : 'None requested; live encounters are created through triage'
+                            ]
                           ].map(([label, ready, detail]) => (
                             <div key={label} style={{ padding: 12, borderRadius: 10, border: '1px solid #dbeafe', background: '#fff' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, fontWeight: 800, color: '#334155' }}><span>{label}</span><span style={{ color: ready ? '#15803d' : '#b45309' }}>{ready ? 'Ready' : 'Standby'}</span></div>
@@ -4239,7 +4403,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                         <div style={{ display: 'grid', gap: 8, padding: 14, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
                           <strong style={{ color: '#0f172a' }}>Shift to be created</strong>
                           <div style={{ fontSize: 12, color: '#475569' }}>{dayShiftMode === 'existing' ? 'Selected scheduled shift' : 'New shift to create'}: {dayShiftName || 'Hospital Day Coverage'} • {dayShiftStart}-{dayShiftEnd} • {getShiftDuration(dayShiftStart, dayShiftEnd)} hours • {targetDate} • {daySelectedStaffIds.length} staff selected</div>
-                          <div style={{ fontSize: 12, color: '#475569' }}>Synthetic data: {hospitalOperationsEncounterCount} encounters • {hospitalOperationsHistoricalDays} historical days • {hospitalOperationsPriority} priority • {hospitalOperationsLifecycle}</div>
+                          <div style={{ fontSize: 12, color: '#475569' }}>{Number(hospitalOperationsEncounterCount) > 0 ? `Historical simulation: ${hospitalOperationsEncounterCount} encounters over ${hospitalOperationsHistoricalDays} days` : 'Historical simulation: none requested; live encounters are created through triage'}</div>
                           <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}><strong>Named scenarios:</strong> {hospitalDayPatientRows.filter((row) => row.name.trim()).map((row) => row.note.trim() ? `${row.name.trim()} (${row.note.trim()})` : row.name.trim()).join(' • ') || 'No named patients added'}</div>
                         </div>
                         <div style={{ display: 'grid', gap: 8 }}>
@@ -4267,7 +4431,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                         {hospitalDayStep < 4 ? (
                           <button type="button" onClick={() => setHospitalDayStep((current) => Math.min(current + 1, 4))} style={policyButtonStyle}>Continue</button>
                         ) : (
-                          <button type="button" onClick={startHospitalDay} style={{ ...policyButtonStyle, background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)' }}>Start Hospital Shift</button>
+                          <button type="button" onClick={startHospitalDay} disabled={hospitalDayStarting} style={{ ...policyButtonStyle, background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)', opacity: hospitalDayStarting ? 0.7 : 1 }}>
+                            {hospitalDayStarting ? 'Starting shift...' : 'Start Hospital Shift'}
+                          </button>
                         )}
                       </div>
                     </div>

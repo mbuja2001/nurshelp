@@ -71,6 +71,19 @@ const wardSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "BedSchedule"
   }],
+
+  rooms: [{
+    roomNumber: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    roomName: {
+      type: String,
+      default: "",
+      trim: true
+    }
+  }],
   
   // Ward location
   location: {

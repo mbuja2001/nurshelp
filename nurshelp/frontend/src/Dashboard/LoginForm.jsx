@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { styles } from "./styles";
+import nhpLogo from "./NHP_Icon.png";
 
 const LoginForm = ({ onLogin, onCancel, onCreateAccount }) => {
   const [email, setEmail] = useState("");
@@ -21,7 +22,14 @@ const LoginForm = ({ onLogin, onCancel, onCreateAccount }) => {
 
   return (
     <div style={styles.patientBg}>
-      <div style={styles.loginCard}>
+      <div style={{ ...styles.loginCard, width: "min(380px, calc(100vw - 32px))" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, marginBottom: 24, textAlign: "left" }}>
+          <img src={nhpLogo} alt="" style={{ width: 60, height: 60, objectFit: "contain", flex: "0 0 60px" }} />
+          <div>
+            <div style={{ color: "#fff", fontSize: 17, fontWeight: 800, letterSpacing: "-.03em" }}>NurseHelpDesk</div>
+            <div style={{ marginTop: 4, color: "#a7f3d0", fontSize: 9, fontWeight: 800, letterSpacing: ".18em" }}>CARE, CONNECTED.</div>
+          </div>
+        </div>
         <h2>Authorization</h2>
         <form onSubmit={handleSubmit}>
           <input

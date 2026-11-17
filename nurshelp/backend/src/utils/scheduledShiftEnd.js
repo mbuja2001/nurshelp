@@ -1,6 +1,6 @@
 export const SCHEDULED_SHIFT_END_GRACE_MS = 5 * 60 * 1000;
 
-export const getScheduledShiftEndAt = (shift) => {
+export const getScheduledShiftWindow = (shift) => {
   if (!shift?.date || !shift?.shiftStart || !shift?.shiftEnd) return null;
 
   let year;
@@ -16,6 +16,8 @@ export const getScheduledShiftEndAt = (shift) => {
     day = shiftDate.getUTCDate();
   }
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() !== month - 1 || calendarDate.getUTCDate() !== day) return null;
 
   const [startHour, startMinute] = String(shift.shiftStart).split(':').map(Number);
   const [endHour, endMinute] = String(shift.shiftEnd).split(':').map(Number);
@@ -25,10 +27,22 @@ export const getScheduledShiftEndAt = (shift) => {
     startMinute < 0 || startMinute > 59 || endMinute < 0 || endMinute > 59
   ) return null;
 
-  const endAt = new Date(year, month - 1, day, endHour, endMinute, 0, 0);
   const startAt = new Date(year, month - 1, day, startHour, startMinute, 0, 0);
+  const endAt = new Date(year, month - 1, day, endHour, endMinute, 0, 0);
   if (endAt <= startAt) endAt.setDate(endAt.getDate() + 1);
-  return endAt;
+  return { startAt, endAt };
+};
+
+export const getScheduledShiftStartAt = (shift) => getScheduledShiftWindow(shift)?.startAt || null;
+
+export const getScheduledShiftEndAt = (shift) => getScheduledShiftWindow(shift)?.endAt || null;
+
+export const isPrematureAutoClockOut = (record, shift) => {
+  if (record?.status !== 'CLOCKED_OUT' || !record.flags?.includes('AUTO_CLOCKOUT')) return false;
+
+  const scheduledEndAt = getScheduledShiftEndAt(shift);
+  const clockOutAt = new Date(record.clockOutTime);
+  return Boolean(scheduledEndAt && !Number.isNaN(clockOutAt.getTime()) && clockOutAt < scheduledEndAt);
 };
 
 export const getScheduledShiftAutoEndAt = (shift) => {

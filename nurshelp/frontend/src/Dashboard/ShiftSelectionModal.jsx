@@ -1,15 +1,16 @@
 // src/Dashboard/ShiftSelectionModal.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FaClock, FaMapMarkerAlt, FaTimes } from 'react-icons/fa';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
 
-export default function ShiftSelectionModal({ isOpen, onClose, onSelectShift, token }) {
+export default function ShiftSelectionModal({ isOpen, onClose, onSelectShift, onResult, token }) {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedShiftId, setSelectedShiftId] = useState(null);
   const [isClocking, setIsClocking] = useState(false);
+  const clockInLockRef = useRef(false);
 
   useEffect(() => {
     if (isOpen && token) {
@@ -38,11 +39,13 @@ export default function ShiftSelectionModal({ isOpen, onClose, onSelectShift, to
   };
 
   const handleClockIn = async () => {
+    if (clockInLockRef.current) return;
     if (!selectedShiftId) {
       setError('Please select a shift');
       return;
     }
 
+    clockInLockRef.current = true;
     setIsClocking(true);
     setError(null);
     try {
@@ -58,15 +61,19 @@ export default function ShiftSelectionModal({ isOpen, onClose, onSelectShift, to
         })
       });
       const data = await res.json();
-      if (data.success) {
-        onSelectShift(data.clockRecord);
+      if (res.ok && data.success) {
+        await onSelectShift(data.record);
+        onResult?.({ success: true, message: 'Shift started successfully.' });
         onClose();
       } else {
-        setError(data.message);
+        onResult?.({ success: false, message: data.message || 'Unable to start shift.' });
+        onClose();
       }
     } catch (err) {
-      setError(err.message);
+      onResult?.({ success: false, message: err.message || 'Unable to start shift.' });
+      onClose();
     } finally {
+      clockInLockRef.current = false;
       setIsClocking(false);
     }
   };

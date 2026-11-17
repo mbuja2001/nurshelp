@@ -1,6 +1,6 @@
 // src/Dashboard/styles.jsx
 export const styles = {
-  patientBg: { height: '100vh', backgroundColor: '#0f172a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' },
+  patientBg: { minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' },
   hero: { maxWidth: '800px' },
   loginCard: { backgroundColor: '#1e293b', padding: '40px', borderRadius: '15px', width: '380px', boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.8)' },
   formGroup: { marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '6px' },

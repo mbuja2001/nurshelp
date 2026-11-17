@@ -6,6 +6,7 @@ import { Pharmaceutical } from '../models/pharmacy.model.js';
 import { AuditLog } from '../models/auditLog.model.js';
 import { Hospital } from '../models/hospital.model.js';
 import { Ward } from '../models/ward.model.js';
+import { BedSchedule } from '../models/bedSchedule.model.js';
 import {
   canonicalizeServiceCoverage,
   getConfiguredHospitalServiceSpecialties,
@@ -13,7 +14,7 @@ import {
   validateHospitalShiftCoverage
 } from '../utils/hospitalShiftCoverage.js';
 import { createSyntheticHistoricalEncounter, historicalEncounterDate, normalizeHistoricalDays } from '../utils/syntheticHistoricalEncounter.js';
-import { getScheduledShiftAutoEndAt, getScheduledShiftEndAt } from '../utils/scheduledShiftEnd.js';
+import { getScheduledShiftAutoEndAt, getScheduledShiftEndAt, getScheduledShiftWindow } from '../utils/scheduledShiftEnd.js';
 import { departmentCodeFromName, resolveConfiguredDepartment } from '../utils/hospitalDepartment.js';
 import { getAllowedShiftDuties } from '../config/hospitalStaffRoleCatalog.js';
 import { normalizeShiftAssignmentRole } from '../utils/shiftTeamAssignment.js';
@@ -195,6 +196,27 @@ export const saveHospitalWards = async (req, res) => {
       if (!Number.isInteger(totalBeds) || totalBeds < 1 || totalBeds > 2000) {
         return res.status(400).json({ success: false, message: `Ward ${wardName} capacity must be between 1 and 2000 beds` });
       }
+      let rooms;
+      if (input?.rooms !== undefined) {
+        if (!Array.isArray(input.rooms) || input.rooms.length > 1000) {
+          return res.status(400).json({ success: false, message: `Ward ${wardName} must have a valid room list (maximum 1000 rooms)` });
+        }
+        const seenRoomNumbers = new Set();
+        rooms = [];
+        for (const room of input.rooms) {
+          const roomNumber = String(room?.roomNumber || '').trim();
+          const roomName = String(room?.roomName || '').trim();
+          const normalizedRoomNumber = roomNumber.toLowerCase();
+          if (!roomNumber || roomNumber.length > 64 || roomName.length > 100) {
+            return res.status(400).json({ success: false, message: `Ward ${wardName} rooms need a room number (maximum 64 characters) and room names up to 100 characters` });
+          }
+          if (seenRoomNumbers.has(normalizedRoomNumber)) {
+            return res.status(400).json({ success: false, message: `Ward ${wardName} has duplicate room number ${roomNumber}` });
+          }
+          seenRoomNumbers.add(normalizedRoomNumber);
+          rooms.push({ roomNumber, roomName });
+        }
+      }
       const normalizedDepartmentName = departmentName.toUpperCase();
       const department = normalizedDepartmentName === 'ED' ? 'ED'
         : normalizedDepartmentName === 'ICU' ? 'ICU'
@@ -203,7 +225,7 @@ export const saveHospitalWards = async (req, res) => {
               : normalizedDepartmentName === 'PEDIATRICS' ? 'PEDIATRICS'
                 : normalizedDepartmentName === 'PSYCHIATRY' ? 'PSYCH'
                   : 'GENERAL';
-      normalized.push({
+      const wardData = {
         wardId,
         wardName,
         department,
@@ -219,13 +241,30 @@ export const saveHospitalWards = async (req, res) => {
           area: String(input?.location?.area || '').trim()
         },
         isActive: input?.isActive !== false
-      });
+      };
+      if (rooms !== undefined) wardData.rooms = rooms;
+      normalized.push(wardData);
     }
 
     const previous = await Ward.find({ hospitalId }).lean();
     const wardsToSave = [];
     for (const wardData of normalized) {
       const ward = await Ward.findOne({ hospitalId, wardId: wardData.wardId }) || new Ward({ hospitalId, wardId: wardData.wardId });
+      if (wardData.rooms !== undefined && ward.rooms?.length) {
+        const nextRoomNumbers = new Set(wardData.rooms.map((room) => room.roomNumber.toLowerCase()));
+        const removedRoomNumbers = ward.rooms
+          .filter((room) => !nextRoomNumbers.has(String(room.roomNumber).toLowerCase()))
+          .map((room) => room.roomNumber);
+        if (removedRoomNumbers.length) {
+          const assignedBeds = await BedSchedule.countDocuments({
+            wardId: ward._id,
+            roomNumber: { $in: removedRoomNumbers }
+          });
+          if (assignedBeds > 0) {
+            return res.status(409).json({ success: false, message: `Ward ${wardData.wardName} has beds assigned to a room being removed. Move those beds to another configured room first.` });
+          }
+        }
+      }
       const occupiedCapacity = (ward.occupiedBeds || 0) + (ward.cleaningBeds || 0) + (ward.maintenanceBeds || 0);
       if (wardData.totalBeds < occupiedCapacity) {
         return res.status(409).json({ success: false, message: `Ward ${wardData.wardName} capacity cannot be below its occupied, cleaning, and maintenance beds (${occupiedCapacity})` });
@@ -320,9 +359,8 @@ export const recordHospitalShiftEvent = async (req, res) => {
     const hospitalId = requireHospital(req, res);
     if (!hospitalId) return;
     const event = String(req.body?.event || '').toUpperCase();
-    if (!['STARTED', 'ENDED'].includes(event)) return res.status(400).json({ success: false, message: 'Shift event must be STARTED or ENDED' });
+    if (!['STARTED', 'ENDED', 'CANCELLED'].includes(event)) return res.status(400).json({ success: false, message: 'Shift event must be STARTED, ENDED, or CANCELLED' });
     const shiftInput = req.body?.shift || {};
-    const requestedOperatingDate = String(req.body?.operatingDate || '').trim();
     if (!shiftInput.id && !shiftInput.shiftID) {
       return res.status(400).json({ success: false, message: 'A persisted shift ID is required' });
     }
@@ -344,9 +382,11 @@ export const recordHospitalShiftEvent = async (req, res) => {
       }
       const shiftDay = shift.date ? new Date(shift.date).toISOString().slice(0, 10) : null;
       if (!shiftDay) return res.status(409).json({ success: false, message: 'A dated shift is required before it can be started' });
-      const operatingDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedOperatingDate)
-        ? requestedOperatingDate
-        : occurredAt.toISOString().slice(0, 10);
+      const shiftWindow = getScheduledShiftWindow(shift);
+      if (!shiftWindow || occurredAt >= shiftWindow.endAt) {
+        return res.status(409).json({ success: false, message: 'This shift is past its scheduled end and can no longer be started.' });
+      }
+      const operatingDate = occurredAt.toISOString().slice(0, 10);
       if (shiftDay !== operatingDate) {
         return res.status(409).json({ success: false, message: 'A shift can only be started on its scheduled date' });
       }
@@ -358,7 +398,7 @@ export const recordHospitalShiftEvent = async (req, res) => {
       shift.completedBy = null;
       shift.completedAt = null;
       shift.completedSource = null;
-    } else {
+    } else if (event === 'ENDED') {
       if (shift.status !== 'IN_PROGRESS') {
         return res.status(409).json({ success: false, message: `Only an in-progress shift can be ended (current status: ${shift.status})` });
       }
@@ -368,7 +408,7 @@ export const recordHospitalShiftEvent = async (req, res) => {
         return res.status(409).json({ success: false, message: 'The scheduled shift end could not be verified. The shift cannot be ended manually.' });
       }
       if (occurredAt < scheduledEndAt) {
-        return res.status(409).json({ success: false, message: 'Early hospital shift stops require the separate dual-admin hard-stop workflow, which is not enabled.' });
+        return res.status(409).json({ success: false, message: 'This shift has not reached its scheduled end. Use the early-stop cancellation workflow with a reason.' });
       }
       if (occurredAt >= autoEndAt) {
         return res.status(409).json({ success: false, message: 'The five-minute scheduled-end authorization window has expired; the scheduled completion job will close this shift.' });
@@ -382,6 +422,26 @@ export const recordHospitalShiftEvent = async (req, res) => {
         return res.status(409).json({ success: false, message: 'The shift changed before administrator end could be recorded. Refresh the shift status.' });
       }
       shift = completedShift;
+    } else {
+      if (shift.status !== 'IN_PROGRESS') {
+        return res.status(409).json({ success: false, message: `Only an in-progress shift can be stopped early (current status: ${shift.status})` });
+      }
+      const cancellationReason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+      if (req.body?.earlyStopConfirmed !== true) {
+        return res.status(400).json({ success: false, message: 'Explicit confirmation is required to stop this active shift early.' });
+      }
+      if (!cancellationReason || cancellationReason.length > 500) {
+        return res.status(400).json({ success: false, message: 'A cancellation reason of 1 to 500 characters is required.' });
+      }
+      const cancelledShift = await Shift.findOneAndUpdate(
+        { _id: shift._id, hospitalId, status: 'IN_PROGRESS' },
+        { $set: { status: 'CANCELLED', cancelledBy: actorId, cancelledAt: occurredAt, cancellationReason } },
+        { new: true, runValidators: true }
+      );
+      if (!cancelledShift) {
+        return res.status(409).json({ success: false, message: 'The shift changed before the stop could be recorded. Refresh the shift status.' });
+      }
+      shift = cancelledShift;
     }
 
     if (event === 'STARTED') await shift.save();
@@ -404,14 +464,17 @@ export const recordHospitalShiftEvent = async (req, res) => {
         shiftEnd: shift.shiftEnd,
         date: shift.date,
         staffCount: shift.assignedStaff?.filter((assignment) => assignment.status !== 'ABSENT').length || 0,
-        operatingDate: /^\d{4}-\d{2}-\d{2}$/.test(requestedOperatingDate) ? requestedOperatingDate : occurredAt.toISOString().slice(0, 10),
+        operatingDate: occurredAt.toISOString().slice(0, 10),
         status: shift.status,
         approvedBy: shift.approvedBy ? String(shift.approvedBy) : null,
         approvedAt: shift.approvedAt,
         startedAt: shift.startedAt,
         completedAt: shift.completedAt,
         completedSource: shift.completedSource,
+        cancelledAt: shift.cancelledAt,
+        cancellationReason: shift.cancellationReason || undefined,
       },
+      ...(event === 'CANCELLED' ? { reason: shift.cancellationReason } : {}),
       description: `Administrator ${event.toLowerCase()} hospital shift ${shift.shiftName}`
     });
     return res.status(201).json({ success: true, event: audit });

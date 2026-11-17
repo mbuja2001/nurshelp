@@ -14,6 +14,11 @@ const shiftSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      maxlength: 128,
+    },
     shiftName: {
       type: String,
       required: true,
@@ -179,5 +184,13 @@ shiftSchema.index({ hospitalId: 1, department: 1, date: 1 });
 shiftSchema.index({ hospitalId: 1, departmentId: 1, date: 1 });
 shiftSchema.index({ hospitalId: 1, date: 1 });
 shiftSchema.index({ hospitalId: 1, status: 1 });
+shiftSchema.index(
+  { hospitalId: 1, createdBy: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+    name: 'unique_hospital_shift_idempotency',
+  }
+);
 
 export const Shift = mongoose.model('Shift', shiftSchema);

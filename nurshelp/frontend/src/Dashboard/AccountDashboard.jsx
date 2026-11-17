@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FiActivity, FiCheck, FiCopy, FiGrid, FiHome, FiLogOut, FiMenu, FiPlus, FiRefreshCw, FiUser } from 'react-icons/fi';
+import nhpLogo from './NHP_Icon.png';
 import './AccountDashboard.css';
 
 const AccountDashboard = ({ account, onLogout }) => {
@@ -244,7 +245,7 @@ const AccountDashboard = ({ account, onLogout }) => {
   return (
     <div className="account-shell">
       <aside className={`account-sidebar${sidebarOpen ? ' account-sidebar-open' : ''}`}>
-        <div className="account-brand"><span className="account-brand-mark">N</span><span>Nurshelpdesk<small>Sandbox workspace</small></span></div>
+        <div className="account-brand"><img src={nhpLogo} alt="NurseHelpDesk" /><span>NurseHelpDesk<small>Sandbox workspace</small></span></div>
         <div className="account-nav-label">WORKSPACE</div>
         <nav aria-label="Account navigation">
           {navigation.map(({ id, label, icon: Icon }) => (
@@ -277,7 +278,17 @@ const AccountDashboard = ({ account, onLogout }) => {
               <article className="account-metric"><span>Live integrations</span><strong>{hospitalsLoading ? '...' : hospitals.filter((hospital) => hospital.integrationStatus === 'LIVE').length}</strong><small>Verified hospital connections</small></article>
               <article className="account-metric"><span>Access requests</span><strong>{hospitalsLoading ? '...' : hospitals.reduce((total, hospital) => total + (hospital.pendingAccessRequests || 0), 0)}</strong><small>Awaiting company review</small></article>
             </div>
-            <section className="account-section"><div className="account-section-heading"><div><div className="account-eyebrow">HOSPITAL WORKSPACES</div><h2>Your hospitals</h2></div><button type="button" className="account-text-button" onClick={() => setActiveView('hospitals')}>View hospitals</button></div>{hospitals.slice(0, 3).map((hospital) => <div key={hospital.id} className="account-hospital-row"><div><strong>{hospital.name}</strong><span>{hospital.hospitalID} · {hospital.admins?.length || 0} admins</span></div><span className="account-offline-status"><i /> Offline</span></div>)}{!hospitalsLoading && hospitals.length === 0 && <div className="account-empty-state"><FiHome /><strong>No hospital workspaces yet</strong><span>Create a hospital workspace to get started.</span></div>}</section>
+            <section className="account-section">
+              <div className="account-section-heading"><div><div className="account-eyebrow">HOSPITAL WORKSPACES</div><h2>Your hospitals</h2></div><button type="button" className="account-text-button" onClick={() => setActiveView('hospitals')}>View hospitals</button></div>
+              {hospitals.slice(0, 3).map((hospital) => (
+                <article key={hospital.id} className="account-hospital-row">
+                  <span className="account-facility-mark"><FiHome aria-hidden="true" /></span>
+                  <div><strong>{hospital.name}</strong><span>{hospital.hospitalID} · {hospital.country || 'Country not set'} · {hospital.admins?.length || 0} admins</span></div>
+                  <span className={`account-environment-badge${hospital.integrationStatus === 'LIVE' ? ' is-live' : ''}`}>{hospital.integrationStatus === 'LIVE' ? 'Live connection' : hospital.environment || 'Sandbox'}</span>
+                </article>
+              ))}
+              {!hospitalsLoading && hospitals.length === 0 && <div className="account-empty-state"><FiHome /><strong>No hospital workspaces yet</strong><span>Create a hospital workspace to get started.</span></div>}
+            </section>
           </section>
         )}
 
@@ -338,19 +349,28 @@ const AccountDashboard = ({ account, onLogout }) => {
               <div className="account-empty-state account-loading-state">Loading hospital workspaces...</div>
             ) : hospitals.length ? (
               <div className="account-hospital-list">
-                {hospitals.map((hospital) => (
+                {hospitals.map((hospital) => {
+                  const environment = hospital.environment || 'SANDBOX';
+                  const hasLiveIntegration = hospital.integrationStatus === 'LIVE';
+                  return (
                   <article className="account-hospital-card" key={hospital.id}>
                     <div className="account-hospital-card-heading">
-                      <div>
-                        <div className="account-eyebrow">{hospital.hospitalID}</div>
-                        <h3>{hospital.name}</h3>
-                        <span>{hospital.country || 'Country not set'} · {hospital.departments?.length || 0} departments</span>
+                      <div className="account-facility-identity">
+                        <span className="account-facility-mark"><FiHome aria-hidden="true" /></span>
+                        <div>
+                          <div className="account-eyebrow">HOSPITAL WORKSPACE · {hospital.hospitalID}</div>
+                          <h3>{hospital.name}</h3>
+                          <span>{hospital.country || 'Country not set'} · {hospital.departments?.length || 0} departments</span>
+                        </div>
                       </div>
-                      <span className="account-offline-status"><i /> Offline</span>
+                      <span className={`account-environment-badge${hasLiveIntegration ? ' is-live' : ''}`}>{hasLiveIntegration ? 'Live connection' : environment}</span>
+                    </div>
+                    <div className="account-facility-facts">
+                      <div><span>Administrators</span><strong>{hospital.admins?.length || 0}</strong></div>
+                      <div><span>Departments</span><strong>{hospital.departments?.length || 0}</strong></div>
+                      <div><span>Clinical trial mode</span><strong>{hospital.clinicalTrialMode ? 'On' : 'Off'}</strong></div>
                     </div>
                     <div className="account-trial-summary">
-                      <div><span>Environment</span><strong>{hospital.environment || 'SANDBOX'}</strong></div>
-                      <div><span>Clinical trial mode</span><strong>{hospital.clinicalTrialMode ? 'On' : 'Off'}</strong></div>
                       {hospital.clinicalTrialModeUpdatedAt && (
                         <p>
                           Last changed {new Date(hospital.clinicalTrialModeUpdatedAt).toLocaleString()}
@@ -478,7 +498,8 @@ const AccountDashboard = ({ account, onLogout }) => {
                       </div>
                     ) : <div className="account-empty-inline">No hospital admin credentials are configured.</div>}
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : !hospitalFormOpen && (
               <div className="account-empty-state">

@@ -15,6 +15,7 @@ export default function ClockInWithApprovals({ token }) {
   const [showBreakModal, setShowBreakModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [actionSuccess, setActionSuccess] = useState(null);
   const [notes, setNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
 
@@ -161,6 +162,10 @@ export default function ClockInWithApprovals({ token }) {
         onSelectShift={async () => {
           await fetchClockStatus();
         }}
+        onResult={({ success, message }) => {
+          setActionError(success ? null : message);
+          setActionSuccess(success ? message : null);
+        }}
         token={token}
       />
 
@@ -181,8 +186,13 @@ export default function ClockInWithApprovals({ token }) {
       )}
 
       {actionError && (
-        <div style={styles.errorBanner}>
+        <div style={styles.errorBanner} role="alert">
           ❌ {actionError}
+        </div>
+      )}
+      {actionSuccess && (
+        <div style={styles.successBadge} role="status">
+          ✓ {actionSuccess}
         </div>
       )}
 
@@ -261,7 +271,11 @@ export default function ClockInWithApprovals({ token }) {
         <div style={styles.buttonGrid}>
           {!isClocked ? (
             <button
-              onClick={() => setShowShiftModal(true)}
+              onClick={() => {
+                setActionError(null);
+                setActionSuccess(null);
+                setShowShiftModal(true);
+              }}
               style={{...styles.button, ...styles.clockInButton}}
               disabled={actionLoading}
             >

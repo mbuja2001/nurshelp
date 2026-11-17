@@ -11,16 +11,39 @@ import {
   normalizeShiftAssignmentRole,
   validateClinicalTeam,
 } from '../utils/shiftTeamAssignment.js';
+import { getScheduledShiftWindow } from '../utils/scheduledShiftEnd.js';
 
 // Helper function to generate Shift ID
 const generateShiftID = () => `SHIFT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
 // ============ CREATE SHIFT ============
 export const createShift = async (req, res) => {
+  let managerID;
+  let hospitalId;
+  let idempotencyKey;
   try {
     const { shiftName, department, shiftStart, shiftEnd, date, dayOfWeek, recurrence, recurrenceEndDate, maxStaffRequired, notes, assignedStaff } = req.body;
-    const managerID = req.user.id;
-    const hospitalId = req.hospitalId;
+    managerID = req.user.id;
+    hospitalId = req.hospitalId;
+    idempotencyKey = typeof req.body.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : '';
+
+    if (req.body.idempotencyKey !== undefined && (!idempotencyKey || idempotencyKey.length > 128)) {
+      return res.status(400).json({
+        success: false,
+        message: 'A supplied idempotency key must contain 1 to 128 characters'
+      });
+    }
+
+    if (idempotencyKey) {
+      const existingShift = await Shift.findOne({ hospitalId, createdBy: managerID, idempotencyKey }).lean();
+      if (existingShift) {
+        return res.status(200).json({
+          success: true,
+          message: 'Shift was already created for this request',
+          shift: existingShift
+        });
+      }
+    }
 
     console.log('\n[SHIFT CREATE]');
     console.log('  Manager:', managerID);
@@ -45,11 +68,22 @@ export const createShift = async (req, res) => {
     }
 
     // Calculate duration
-    const [startHour, startMin] = shiftStart.split(':').map(Number);
-    const [endHour, endMin] = shiftEnd.split(':').map(Number);
-    const startTime = startHour * 60 + startMin;
-    const endTime = endHour * 60 + endMin;
-    const duration = (endTime - startTime) / 60;
+    const shiftWindow = getScheduledShiftWindow({ date, shiftStart, shiftEnd });
+    if (!shiftWindow) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_SHIFT_SCHEDULE',
+        message: 'A valid shift date, start time, and end time are required'
+      });
+    }
+    if (shiftWindow.startAt <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        code: 'SHIFT_START_TIME_PASSED',
+        message: 'A shift must be scheduled before its start time. Choose a future start date and time.'
+      });
+    }
+    const duration = (shiftWindow.endAt.getTime() - shiftWindow.startAt.getTime()) / (60 * 60 * 1000);
 
     const rosterInputs = Array.isArray(assignedStaff) ? assignedStaff : [];
     if (rosterInputs.length > Number(maxStaffRequired)) {
@@ -111,6 +145,7 @@ export const createShift = async (req, res) => {
 
     const newShift = new Shift({
       hospitalId,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       shiftID: generateShiftID(),
       shiftName,
       department: typeof department === 'string' && department.trim() ? department.trim() : null,
@@ -143,6 +178,16 @@ export const createShift = async (req, res) => {
       shift: newShift
     });
   } catch (err) {
+    if (err.code === 11000 && idempotencyKey && managerID && hospitalId) {
+      const existingShift = await Shift.findOne({ hospitalId, createdBy: managerID, idempotencyKey }).lean();
+      if (existingShift) {
+        return res.status(200).json({
+          success: true,
+          message: 'Shift was already created for this request',
+          shift: existingShift
+        });
+      }
+    }
     console.error('[SHIFT CREATE ERROR]', err);
     res.status(500).json({
       success: false,
@@ -508,6 +553,19 @@ export const assignStaffToShift = async (req, res) => {
         message: 'Shift not found'
       });
     }
+    if (shift.status !== 'PUBLISHED') {
+      return res.status(409).json({
+        success: false,
+        message: `Staff can only be assigned to a published shift (current status: ${shift.status})`
+      });
+    }
+    const shiftWindow = getScheduledShiftWindow(shift);
+    if (!shiftWindow || shiftWindow.startAt <= new Date()) {
+      return res.status(409).json({
+        success: false,
+        message: 'Staff can only be assigned before the scheduled shift start time'
+      });
+    }
 
     // CRITICAL: Verify staff belongs to the same hospital (prevent cross-hospital assignment)
     const staff = await ClinicalStaff.findById(staffID);
@@ -613,6 +671,13 @@ export const removeStaffFromShift = async (req, res) => {
       });
     }
 
+    if (!['DRAFT', 'PUBLISHED'].includes(shift.status)) {
+      return res.status(409).json({
+        success: false,
+        message: `Staff cannot be removed from a ${String(shift.status).toLowerCase()} shift`
+      });
+    }
+
     shift.assignedStaff = shift.assignedStaff.filter(staff => staff.staffID !== staffID);
     await shift.save();
 
@@ -637,13 +702,35 @@ export const updateShift = async (req, res) => {
     const { shiftID } = req.params;
     const updateData = req.body;
 
-    // Recalculate duration if times changed
-    if (updateData.shiftStart && updateData.shiftEnd) {
-      const [startHour, startMin] = updateData.shiftStart.split(':').map(Number);
-      const [endHour, endMin] = updateData.shiftEnd.split(':').map(Number);
-      const startTime = startHour * 60 + startMin;
-      const endTime = endHour * 60 + endMin;
-      updateData.duration = (endTime - startTime) / 60;
+    const currentShift = await Shift.findOne({ shiftID, hospitalId: req.hospitalId });
+    if (!currentShift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Shift not found'
+      });
+    }
+
+    const changesSchedule = ['date', 'shiftStart', 'shiftEnd'].some((field) => Object.prototype.hasOwnProperty.call(updateData, field));
+    if (changesSchedule) {
+      if (!['DRAFT', 'PUBLISHED'].includes(currentShift.status)) {
+        return res.status(409).json({ success: false, message: `A ${String(currentShift.status).toLowerCase()} shift schedule cannot be changed` });
+      }
+      const shiftWindow = getScheduledShiftWindow({
+        date: updateData.date === undefined ? currentShift.date : updateData.date,
+        shiftStart: updateData.shiftStart === undefined ? currentShift.shiftStart : updateData.shiftStart,
+        shiftEnd: updateData.shiftEnd === undefined ? currentShift.shiftEnd : updateData.shiftEnd
+      });
+      if (!shiftWindow) {
+        return res.status(400).json({ success: false, code: 'INVALID_SHIFT_SCHEDULE', message: 'A valid shift date, start time, and end time are required' });
+      }
+      if (shiftWindow.startAt <= new Date()) {
+        return res.status(400).json({
+          success: false,
+          code: 'SHIFT_START_TIME_PASSED',
+          message: 'A shift must be scheduled before its start time. Choose a future start date and time.'
+        });
+      }
+      updateData.duration = (shiftWindow.endAt.getTime() - shiftWindow.startAt.getTime()) / (60 * 60 * 1000);
     }
 
     const shift = await Shift.findOneAndUpdate(

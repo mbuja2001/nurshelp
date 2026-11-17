@@ -1,5 +1,5 @@
+import "dotenv/config";
 import express from "express";
-import dotenv from "dotenv";
 import mongoose from "mongoose";
 import cors from "cors";
 
@@ -52,7 +52,10 @@ import patientRouter from "./routes/patient.routes.js";
 import clinicalChartSessionRouter from "./routes/clinicalChartSession.routes.js";
 import supportTicketRouter from "./routes/supportTicket.routes.js";
 
-dotenv.config();
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("❌ JWT_SECRET missing in production");
+  process.exit(1);
+}
 
 const app = express();
 
@@ -184,8 +187,15 @@ app.use(express.urlencoded({ extended: true }));
 // CORS
 // ============================================
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/+$/, "")] : []),
+];
+
 app.use(cors({
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174"],
+  origin: allowedOrigins,
   credentials: true,
 }));
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { AuditLog } from '../models/auditLog.model.js';
+import { BedSchedule } from '../models/bedSchedule.model.js';
 import { Hospital } from '../models/hospital.model.js';
 import { Ward } from '../models/ward.model.js';
 import { HOSPITAL_SPECIALTIES } from '../config/hospitalStructureCatalog.js';
@@ -8,12 +9,14 @@ import { saveHospitalWards, updateHospitalStructure } from './hospitalOperations
 
 const originalAuditCreate = AuditLog.create;
 const originalHospitalFindById = Hospital.findById;
+const originalBedScheduleCountDocuments = BedSchedule.countDocuments;
 const originalWardFind = Ward.find;
 const originalWardFindOne = Ward.findOne;
 
 afterEach(() => {
   AuditLog.create = originalAuditCreate;
   Hospital.findById = originalHospitalFindById;
+  BedSchedule.countDocuments = originalBedScheduleCountDocuments;
   Ward.find = originalWardFind;
   Ward.findOne = originalWardFindOne;
 });
@@ -154,6 +157,7 @@ describe('hospital structure department configuration', () => {
           careTier: 'GENERAL_INPATIENT',
           acuityLevelAllowed: ['Green'],
           totalBeds: 10,
+          rooms: [{ roomNumber: 'PH-101', roomName: 'Consult room' }],
         }],
       },
     }, response);
@@ -162,5 +166,40 @@ describe('hospital structure department configuration', () => {
     assert.equal(response.body.wards[0].department, 'GENERAL');
     assert.equal(response.body.wards[0].departmentId, 'PHARMACY-OPS-001');
     assert.equal(response.body.wards[0].departmentName, 'Pharmacy');
+    assert.deepEqual(savedWard.rooms, [{ roomNumber: 'PH-101', roomName: 'Consult room' }]);
+  });
+
+  it('prevents removing a configured room while beds are assigned to it', async () => {
+    configureHospital([{ name: 'Pharmacy', departmentId: 'PHARMACY-OPS-001', isActive: true }]);
+    const ward = {
+      _id: 'ward-doc-1',
+      rooms: [{ roomNumber: 'PH-101', roomName: 'Consult room' }],
+      occupiedBeds: 0,
+      cleaningBeds: 0,
+      maintenanceBeds: 0,
+      save: async () => {},
+    };
+    Ward.find = () => ({ lean: async () => [ward] });
+    Ward.findOne = async () => ward;
+    BedSchedule.countDocuments = async () => 1;
+    const response = createResponse();
+
+    await saveHospitalWards({
+      ...createRequest([]),
+      body: {
+        wards: [{
+          wardId: 'PHARMACY-WARD-01',
+          wardName: 'Medication Care Unit',
+          departmentName: 'Pharmacy',
+          careTier: 'GENERAL_INPATIENT',
+          acuityLevelAllowed: ['Green'],
+          totalBeds: 10,
+          rooms: [],
+        }],
+      },
+    }, response);
+
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.message, /beds assigned.*room being removed/i);
   });
 });

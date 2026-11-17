@@ -481,7 +481,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           }
 
           .sidebar-header-brand img {
-            height: 2.35rem !important;
+            height: 2.585rem !important;
           }
         }
 
@@ -520,7 +520,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           }
 
           .sidebar-header-brand img {
-            height: 2.15rem !important;
+            height: 2.365rem !important;
           }
         }
 
@@ -549,7 +549,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           }
 
           .sidebar-header-brand img {
-            height: 2rem !important;
+            height: 2.2rem !important;
           }
         }
       `}</style>
@@ -815,7 +815,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           position: 'relative'
         }}>
           <button className="sidebar-header-brand" type="button" onClick={() => navigate('/dashboard')} title="Open dashboard" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: 0, padding: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-            <img src={nhpLogo} alt="NurseHelpDesk" style={{ height: '2.8rem', width: 'auto' }} />
+            <img src={nhpLogo} alt="NurseHelpDesk" style={{ height: '4.404rem', width: 'auto' }} />
             <div className="sidebar-header-brand-copy" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#ffffff' }}>NurseHelpDesk</h2>
               <span style={{ fontSize: 12, color: '#dbeafe' }}>Operational command center</span>

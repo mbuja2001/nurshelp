@@ -3,6 +3,7 @@ import { NurseClockRecord } from "../models/staffClockRecord.model.js";
 import { NurseSchedule } from "../models/nurseSchedule.model.js";
 import { Shift } from "../models/shift.model.js";
 import { isShiftApprovedForClockIn, isStaffAssignedToShift } from "../utils/staffShiftAccess.js";
+import { getScheduledShiftAutoEndAt, getScheduledShiftWindow, isPrematureAutoClockOut } from "../utils/scheduledShiftEnd.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
@@ -150,34 +151,30 @@ export const clockIn = async (req, res) => {
 
     // Validate shift timing - cannot clock in before 5 mins before start or after end
     const now = new Date();
-    if (shift.shiftStart) {
-      const [hours, minutes] = shift.shiftStart.split(":").map(Number);
-      const scheduledStartDate = new Date();
-      scheduledStartDate.setHours(hours, minutes, 0, 0);
-      const fiveMinsBeforeStart = new Date(scheduledStartDate.getTime() - 5 * 60000);
-      
-      if (now < fiveMinsBeforeStart) {
-        const minsUntil = Math.ceil((fiveMinsBeforeStart - now) / 60000);
-        console.log(`  ❌ TIMING ERROR: Shift hasn't started yet. Clock-in available in ${minsUntil} minutes`);
-        return res.status(409).json({ 
-          success: false, 
-          message: `Shift hasn't started yet. Clock-in opens ${minsUntil} minutes before shift start` 
-        });
-      }
+    const shiftWindow = getScheduledShiftWindow(shift);
+    if (!shiftWindow) {
+      return res.status(409).json({
+        success: false,
+        message: "Shift schedule is unavailable"
+      });
     }
 
-    if (shift.shiftEnd) {
-      const [hours, minutes] = shift.shiftEnd.split(":").map(Number);
-      const scheduledEndDate = new Date();
-      scheduledEndDate.setHours(hours, minutes, 0, 0);
-      
-      if (now > scheduledEndDate) {
-        console.log(`  ❌ TIMING ERROR: Shift has already ended at ${shift.shiftEnd}`);
-        return res.status(409).json({ 
-          success: false, 
-          message: `Shift has ended at ${shift.shiftEnd}. You cannot clock in to this shift.` 
-        });
-      }
+    const fiveMinsBeforeStart = new Date(shiftWindow.startAt.getTime() - 5 * 60000);
+    if (now < fiveMinsBeforeStart) {
+      const minsUntil = Math.ceil((fiveMinsBeforeStart - now) / 60000);
+      console.log(`  ❌ TIMING ERROR: Shift hasn't started yet. Clock-in available in ${minsUntil} minutes`);
+      return res.status(409).json({
+        success: false,
+        message: `Shift hasn't started yet. Clock-in opens ${minsUntil} minutes before shift start`
+      });
+    }
+
+    if (now > shiftWindow.endAt) {
+      console.log(`  ❌ TIMING ERROR: Shift has already ended at ${shift.shiftEnd}`);
+      return res.status(409).json({
+        success: false,
+        message: `Shift has ended at ${shift.shiftEnd}. You cannot clock in to this shift.`
+      });
     }
 
     console.log('  ✓ Shift timing validated');
@@ -198,13 +195,11 @@ export const clockIn = async (req, res) => {
     // AUTO CLOCK OUT - Check if shift has expired
     // ============================================
     if (existingClock && existingClock.shiftId && existingClock.shiftId.shiftEnd) {
-      const [hours, minutes] = existingClock.shiftId.shiftEnd.split(':').map(Number);
-      const shiftEndDate = new Date(existingClock.date);
-      shiftEndDate.setHours(hours, minutes, 0, 0);
+      const autoEndAt = getScheduledShiftAutoEndAt(existingClock.shiftId);
 
-      if (now > shiftEndDate) {
+      if (autoEndAt && now >= autoEndAt) {
         console.log(`  ⏰ SHIFT EXPIRED! Auto-clocking out staff ${staffId}`);
-        console.log(`    Shift ended at: ${shiftEndDate}`);
+        console.log(`    Shift ended at: ${autoEndAt}`);
         console.log(`    Current time: ${now}`);
 
         // Auto clock-out
@@ -240,15 +235,16 @@ export const clockIn = async (req, res) => {
       });
     }
 
-    // Check if staff has already completed a clock-in/clock-out for this shift today
+    // Ignore premature automatic clock-outs so staff can retry within the scheduled shift window.
     console.log('  🔍 Checking if staff has already covered this shift...');
-      const alreadyCovered = await NurseClockRecord.findOne({
+      const previousClockOuts = await NurseClockRecord.find({
         staffId: staffId,
-      shiftId,
-      date: { $gte: today, $lt: tomorrow },
-      status: "CLOCKED_OUT",
-      clockOutTime: { $ne: null }
-    });
+        shiftId,
+        date: { $gte: today, $lt: tomorrow },
+        status: "CLOCKED_OUT",
+        clockOutTime: { $ne: null }
+      }).select('status flags clockOutTime').lean();
+    const alreadyCovered = previousClockOuts.some(record => !isPrematureAutoClockOut(record, shift));
 
     if (alreadyCovered) {
       console.log('  ❌ DUPLICATE SHIFT ERROR: Already clocked in and out for this shift');
@@ -604,14 +600,12 @@ export const getTodayRecord = async (req, res) => {
     if (record && (record.status === 'CLOCKED_IN' || record.status === 'ON_BREAK') && record.clockOutTime === null) {
       // Check if shift has ended
       if (record.shiftId && record.shiftId.shiftEnd) {
-        const [hours, minutes] = record.shiftId.shiftEnd.split(':').map(Number);
-        const shiftEndDate = new Date(record.date);
-        shiftEndDate.setHours(hours, minutes, 0, 0);
+        const autoEndAt = getScheduledShiftAutoEndAt(record.shiftId);
         const now = new Date();
 
-        if (now > shiftEndDate) {
+        if (autoEndAt && now >= autoEndAt) {
           console.log(`[GET TODAY RECORD] ⏰ SHIFT EXPIRED! Auto-clocking out staff ${staffId}`);
-          console.log(`  Shift ended at: ${shiftEndDate}`);
+          console.log(`  Shift ended at: ${autoEndAt}`);
           console.log(`  Current time: ${now}`);
 
           // Auto clock-out
@@ -1220,12 +1214,9 @@ export const  getAttendanceHistory = async (req, res) => {
         // Check if shift has ended and user didn't clock out
         let flags = record.flags || [];
         if (record.clockInTime && !record.clockOutTime && shiftDetails.shiftEnd) {
-          const [hours, minutes] = shiftDetails.shiftEnd.split(':').map(Number);
-          const shiftEndDate = new Date(new Date(record.clockInTime).toDateString());
-          shiftEndDate.setHours(hours, minutes, 0, 0);
-          
-          // If shift time has passed and no clock out, flag as DIDNT_CLOCKOUT
-          if (now > shiftEndDate && !flags.includes('DIDNT_CLOCKOUT')) {
+          const autoEndAt = getScheduledShiftAutoEndAt(shiftDetails);
+
+          if (autoEndAt && now >= autoEndAt && !flags.includes('DIDNT_CLOCKOUT')) {
             flags = [...flags, 'DIDNT_CLOCKOUT'];
           }
         }
@@ -1241,6 +1232,7 @@ export const  getAttendanceHistory = async (req, res) => {
           date: record.clockInTime ? new Date(record.clockInTime).toLocaleDateString() : 'N/A',
           clockInTime: record.clockInTime ? new Date(record.clockInTime).toLocaleTimeString() : 'N/A',
           clockOutTime: record.clockOutTime ? new Date(record.clockOutTime).toLocaleTimeString() : (record.status === 'CLOCKED_IN' ? 'Pending' : 'Not clocked out'),
+          clockOutTimestamp: record.clockOutTime,
           status: record.status,
           flags: flags,
           workDuration: workDuration ? `${workDuration} min` : (record.clockOutTime ? 'Complete' : 'In progress'),
@@ -1334,11 +1326,12 @@ export const autoClockOutExpiredShifts = async (req, res) => {
     const now = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
     const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
     // Find all active clock records (CLOCKED_IN or ON_BREAK status)
     const activeRecords = await NurseClockRecord.find({
-      date: { $gte: today, $lt: tomorrow },
+      date: { $gte: yesterday, $lt: tomorrow },
       status: { $in: ["CLOCKED_IN", "ON_BREAK"] },
       clockOutTime: null
     }).populate("shiftId");
@@ -1355,14 +1348,10 @@ export const autoClockOutExpiredShifts = async (req, res) => {
           continue;
         }
 
-        // Parse shift end time
-        const [hours, minutes] = record.shiftId.shiftEnd.split(":").map(Number);
-        const shiftEndDate = new Date(record.date);
-        shiftEndDate.setHours(hours, minutes, 0, 0);
+        const autoEndAt = getScheduledShiftAutoEndAt(record.shiftId);
 
-        // Check if shift has ended
-        if (now > shiftEndDate) {
-          console.log(`[AUTO CLOCK OUT] Shift expired for staff ${record.staffId} at ${shiftEndDate}. Auto-clocking out...`);
+        if (autoEndAt && now >= autoEndAt) {
+          console.log(`[AUTO CLOCK OUT] Shift expired for staff ${record.staffId} at ${autoEndAt}. Auto-clocking out...`);
 
           // Update record
           record.clockOutTime = now;

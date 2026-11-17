@@ -152,8 +152,8 @@ const parseTranscript = (transcript) => {
 // ================================================================
 // PRODUCTION ENDPOINTS (Updated for Sophisticated MedGemma Synthesis)
 // ================================================================
-const PYTHON_URL_SIMPLE = process.env.PYTHON_URL || "http://localhost:5000/triage";  // Simple (ESI only) - DEPRECATED
-const PYTHON_URL_LLM = "http://localhost:5000/llm-triage";  // Sophisticated (MedGemma synthesis + diagnosis)
+const PYTHON_URL_SIMPLE = process.env.ESI_ENGINE_URL || process.env.PYTHON_URL || "http://localhost:5000/triage";  // Simple (ESI only) - DEPRECATED
+const PYTHON_URL_LLM = process.env.LLM_TRIAGE_URL || process.env.PYTHON_URL || "http://localhost:5000/llm-triage";  // Sophisticated (MedGemma synthesis + diagnosis)
 // Legacy variable for backward compatibility (always points to LLM endpoint now)
 const PYTHON_URL = PYTHON_URL_LLM;
 

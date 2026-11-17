@@ -13,7 +13,7 @@ Staff onboarding derives the system role and job title from the selected positio
 ## Scheduling and validation
 
 1. The admin Shifts workspace loads the hospital's staff roster, including position and role details.
-2. The scheduler displays the job title and system role and offers only shift duties permitted for that staff member's `positionCode`. For legacy records without a position code, the catalog provides duties based on `systemRole`.
+2. The scheduler displays the job title and system role and offers only shift duties permitted for that staff member's `positionCode`. For legacy records without a position code, the catalog provides duties based on `systemRole`; nurses keep their explicit triage/clinical choice, while specialist roles resolve only to their specialty duty.
 3. `POST /api/shifts/create` and `POST /api/shifts/:shiftID/assign-staff` reload the staff member from the hospital-scoped database record and validate the submitted duty against the same position catalog. The server remains authoritative; a browser cannot assign staff from another hospital, inactive staff, or an incompatible duty.
 4. All assigned staff are persisted in the shift's `assignedStaff` roster. Triage nurses, clinical nurses, and physicians are additionally recorded in `teamAssignment` for older clinical workflows that consume those fields.
 

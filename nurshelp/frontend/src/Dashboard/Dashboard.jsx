@@ -7,6 +7,7 @@ import AccountDashboard from "./AccountDashboard";
 import StaffScheduleManager from "./Pages/StaffScheduleManager";
 import DashboardRouter from "../components/dashboards/DashboardRouter";
 import { styles } from "./styles";
+import nhpLogo from "./NHP_Icon.png";
 import { decodeJwt, normalizeRoleLabel } from "../utils/jwt";
 import { clearAuthSession } from "../utils/authSession";
 import { apiFetch } from "../utils/apiFetch";
@@ -233,11 +234,12 @@ const Dashboard = () => {
   if (view === "home") {
     return (
       <div style={styles.patientBg}>
-        <div style={{ textAlign: "center" }}>
-          <h1 style={{ fontSize: "3rem", marginBottom: "20px" }}>
-            Nurse Helpdesk
+        <div style={{ width: "min(760px, calc(100% - 32px))", textAlign: "center" }}>
+          <h1 style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, margin: "0 0 20px", fontSize: "clamp(1.7rem, 7vw, 3rem)", lineHeight: 1.1 }}>
+            <img src={nhpLogo} alt="" style={{ width: 70, height: 70, objectFit: "contain", flex: "0 0 70px" }} />
+            <span>NurseHelpDesk</span>
           </h1>
-          <p style={{ fontSize: "18px", color: "#64748b", marginBottom: "40px" }}>
+          <p style={{ maxWidth: "100%", margin: "0 auto 40px", fontSize: "clamp(14px, 4vw, 18px)", lineHeight: 1.5, color: "#cbd5e1" }}>
             Hospital Management & Staff Scheduling System
           </p>
 

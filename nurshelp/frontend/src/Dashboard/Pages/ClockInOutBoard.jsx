@@ -3,8 +3,21 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaClock, FaPlay, FaStop, FaCoffee, FaSignOutAlt, FaHistory } from 'react-icons/fa';
 import { clearAuthSession } from '../../utils/authSession';
+import { getScheduledShiftWindow, isPrematureAutoClockOut } from '../../utils/shiftLifecycle';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+
+const getClockInShiftWindow = (shift) => {
+  const scheduledWindow = getScheduledShiftWindow(shift);
+  if (scheduledWindow) return scheduledWindow;
+  if (shift?.shiftStart || shift?.shiftEnd) return null;
+
+  const startAt = new Date(shift?.startTime || shift?.date);
+  const fallbackEnd = shift?.endTime || (new Date(shift?.date).getTime() + 8 * 60 * 60 * 1000);
+  const endAt = new Date(fallbackEnd);
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) return null;
+  return { startAt, endAt };
+};
 
 export default function ClockInOutBoard({ token, user, onLogout, activeTab: propActiveTab, onClockStatusChange }) {
   const navigate = useNavigate();
@@ -92,9 +105,15 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
   // Check if current time is within 5 mins before shift start to end of shift
   useEffect(() => {
     if (todayShift && liveTime) {
+      const shiftWindow = getClockInShiftWindow(todayShift);
+      if (!shiftWindow) {
+        setCanClockIn(false);
+        setClockInBlockReason('Shift schedule unavailable');
+        return;
+      }
+
       const now = new Date();
-      const shiftStart = new Date(todayShift.startTime);
-      const shiftEnd = new Date(todayShift.endTime);
+      const { startAt: shiftStart, endAt: shiftEnd } = shiftWindow;
       const fiveMinsBeforeStart = new Date(shiftStart.getTime() - 5 * 60000);
 
       if (now < fiveMinsBeforeStart) {
@@ -183,7 +202,10 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
     if (!shiftId) return false;
     return attendanceHistory.some(record => {
       const recordShiftId = typeof record.shiftId === 'object' ? record.shiftId?._id : record.shiftId;
-      return recordShiftId === shiftId && record.status === 'CLOCKED_OUT';
+      if (recordShiftId !== shiftId || record.status !== 'CLOCKED_OUT') return false;
+
+      const shift = assignedShifts.find(assignedShift => assignedShift._id === shiftId);
+      return !isPrematureAutoClockOut(record, shift);
     });
   };
 
@@ -214,23 +236,12 @@ export default function ClockInOutBoard({ token, user, onLogout, activeTab: prop
       return { eligible: false, reason: `✓ Already completed`, color: '#9ca3af' };
     }
     
+    const shiftWindow = getClockInShiftWindow(shift);
+    if (!shiftWindow) {
+      return { eligible: false, reason: 'Shift schedule unavailable', color: '#6b7280' };
+    }
     const now = new Date();
-    let shiftStart = new Date(shift.startTime || shift.date);
-    let shiftEnd = new Date(shift.endTime || new Date(shift.date).getTime() + 8 * 60 * 60 * 1000);
-    
-    // Parse shift start time if it's in HH:MM format
-    if (shift.shiftStart) {
-      const [hours, minutes] = shift.shiftStart.split(':').map(Number);
-      shiftStart = new Date(shiftStart);
-      shiftStart.setHours(hours, minutes, 0, 0);
-    }
-    
-    // Parse shift end time
-    if (shift.shiftEnd) {
-      const [hours, minutes] = shift.shiftEnd.split(':').map(Number);
-      shiftEnd = new Date(shiftEnd);
-      shiftEnd.setHours(hours, minutes, 0, 0);
-    }
+    const { startAt: shiftStart, endAt: shiftEnd } = shiftWindow;
 
     const fiveMinsBeforeStart = new Date(shiftStart.getTime() - 5 * 60000);
     const tenMinsAfterStart = new Date(shiftStart.getTime() + 10 * 60000);

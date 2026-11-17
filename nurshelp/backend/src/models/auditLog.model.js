@@ -44,6 +44,7 @@ const auditLogSchema = new mongoose.Schema(
         'AUTO_CLOCKOUT',
         'HOSPITAL_SHIFT_STARTED',
         'HOSPITAL_SHIFT_ENDED',
+        'HOSPITAL_SHIFT_CANCELLED',
         'HOSPITAL_SHIFT_AUTO_ENDED',
         'CLINICAL_CHART_SESSION_OPENED',
         'CLINICAL_CHART_SESSION_UPDATED',

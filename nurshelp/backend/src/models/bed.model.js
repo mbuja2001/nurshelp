@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { BED_EQUIPMENT_OPTIONS } from '../config/bedEquipmentCatalog.js';
 
 /**
  * Comprehensive Hospital Bed Model
@@ -85,18 +86,7 @@ const bedSchema = new mongoose.Schema(
     equipment_baseline: [
       {
         type: String,
-        enum: [
-          'High-Acuity Monitor',
-          'Mechanical Ventilator',
-          'Defibrillator',
-          'Dialysis Machine',
-          'Oxygen Delivery',
-          'Infusion Pump',
-          'Suction System',
-          'Portable Ultrasound',
-          'Cardiac Monitor',
-          'Blood Gas Analyzer'
-        ],
+        enum: BED_EQUIPMENT_OPTIONS,
       }
     ],
 

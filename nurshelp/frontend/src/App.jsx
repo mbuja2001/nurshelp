@@ -60,6 +60,7 @@ import PrescriptionReport from "./components/DashboardPages/PrescriptionReport.j
 import OrderedMeds from "./Dashboard/Pages/OrderedMeds.jsx";
 import DischargeReportPage from "./Dashboard/Pages/DischargeReportPage.jsx";
 import LandingPage from "./LandingPage.jsx";
+import Blog from "./LandingPages/Blog.jsx";
 import Team from "./LandingPages/Team.jsx";
 import WhatWeDo from "./LandingPages/WhatWeDo.jsx";
 import EthicsResponsibility from "./LandingPages/EthicsResponsibility.jsx";
@@ -108,7 +109,8 @@ const routesAvailableBeforeClockIn = new Set([
   '/what-we-do',
   '/ethics',
   '/validation',
-  '/security'
+  '/security',
+  '/blog'
 ]);
 
 function ShiftAccessBoundary({ children }) {
@@ -119,7 +121,7 @@ function ShiftAccessBoundary({ children }) {
   const identityType = String(user?.identityType || '').toUpperCase();
   const role = normalizeRoleLabel(user?.role, user?.specialty || user?.clinicalSpecialty || user?.department);
   const isExemptIdentity = identityType === 'ACCOUNT' || role === 'ADMIN' || role === 'MANAGER';
-  const isExemptRoute = routesAvailableBeforeClockIn.has(location.pathname);
+  const isExemptRoute = routesAvailableBeforeClockIn.has(location.pathname) || location.pathname.startsWith('/blog/');
   const requiresClockIn = !isExemptIdentity && !isExemptRoute;
   const isAuthenticated = Boolean(token && user);
   const verificationKey = `${location.key}:${location.pathname}:${token || ''}`;
@@ -316,6 +318,8 @@ function App() {
           <Route path="/ethics" element={<EthicsResponsibility />} />
           <Route path="/validation" element={<ClinicalValidation />} />
           <Route path="/security" element={<SecurityCompliance />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<Blog />} />
 
           <Route path="*" element={<LandingPage />} />
           </Routes>

@@ -8,7 +8,7 @@ import { ClinicalStaff } from "../models/clinicalstaff.model.js";
 import { getAccessiblePatients, getFieldProjection, auditPatientAccess } from "../utils/rebac.js";
 import axios from "axios";
 
-const PYTHON_URL = process.env.PYTHON_URL || "http://localhost:5000/llm-triage";  // Updated to use sophisticated endpoint
+const PYTHON_URL = process.env.LLM_TRIAGE_URL || process.env.PYTHON_URL || "http://localhost:5000/llm-triage";
 
 function parsePhysiciansCsv(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());

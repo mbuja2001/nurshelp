@@ -13,6 +13,8 @@ const BedsAllocation = ({ embedded = false }) => {
   // ============ STATE ============
   const [beds, setBeds] = useState([]);
   const [wards, setWards] = useState([]);
+  const [bedConfigurations, setBedConfigurations] = useState([]);
+  const [equipmentCatalog, setEquipmentCatalog] = useState([]);
   const [selectedWard, setSelectedWard] = useState(null);
   const [hospitalId, setHospitalId] = useState(null);
   const [hospitalStats, setHospitalStats] = useState({
@@ -24,11 +26,15 @@ const BedsAllocation = ({ embedded = false }) => {
     occupancyRate: 0
   });
   const [loading, setLoading] = useState(false);
+  const [wardsLoading, setWardsLoading] = useState(false);
+  const [configurationLoading, setConfigurationLoading] = useState(false);
+  const [configurationSaving, setConfigurationSaving] = useState(false);
+  const [equipmentSearch, setEquipmentSearch] = useState('');
   const [statsLoading, setStatsLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('view'); // 'view', 'edit', 'add', 'assign'
   const [selectedBed, setSelectedBed] = useState(null);
-  const [editForm, setEditForm] = useState({ bedNumber: '', bedType: 'Standard', status: 'available', wardUnit: 'ICU', roomNumber: '', equipment: '' });
+  const [editForm, setEditForm] = useState({ bedNumber: '', bedType: 'Standard', status: 'available', wardId: '', roomNumber: '', equipment: [] });
   const [assignForm, setAssignForm] = useState({ encounterId: '', patientName: '', notes: '' });
   const [filter, setFilter] = useState({ status: 'all', bedType: 'all' });
   const [successMessage, setSuccessMessage] = useState('');
@@ -51,7 +57,6 @@ const BedsAllocation = ({ embedded = false }) => {
       const decoded = decodeJwt(token);
       if (decoded && decoded.hospitalId) {
         setHospitalId(decoded.hospitalId);
-        console.log('Hospital context:', decoded.hospitalId);
       }
     }
   }, []);
@@ -59,35 +64,57 @@ const BedsAllocation = ({ embedded = false }) => {
   // ============ FETCH WARDS ============
   const fetchWards = async () => {
     if (!hospitalId) return [];
-    
+    setWardsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      console.log('🏥 Fetching wards for hospital:', hospitalId);
-      
       const res = await fetch(`${BACKEND_URL}/api/beds/wards?hospitalId=${hospitalId}`, {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      if (!res.ok) throw new Error('Failed to fetch wards');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Failed to fetch wards (${res.status})`);
+      }
       const data = await res.json();
-      console.log('✅ Wards fetched:', data);
-      
       const wardList = data.success ? data.data : (Array.isArray(data) ? data : []);
       setWards(wardList);
-      
-      // Select first ward by default
-      if (wardList.length > 0 && !selectedWard) {
+      if (wardList.length > 0 && !wardList.some((ward) => String(ward._id) === String(selectedWard))) {
         setSelectedWard(wardList[0]._id);
-        console.log('📍 Selected first ward:', wardList[0]._id, wardList[0].wardName);
+      } else if (!wardList.length) {
+        setSelectedWard(null);
       }
-      
       return wardList;
     } catch (err) {
-      console.error('❌ Error fetching wards:', err);
       setErrorMessage('Error loading wards: ' + err.message);
       return [];
+    } finally {
+      setWardsLoading(false);
+    }
+  };
+
+  const fetchBedConfigurations = async () => {
+    if (!hospitalId || !canEditBedConfiguration) return [];
+    setConfigurationLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${BACKEND_URL}/api/beds/configuration`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || `Unable to load bed configuration catalogue (${response.status})`);
+      }
+      setBedConfigurations(data.beds || []);
+      setEquipmentCatalog(data.equipmentCatalog || []);
+      return data.beds || [];
+    } catch (error) {
+      setErrorMessage(error.message);
+      return [];
+    } finally {
+      setConfigurationLoading(false);
     }
   };
 
@@ -150,17 +177,18 @@ const BedsAllocation = ({ embedded = false }) => {
     }
   };
 
-  // Fetch wards and hospital stats when hospital context is available
+  // Fetch hospital wards, configuration choices, and occupancy when hospital context is available
   useEffect(() => {
     if (hospitalId) {
       fetchWards();
       fetchHospitalStats();
+      if (canEditBedConfiguration) fetchBedConfigurations();
       
       // Auto-refresh stats every 10 seconds for live updates
       const interval = setInterval(() => fetchHospitalStats(), 10000);
       return () => clearInterval(interval);
     }
-  }, [hospitalId]);
+  }, [hospitalId, canEditBedConfiguration]);
 
   // ============ FETCH BEDS ============
   const fetchBeds = async (wardId = selectedWard) => {
@@ -298,29 +326,52 @@ const BedsAllocation = ({ embedded = false }) => {
   // ============ MODAL HANDLERS ============
   const openAddModal = () => {
     if (!canEditBedConfiguration) return;
+    if (!wards.length) {
+      setErrorMessage('No active wards are configured for this hospital. Add a ward in Hospital Structure before adding a bed.');
+      return;
+    }
+    const wardsWithRooms = wards.filter((ward) => (ward.rooms || []).length > 0);
+    if (!wardsWithRooms.length) {
+      setErrorMessage('No rooms are configured yet. Add rooms to a ward in Hospital Structure before adding beds.');
+      return;
+    }
+    if (!equipmentCatalog.length) {
+      setErrorMessage(configurationLoading ? 'Loading the clinical equipment catalogue. Try again shortly.' : 'The clinical equipment catalogue could not be loaded. Refresh bed configuration data before adding a bed.');
+      return;
+    }
+    const initialWard = wardsWithRooms.find((ward) => String(ward._id) === String(selectedWard)) || wardsWithRooms[0];
     setEditForm({
       bedNumber: '',
       bedType: BED_TYPES[0],
       status: 'available',
-      wardUnit: 'ICU',
+      wardId: String(initialWard._id),
       roomNumber: '',
-      equipment: ''
+      equipment: []
     });
+    setEquipmentSearch('');
     setModalMode('add');
     setShowModal(true);
   };
 
   const openEditModal = (bed) => {
     if (!canEditBedConfiguration) return;
+    const configuration = bedConfigurations.find((item) => item.bed_id === bed.bedId);
+    const legacyEquipmentNames = { Monitor: 'Cardiac Monitor', Ventilator: 'Mechanical Ventilator' };
+    const wardId = configuration?.schedule?.wardId?._id
+      || configuration?.schedule?.wardId
+      || bed.wardId?._id
+      || bed.wardId;
     setSelectedBed(bed);
     setEditForm({
       bedNumber: bed.bedNumber || '',
       bedType: bed.bedType || BED_TYPES[0],
       status: bed.status || 'available',
-      wardUnit: bed.rawBed?.wardUnit || bed.ward || 'ICU',
+      wardId: String(wardId || ''),
       roomNumber: bed.roomNumber || '',
-      equipment: (bed.equipment || []).join(', ')
+      equipment: configuration?.equipment_baseline
+        || (bed.equipment || []).map((item) => legacyEquipmentNames[item] || item).filter((item) => equipmentCatalog.some((group) => group.items.includes(item)))
     });
+    setEquipmentSearch('');
     setModalMode('edit');
     setShowModal(true);
   };
@@ -340,6 +391,7 @@ const BedsAllocation = ({ embedded = false }) => {
     setShowModal(false);
     setModalMode('view');
     setSelectedBed(null);
+    setEquipmentSearch('');
   };
 
   // ============ SAVE BED ============
@@ -349,7 +401,21 @@ const BedsAllocation = ({ embedded = false }) => {
       setErrorMessage('Bed number is required');
       return;
     }
+    if (!editForm.wardId || !wards.some((ward) => String(ward._id) === String(editForm.wardId))) {
+      setErrorMessage('Select an active ward configured for this hospital.');
+      return;
+    }
+    const selectedWardForSave = wards.find((ward) => String(ward._id) === String(editForm.wardId));
+    if (!editForm.roomNumber || !(selectedWardForSave?.rooms || []).some((room) => room.roomNumber === editForm.roomNumber)) {
+      setErrorMessage('Select a room configured under the selected ward.');
+      return;
+    }
+    if (!Array.isArray(editForm.equipment) || editForm.equipment.some((item) => !equipmentCatalog.some((group) => group.items.includes(item)))) {
+      setErrorMessage('Choose equipment only from the predefined clinical equipment catalogue.');
+      return;
+    }
 
+    setConfigurationSaving(true);
     try {
       const token = localStorage.getItem('token');
       const headers = {
@@ -363,9 +429,9 @@ const BedsAllocation = ({ embedded = false }) => {
         headers,
         body: JSON.stringify({
           bed_id: editForm.bedNumber,
-          ward_unit: editForm.wardUnit,
+          wardId: editForm.wardId,
           room_number: editForm.roomNumber,
-          equipment_baseline: editForm.equipment.split(',').map((item) => item.trim()).filter(Boolean)
+          equipment_baseline: editForm.equipment
         })
       });
 
@@ -374,12 +440,14 @@ const BedsAllocation = ({ embedded = false }) => {
         throw new Error(responseData.message || `Failed to save bed (${res.status})`);
       }
       setSuccessMessage(modalMode === 'add' ? 'Bed added successfully' : 'Bed updated successfully');
+      setSelectedWard(editForm.wardId);
       closeModal();
-      await fetchWards();
-      await fetchBeds(selectedWard);
+      await Promise.all([fetchWards(), fetchBedConfigurations(), fetchBeds(editForm.wardId)]);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
       setErrorMessage(err.message);
+    } finally {
+      setConfigurationSaving(false);
     }
   };
 
@@ -461,11 +529,18 @@ const BedsAllocation = ({ embedded = false }) => {
   };
 
   // ============ FILTER & COMPUTE DISPLAY ============
-  const filteredBeds = beds.filter(bed => {
-    if (filter.status !== 'all' && bed.status !== filter.status) return false;
-    if (filter.bedType !== 'all' && bed.bedType !== filter.bedType) return false;
-    return true;
-  });
+  const filteredBeds = beds
+    .filter((bed) => {
+      if (filter.status !== 'all' && bed.status !== filter.status) return false;
+      if (filter.bedType !== 'all' && bed.bedType !== filter.bedType) return false;
+      return true;
+    })
+    .map((bed) => {
+      const configuration = bedConfigurations.find((item) => item.bed_id === bed.bedId);
+      return configuration
+        ? { ...bed, equipment: configuration.equipment_baseline || [], rawBed: { ...bed.rawBed, wardUnit: configuration.ward_unit } }
+        : bed;
+    });
 
   // Use hospital-wide stats instead of ward-filtered stats
   const stats = hospitalStats;
@@ -491,6 +566,15 @@ const BedsAllocation = ({ embedded = false }) => {
     if (hours < 24) return `${hours}h`;
     return `${Math.floor(hours / 24)}d`;
   };
+
+  const visibleEquipmentCatalog = equipmentCatalog
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.toLowerCase().includes(equipmentSearch.trim().toLowerCase()))
+    }))
+    .filter((group) => group.items.length > 0);
+  const selectedWardRecord = wards.find((ward) => String(ward._id) === String(editForm.wardId));
+  const configuredRooms = selectedWardRecord?.rooms || [];
 
   // ============ RENDER ============
   const bedManagementContent = (
@@ -620,16 +704,18 @@ const BedsAllocation = ({ embedded = false }) => {
 
             {canEditBedConfiguration && <button
               onClick={openAddModal} 
+              disabled={wardsLoading || configurationLoading || !wards.length || !equipmentCatalog.length}
+              title={!wards.length ? 'Configure an active ward before adding a bed' : 'Add a bed to the selected ward'}
               style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
                 gap: '8px', 
                 padding: '10px 16px', 
-                backgroundColor: '#10b981', 
+                backgroundColor: wardsLoading || configurationLoading || !wards.length || !equipmentCatalog.length ? '#94a3b8' : '#10b981',
                 color: '#fff', 
                 border: 'none', 
                 borderRadius: '8px', 
-                cursor: 'pointer', 
+                cursor: wardsLoading || configurationLoading || !wards.length || !equipmentCatalog.length ? 'not-allowed' : 'pointer',
                 fontWeight: 600, 
                 fontSize: '14px',
                 transition: 'background-color 0.2s'
@@ -678,6 +764,11 @@ const BedsAllocation = ({ embedded = false }) => {
               </select>
             </div>
           </div>
+          {!wardsLoading && !wards.length && canEditBedConfiguration && (
+            <div role="status" style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 12 }}>
+              No active wards are configured for this hospital. Add a ward in Hospital Structure before adding a bed.
+            </div>
+          )}
         </div>
 
         {/* Professional Beds Grid */}
@@ -1149,6 +1240,7 @@ const BedsAllocation = ({ embedded = false }) => {
                       </>
                     ) : null)}
                     {canEditBedConfiguration && <button
+                      disabled={configurationLoading || !equipmentCatalog.length}
                       onClick={() => {
                         console.log('✏️  Editing bed:', bed.bedNumber);
                         openEditModal(bed);
@@ -1219,19 +1311,101 @@ const BedsAllocation = ({ embedded = false }) => {
 
       {showModal && canEditBedConfiguration && (modalMode === 'add' || modalMode === 'edit') && (
         <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
+          <form onSubmit={(event) => { event.preventDefault(); saveBed(); }} style={{ width: 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div><div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase' }}>Administrative configuration</div><h2 style={{ margin: '6px 0 0', color: '#0f172a' }}>{modalMode === 'edit' ? `Edit ${editForm.bedNumber}` : 'Add bed'}</h2></div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase' }}>Administrative configuration</div>
+                <h2 style={{ margin: '6px 0 0', color: '#0f172a' }}>{modalMode === 'edit' ? `Edit ${editForm.bedNumber}` : 'Add bed to a hospital ward'}</h2>
+                <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 12 }}>Select an existing active ward and configure its clinical equipment baseline.</p>
+              </div>
               <button type="button" onClick={closeModal} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#475569' }}><FiX size={20} /></button>
             </div>
             <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Bed ID<input value={editForm.bedNumber} disabled={modalMode === 'edit'} onChange={(event) => setEditForm((current) => ({ ...current, bedNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
-              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Ward<input value={editForm.wardUnit} onChange={(event) => setEditForm((current) => ({ ...current, wardUnit: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
-              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Room<input value={editForm.roomNumber} onChange={(event) => setEditForm((current) => ({ ...current, roomNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
-              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155', gridColumn: '1 / -1' }}>Equipment, comma separated<input value={editForm.equipment} onChange={(event) => setEditForm((current) => ({ ...current, equipment: event.target.value }))} placeholder="Cardiac Monitor, Oxygen Delivery, Infusion Pump" style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Bed ID<input required value={editForm.bedNumber} disabled={modalMode === 'edit'} onChange={(event) => setEditForm((current) => ({ ...current, bedNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                Existing ward
+                <select required value={editForm.wardId} onChange={(event) => setEditForm((current) => ({ ...current, wardId: event.target.value, roomNumber: '' }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff' }}>
+                  <option value="">Select an active ward</option>
+                  {wards.map((ward) => (
+                    <option key={ward._id} value={ward._id}>
+                      {ward.wardName} · {ward.departmentName || ward.department} · {ward.totalBeds || 0} planned beds
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                Configured room
+                <select required value={editForm.roomNumber} onChange={(event) => setEditForm((current) => ({ ...current, roomNumber: event.target.value }))} disabled={!configuredRooms.length} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6, background: configuredRooms.length ? '#fff' : '#f1f5f9' }}>
+                  <option value="">{configuredRooms.length ? 'Select a room in this ward' : 'No rooms configured for this ward'}</option>
+                  {configuredRooms.map((room) => (
+                    <option key={room.roomNumber} value={room.roomNumber}>
+                      {room.roomNumber}{room.roomName ? ` · ${room.roomName}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" onClick={closeModal} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancel</button><button type="button" onClick={saveBed} style={{ padding: '9px 14px', border: 'none', borderRadius: 6, background: '#0f766e', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Save configuration</button></div>
-          </div>
+            {selectedWardRecord && (
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#f0fdfa', border: '1px solid #99f6e4', color: '#115e59', fontSize: 12 }}>
+                <strong>{selectedWardRecord.wardName}</strong> · {selectedWardRecord.departmentName || selectedWardRecord.department}
+                <span> · {selectedWardRecord.location?.wing || 'Main'} wing, floor {selectedWardRecord.location?.floor || 1}</span>
+                {!configuredRooms.length && <div style={{ marginTop: 6 }}>Add rooms to this ward in Hospital Structure before placing beds here.</div>}
+              </div>
+            )}
+            <section style={{ marginTop: 18, border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ margin: 0, color: '#0f172a', fontSize: 15 }}>Clinical equipment</h3>
+                  <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>Select equipment from the predefined clinical catalogue. Free-text equipment names are not accepted.</p>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0f766e' }}>{editForm.equipment.length} selected</span>
+              </div>
+              <input
+                type="search"
+                aria-label="Search clinical equipment"
+                value={equipmentSearch}
+                onChange={(event) => setEquipmentSearch(event.target.value)}
+                placeholder="Search equipment"
+                style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, maxHeight: 310, overflowY: 'auto', marginTop: 12, paddingRight: 4 }}>
+                {visibleEquipmentCatalog.map((group) => (
+                  <fieldset key={group.category} style={{ minWidth: 0, margin: 0, padding: 10, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    <legend style={{ padding: '0 5px', color: '#334155', fontSize: 12, fontWeight: 800 }}>{group.category}</legend>
+                    <div style={{ display: 'grid', gap: 7 }}>
+                      {group.items.map((item) => (
+                        <label key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: '#475569', fontSize: 12 }}>
+                          <input
+                            type="checkbox"
+                            checked={editForm.equipment.includes(item)}
+                            onChange={(event) => setEditForm((current) => ({
+                              ...current,
+                              equipment: event.target.checked
+                                ? [...new Set([...current.equipment, item])]
+                                : current.equipment.filter((selected) => selected !== item)
+                            }))}
+                          />
+                          {item}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                ))}
+                {!visibleEquipmentCatalog.length && <div style={{ gridColumn: '1 / -1', padding: 12, color: '#64748b', fontSize: 12 }}>No equipment matches that search.</div>}
+              </div>
+              {editForm.equipment.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }} aria-label="Selected equipment">
+                  {editForm.equipment.map((item) => <span key={item} style={{ padding: '5px 8px', borderRadius: 999, background: '#ecfeff', border: '1px solid #a5f3fc', color: '#155e75', fontSize: 11 }}>{item}</span>)}
+                </div>
+              )}
+            </section>
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" onClick={closeModal} disabled={configurationSaving} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button type="submit" disabled={configurationSaving || !equipmentCatalog.length} style={{ padding: '9px 14px', border: 'none', borderRadius: 6, background: '#0f766e', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>
+                {configurationSaving ? 'Saving...' : modalMode === 'add' ? 'Create bed' : 'Save configuration'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </>
