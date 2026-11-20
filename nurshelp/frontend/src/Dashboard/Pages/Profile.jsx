@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FiX, FiEdit2, FiClock, FiCheckCircle, FiAlertCircle, FiBarChart2, FiUser } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
+import { FiX, FiEdit2, FiClock, FiCheckCircle, FiAlertCircle, FiBarChart2, FiUser, FiLogOut } from 'react-icons/fi';
 import SidebarLayout from '../SidebarLayout';
 import { decodeJwt } from '../../utils/jwt';
+import { clearAuthSession } from '../../utils/authSession';
 
 const Profile = ({ nurseName: initialNurseName }) => {
+  const navigate = useNavigate();
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
   const decodedToken = decodeJwt(localStorage.getItem('token')) || {};
   const accountRole = String(decodedToken.role || '').toUpperCase();
@@ -306,9 +309,13 @@ const Profile = ({ nurseName: initialNurseName }) => {
     .join(' · ') || 'No active cases';
   const acuityWeightSourceLabel = liveWorkload?.acuityWeightSource || 'fallback 1.0x';
   const workloadHasCapacity = liveWorkload?.capacity != null;
+  const handleLogout = () => {
+    clearAuthSession();
+    navigate('/dashboard?login=1', { replace: true });
+  };
 
   return (
-    <SidebarLayout username={username} handleLogout={() => {}}>
+    <SidebarLayout username={username}>
       <div style={{ maxWidth: 1200 }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
@@ -321,25 +328,48 @@ const Profile = ({ nurseName: initialNurseName }) => {
             {[roleLabel, nurse.specialty, nurse.department].filter(Boolean).join(' · ')}
           </p>
         </div>
-        {!isManagementAccount && <button
-          onClick={openEditModal}
-          style={{
-            padding: '10px 16px',
-            backgroundColor: '#0f172a',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <FiEdit2 size={16} />
-          Edit Profile
-        </button>}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+          {!isManagementAccount && <button
+            type="button"
+            onClick={openEditModal}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: '#0f172a',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <FiEdit2 size={16} />
+            Edit Profile
+          </button>}
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: '#fff1f2',
+              color: '#be123c',
+              border: '1px solid #fecdd3',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <FiLogOut size={16} aria-hidden="true" />
+            Log out
+          </button>
+        </div>
       </div>
 
       {/* Success/Error Messages */}

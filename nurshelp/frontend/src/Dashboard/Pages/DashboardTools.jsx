@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import SidebarLayout from '../SidebarLayout';
-import { FiBarChart2, FiMessageCircle, FiBell, FiSettings } from 'react-icons/fi';
+import { FiTool, FiMessageCircle, FiBell, FiSettings } from 'react-icons/fi';
 
 const DashboardTools = () => {
   const location = useLocation();
@@ -21,7 +21,7 @@ const DashboardTools = () => {
       <div style={{ maxWidth: 1100, width: '100%' }}>
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <FiBarChart2 size={28} style={{ color: '#0f172a' }} />
+            <FiTool size={28} style={{ color: '#0f172a' }} />
             <div>
               <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, color: '#0f172a' }}>Toolbar</h1>
               <p style={{ margin: '6px 0 0', color: '#475569', fontSize: 15 }}>Clinical toolbar actions for physician workflow and rapid task context.</p>

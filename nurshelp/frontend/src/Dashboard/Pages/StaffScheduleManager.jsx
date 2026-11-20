@@ -161,90 +161,6 @@ const PasswordField = ({ label, value, onChange, placeholder = '', style = {} })
   );
 };
 
-const createHospitalSetupSample = ({ staffCount = 49 } = {}) => {
-  const suffix = `${Date.now()}${Math.floor(Math.random() * 90 + 10)}`;
-  const managerPassword = `Admin!${suffix.slice(-8)}`;
-  const staffPassword = `Staff!${suffix.slice(-8)}`;
-  const legacyStaffTemplates = [
-    ['Sarah Chen', 'PHYSICIAN', 'GENERAL_WARD', 'Internal Medicine'], ['Raj Patel', 'PHYSICIAN', 'GENERAL_WARD', 'General Surgery'],
-    ['Maria Garcia', 'PHYSICIAN', 'EMERGENCY', 'Emergency Medicine'], ['James Wilson', 'PHYSICIAN', 'PEDIATRICS', 'Pediatrics'],
-    ['Lisa Anderson', 'PHYSICIAN', 'CARDIOLOGY', 'Cardiology'], ['Robert Brown', 'PHYSICIAN', 'RADIOLOGY', 'Radiology'],
-    ['Emily Davis', 'PHYSICIAN', 'PEDIATRICS', 'Neonatal Medicine'], ['Michael Torres', 'PHYSICIAN', 'ICU', 'Pediatric ICU'],
-    ['Jennifer Lee', 'PHYSICIAN', 'CARDIOLOGY', 'Cardiothoracic Surgery'], ['David Kumar', 'PHYSICIAN', 'ICU', 'Neurosurgery'],
-    ['Amanda Wright', 'PHYSICIAN', 'ICU', 'Pulmonology'], ['Christopher Martinez', 'PHYSICIAN', 'GENERAL_WARD', 'Nephrology'],
-    ['Patricia Johnson', 'PHYSICIAN', 'GENERAL_WARD', 'Orthopedics'], ['Daniel O\'Brien', 'PHYSICIAN', 'GENERAL_WARD', 'Gastroenterology'],
-    ['Susan Blake', 'PHYSICIAN', 'GENERAL_WARD', 'Neurology'], ['George Harris', 'PHYSICIAN', 'GENERAL_WARD', 'Oncology'],
-    ['Diana Turner', 'PHYSICIAN', 'GENERAL_WARD', 'Infectious Disease'], ['Paul Thompson', 'PHYSICIAN', 'GENERAL_WARD', 'Geriatrics'],
-    ['Helen White', 'PHYSICIAN', 'GENERAL_WARD', 'OBGYN'], ['Kevin Zhang', 'PHYSICIAN', 'GENERAL_WARD', 'Psychiatry'],
-    ['Nancy Garcia', 'PHYSICIAN', 'GENERAL_WARD', 'Clinical Pathology'], ['Emma Thompson', 'NURSE', 'EMERGENCY', 'Emergency Nursing'],
-    ['Michael Chen', 'NURSE', 'EMERGENCY', 'Emergency Nursing'], ['Amanda Foster', 'NURSE', 'ICU', 'Critical Care Nursing'],
-    ['Jessica Lee', 'NURSE', 'PEDIATRICS', 'Neonatal Nursing'], ['Thomas Martinez', 'NURSE', 'PEDIATRICS', 'Pediatric Nursing'],
-    ['Sophie Robinson', 'NURSE', 'ICU', 'ICU Nursing'], ['David Kumar', 'NURSE', 'ICU', 'Neurosurgical Nursing'],
-    ['Helen White', 'NURSE', 'CARDIOLOGY', 'Cardiac Nursing'], ['Oliver Green', 'NURSE', 'GENERAL_WARD', 'General Nursing'],
-    ['Victoria Brown', 'NURSE', 'GENERAL_WARD', 'General Nursing'], ['Rachel Murphy', 'NURSE', 'GENERAL_WARD', 'General Nursing'],
-    ['Marcus Johnson', 'NURSE', 'OR', 'Operating Room Nursing'], ['Carla Smith', 'NURSE', 'GENERAL_WARD', 'Orthopedic Nursing'],
-    ['James Wilson', 'NURSE', 'GENERAL_WARD', 'General Nursing'], ['Patricia Davis', 'NURSE', 'GENERAL_WARD', 'General Nursing'],
-    ['Robert Miller', 'NURSE', 'GENERAL_WARD', 'Oncology Nursing'], ['Linda Anderson', 'NURSE', 'GENERAL_WARD', 'Infection Control Nursing'],
-    ['George Taylor', 'NURSE', 'GENERAL_WARD', 'Geriatric Nursing'], ['Susan Harris', 'NURSE', 'GENERAL_WARD', 'Maternity Nursing'],
-    ['Frank Jackson', 'NURSE', 'GENERAL_WARD', 'Psychiatric Nursing'], ['Peter Mitchell', 'RADIOLOGIST', 'RADIOLOGY', 'X-Ray Technician'],
-    ['Andrew Morris', 'RADIOLOGIST', 'RADIOLOGY', 'CT Technician'], ['Jennifer Garcia', 'RADIOLOGIST', 'RADIOLOGY', 'MRI Technician'],
-    ['Marcus White', 'RADIOLOGIST', 'RADIOLOGY', 'Ultrasound Technician'], ['Leonard Roberts', 'PATHOLOGIST', 'GENERAL_WARD', 'Lab Technician'],
-    ['Victoria King', 'PATHOLOGIST', 'GENERAL_WARD', 'Hematology Technician'], ['Mark Johnson', 'PHARMACIST', 'GENERAL_WARD', 'Clinical Pharmacist'],
-    ['Nancy Davis', 'PHARMACIST', 'GENERAL_WARD', 'Hospital Pharmacist']
-  ].map(([fullName, role, department, specialty]) => {
-    const nameParts = fullName.split(' ');
-    const positionCodeByRole = {
-      NURSE: 'REGISTERED_NURSE',
-      PHYSICIAN: 'PHYSICIAN',
-      TECHNICIAN: 'TECHNICIAN',
-      ADMINISTRATIVE: 'ADMINISTRATIVE_SUPPORT',
-      PHARMACIST: 'PHARMACIST',
-      RADIOLOGIST: 'RADIOLOGIST',
-      PATHOLOGIST: 'PATHOLOGIST'
-    };
-    const departmentAliases = {
-      EMERGENCY: 'ED',
-      GENERAL_WARD: 'General',
-      CARDIOLOGY: 'General',
-      RADIOLOGY: 'General'
-    };
-    return {
-      firstName: nameParts.shift(),
-      lastName: nameParts.join(' '),
-      role,
-      positionCode: positionCodeByRole[role] || 'REGISTERED_NURSE',
-      department: departmentAliases[department] || department,
-      specialty,
-      title: role === 'NURSE' ? 'RN' : role === 'PHARMACIST' || role === 'PATHOLOGIST' ? 'PhD' : 'MD'
-    };
-  });
-  const staff = Array.from({ length: Math.max(1, Number(staffCount) || 1) }, (_, index) => {
-    const template = legacyStaffTemplates[index % legacyStaffTemplates.length];
-    const cycle = Math.floor(index / legacyStaffTemplates.length);
-    const firstName = cycle ? `${template.firstName}${cycle + 1}` : template.firstName;
-    return {
-      ...template,
-      firstName,
-      email: `${firstName}.${template.lastName}.${suffix}.${index + 1}@example.test`.toLowerCase(),
-      password: staffPassword,
-      licenseNumber: `${template.title}-${suffix.slice(-6)}-${String(index + 1).padStart(2, '0')}`
-    };
-  });
-
-  return {
-    hospital: {
-      hospitalName: `Northstar Medical Center ${suffix.slice(-4)}`,
-      managerName: 'Amelia',
-      managerSurname: 'Carter',
-      managerEmail: `amelia.carter.${suffix}@example.test`.toLowerCase(),
-      managerPassword,
-      department: 'All',
-      departments: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General']
-    },
-    staff
-  };
-};
-
 const StaffScheduleManager = ({ onLogout = null }) => {
   const token = localStorage.getItem('token');
   const decoded = decodeJwt(token);
@@ -362,7 +278,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   const [hospitalDayStarting, setHospitalDayStarting] = useState(false);
   const hospitalDayStartLockRef = useRef(false);
   const hospitalDayStartRequestRef = useRef(null);
-  const hospitalSetupSubmitLockRef = useRef(false);
   const [hospitalDayStep, setHospitalDayStep] = useState(0);
   const [daySystemReadiness, setDaySystemReadiness] = useState({
     beds: true,
@@ -1074,25 +989,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     password: '',
     phone: ''
   });
-  const [newHospitalName, setNewHospitalName] = useState('');
-  const [hospitalBootstrap, setHospitalBootstrap] = useState({
-    hospitalName: '',
-    managerName: '',
-    managerSurname: '',
-    managerEmail: '',
-    managerPassword: '',
-    department: 'All',
-    departments: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General']
-  });
-  const [bootstrapStaffRows, setBootstrapStaffRows] = useState([
-    { firstName: '', lastName: '', email: '', password: '', role: 'NURSE', positionCode: 'TRIAGE_NURSE', department: 'ED', specialty: '' }
-  ]);
-  const [hospitalSetupOpen, setHospitalSetupOpen] = useState(false);
-  const [setupStep, setSetupStep] = useState(0);
-  const [setupAutoFilled, setSetupAutoFilled] = useState(false);
-  const [setupStaffCount, setSetupStaffCount] = useState(49);
-  const [setupEncounterCount, setSetupEncounterCount] = useState(8);
-  const [setupHistoricalDays, setSetupHistoricalDays] = useState(30);
   const [overviewDiagnoses, setOverviewDiagnoses] = useState([]);
 
   // ============ DEPARTMENTS ============
@@ -1643,154 +1539,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     } catch (error) {
       setMessages({ success: '', error: error.message });
     }
-  };
-
-  const createManagedHospital = async () => {
-    console.log('[HOSPITAL] Add hospital requested', { hospitalName: newHospitalName.trim() });
-    if (!newHospitalName.trim()) return setMessages({ success: '', error: 'Enter a hospital name first.' });
-    setManagedHospitalLoading(true);
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/hospital/managed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ hospitalName: newHospitalName.trim() })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || `Unable to create hospital (${response.status})`);
-      setNewHospitalName('');
-      setMessages({ success: `${data.hospital?.name || 'Hospital'} created.`, error: '' });
-      await fetchManagedHospitals();
-    } catch (error) {
-      setMessages({ success: '', error: error.message });
-    } finally {
-      setManagedHospitalLoading(false);
-    }
-  };
-
-  const submitHospitalBootstrap = async () => {
-    console.log('[HOSPITAL] Add hospital bootstrap requested', hospitalBootstrap);
-    if (hospitalSetupSubmitLockRef.current) return;
-    hospitalSetupSubmitLockRef.current = true;
-    const { hospitalName, managerName, managerSurname, managerEmail, managerPassword } = hospitalBootstrap;
-    if (!hospitalName || !managerName || !managerSurname || !managerEmail || !managerPassword) {
-      setMessages({ success: '', error: 'Hospital, manager, and login details are required before creating the facility.' });
-      setHospitalSetupOpen(false);
-      hospitalSetupSubmitLockRef.current = false;
-      return;
-    }
-
-    const enteredStaff = bootstrapStaffRows.filter((row) => row.firstName.trim() || row.lastName.trim() || row.email.trim());
-    const invalidStaff = enteredStaff.find((row) => {
-      const position = HOSPITAL_STAFF_ROLES.find((item) => item.code === row.positionCode);
-      return !row.firstName.trim()
-        || !row.lastName.trim()
-        || !row.email.trim()
-        || row.password.trim().length < 8
-        || !position
-        || !hospitalBootstrap.departments.includes(row.department)
-        || !HOSPITAL_SPECIALTIES.some((item) => item.name === row.specialty);
-    });
-    if (invalidStaff) {
-      setMessages({ success: '', error: 'Complete every staff row with a valid position, selected hospital department, configured specialty, and password of at least 8 characters.' });
-      setSetupStep(1);
-      setHospitalSetupOpen(false);
-      hospitalSetupSubmitLockRef.current = false;
-      return;
-    }
-
-    setManagedHospitalLoading(true);
-    try {
-      const departmentSpecialties = [...new Set(enteredStaff.map((row) => row.department))].map((department) => ({
-        department,
-        specialties: [...new Set(enteredStaff.filter((row) => row.department === department).map((row) => row.specialty))]
-      }));
-      const response = await fetch(`${BACKEND_URL}/api/hospital/managed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          hospitalName: hospitalName.trim(),
-          adminName: managerName.trim(),
-          adminSurname: managerSurname.trim(),
-          adminEmail: managerEmail.trim(),
-          adminPassword: managerPassword,
-          department: hospitalBootstrap.department,
-          departments: hospitalBootstrap.departments,
-          departmentSpecialties
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || `Unable to create managed hospital (${response.status})`);
-      const hospitalToken = data.token || token;
-      if (data.token) localStorage.setItem('token', data.token);
-
-      const staff = enteredStaff.map((row, index) => {
-        const position = HOSPITAL_STAFF_ROLES.find((item) => item.code === row.positionCode);
-        return {
-          ...row,
-          role: position.systemRole,
-          title: position.defaultTitle || '',
-          licenseNumber: position.requiresCredentials ? (row.licenseNumber || `PENDING-${Date.now()}-${index + 1}`) : ''
-        };
-      });
-      if (staff.length) {
-        const staffResponse = await fetch(`${BACKEND_URL}/api/admin/hospital-operations/staff/bulk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${hospitalToken}` },
-          body: JSON.stringify({ staff })
-        });
-        const staffData = await staffResponse.json().catch(() => ({}));
-        if (!staffResponse.ok) throw new Error(staffData.message || `Hospital created, but staff onboarding failed (${staffResponse.status})`);
-      }
-
-      const encounterResponse = await fetch(`${BACKEND_URL}/api/admin/hospital-operations/encounters/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${hospitalToken}` },
-        body: JSON.stringify({ count: Number(setupEncounterCount), historicalDays: Number(setupHistoricalDays), complaintType: 'FEVER', lifecycleStatus: 'AWAITING_PHYSICIAN' })
-      });
-      const encounterData = await encounterResponse.json().catch(() => ({}));
-      if (!encounterResponse.ok) throw new Error(encounterData.message || `Hospital and staff were created, but encounter seeding failed (${encounterResponse.status})`);
-
-      setMessages({ success: `${data.hospital?.name || hospitalName}, ${staff.length} staff credentials, and ${encounterData.count || setupEncounterCount} encounters were created under your administrator account.`, error: '' });
-      setHospitalBootstrap({
-        hospitalName: '',
-        managerName: '',
-        managerSurname: '',
-        managerEmail: '',
-        managerPassword: '',
-        department: 'All',
-        departments: ['ED', 'ICU', 'OR', 'OB', 'Medical-Surgical', 'Pediatrics', 'Psychiatry', 'General']
-      });
-      setBootstrapStaffRows([{ firstName: '', lastName: '', email: '', password: '', role: 'NURSE', positionCode: 'TRIAGE_NURSE', department: 'ED', specialty: '' }]);
-      setSetupAutoFilled(false);
-      setHospitalSetupOpen(false);
-      await fetchManagedHospitals();
-      setTimeout(() => window.location.reload(), 1800);
-    } catch (error) {
-      setMessages({ success: '', error: error.message });
-      setHospitalSetupOpen(false);
-      await fetchManagedHospitals();
-    } finally {
-      setManagedHospitalLoading(false);
-      hospitalSetupSubmitLockRef.current = false;
-    }
-  };
-
-  const updateBootstrapStaffRow = (index, field, value) => setBootstrapStaffRows((rows) => rows.map((row, rowIndex) => {
-    if (rowIndex !== index) return row;
-    if (field === 'positionCode') {
-      const position = HOSPITAL_STAFF_ROLES.find((item) => item.code === value);
-      return { ...row, positionCode: value, role: position?.systemRole || '' };
-    }
-    return { ...row, [field]: value };
-  }));
-
-  const autoFillHospitalSetup = () => {
-    const sample = createHospitalSetupSample({ staffCount: setupStaffCount });
-    setHospitalBootstrap(sample.hospital);
-    setBootstrapStaffRows(sample.staff);
-    setSetupAutoFilled(true);
-    setSetupStep(0);
-    setMessages({ success: 'Sample hospital, manager, and staff credentials filled. Review each step before creating.', error: '' });
   };
 
   const selectManagedHospital = async (hospitalId) => {
@@ -2557,7 +2305,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           </div>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => setHospitalSetupOpen(true)} style={policyButtonStyle}><FiPlus size={15} /> Create New Hospital</button>
             <button type="button" aria-label={hospitalDayRunning ? 'End Hospital Shift' : 'Start Hospital Shift'} title={hospitalDayRunning ? 'End Hospital Shift' : 'Start Hospital Shift'} onClick={hospitalDayRunning ? endHospitalDay : openHospitalDayWizard} style={hospitalDayRunning ? { ...policyButtonStyle, background: 'linear-gradient(135deg, #be123c 0%, #e11d48 100%)', boxShadow: '0 10px 24px rgba(225, 29, 72, 0.2)' } : policyButtonStyle}>
               <FiClock size={15} /> {hospitalDayRunning ? 'End Hospital Shift' : 'Start Hospital Shift'}
             </button>
@@ -2585,7 +2332,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </section>
           )}
 
-          <section style={{ marginTop: 18, padding: 18, borderRadius: 14, border: '1px solid #dbeafe', background: '#f8fbff' }}>
+          <section className="admin-shift-session-log" style={{ marginTop: 18, padding: 18, borderRadius: 14, border: '1px solid #dbeafe', background: '#f8fbff' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Operational record</div>
@@ -2595,7 +2342,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
             <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
               {shiftSessionLog.length ? shiftSessionLog.slice(0, 8).map((entry, index) => (
-                <div key={`${entry.event}-${entry.startedAt || entry.endedAt}-${index}`} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0' }}>
+                <div key={`${entry.event}-${entry.startedAt || entry.endedAt}-${index}`} className="admin-shift-session-log-entry" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0' }}>
                   <span style={{ padding: '4px 7px', borderRadius: 999, background: entry.event === 'STARTED' ? '#dcfce7' : '#ffe4e6', color: entry.event === 'STARTED' ? '#166534' : '#be123c', fontSize: 10, fontWeight: 800 }}>{entry.event}</span>
                   <div style={{ minWidth: 0, color: '#334155', fontSize: 12, overflowWrap: 'anywhere' }}>{entry.shiftName} • {entry.shiftStart}-{entry.shiftEnd} • {entry.staffCount || 0} staff</div>
                   <time style={{ color: '#64748b', fontSize: 11 }}>{new Date(entry.startedAt || entry.endedAt).toLocaleString()}</time>
@@ -2644,11 +2391,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Hospital context</div>
-                <h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Select, create, and manage hospital access</h3>
+                <h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Select and manage hospital access</h3>
                 <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Credentials, staff access, workload policy, and operational events stay scoped to {selectedHospitalName}.</p>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setHospitalSetupOpen(true)} style={policyButtonStyle}><FiPlus size={15} /> Create new hospital</button>
+              <div className="admin-modal-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setWorkspaceView('staff')} style={secondaryButtonStyle}><FiUsers size={15} /> Manage staff</button>
                 <button type="button" onClick={() => { setWorkloadPolicyOpen(true); fetchCapacityPolicy(); }} style={secondaryButtonStyle}><FiSliders size={15} /> Workload policy</button>
                 <button type="button" onClick={() => { setHospitalActivityOpen(true); fetchHospitalActivity(); }} style={secondaryButtonStyle}><FiActivity size={15} /> Hospital activity</button>
@@ -2798,9 +2544,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           </section>}
 
           {hospitalStructureWizardOpen && (
-            <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setHospitalStructureWizardOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 120, display: 'grid', placeItems: 'center', padding: 16, background: 'rgba(15, 23, 42, 0.58)' }}>
-              <section role="dialog" aria-modal="true" aria-labelledby="hospital-structure-title" style={{ width: 'min(760px, 100%)', maxHeight: 'min(760px, calc(100vh - 32px))', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', boxShadow: '0 28px 80px rgba(15,23,42,.28)' }}>
-                <header style={{ padding: '18px 20px 14px', borderBottom: '1px solid #e2e8f0' }}>
+            <div role="presentation" className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHospitalStructureWizardOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'grid', placeItems: 'center', padding: 16, background: 'rgba(15, 23, 42, 0.58)' }}>
+              <section role="dialog" aria-modal="true" aria-labelledby="hospital-structure-title" className="admin-modal-surface" style={{ width: 'min(760px, 100%)', maxHeight: 'min(760px, calc(100vh - 32px))', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', boxShadow: '0 28px 80px rgba(15,23,42,.28)' }}>
+                <header className="admin-modal-header" style={{ padding: '18px 20px 14px', borderBottom: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', color: '#0f766e', textTransform: 'uppercase' }}>Hospital structure · {selectedHospitalName}</div><h2 id="hospital-structure-title" style={{ margin: '5px 0 0', color: '#0f172a', fontSize: 21 }}>{['Departments', 'Specialties', 'Wards and units', 'Review and save'][hospitalStructureStep]}</h2></div>
                     <button type="button" aria-label="Close structure setup" onClick={() => setHospitalStructureWizardOpen(false)} style={{ ...removeRowButtonStyle, width: 36, height: 36, padding: 0, justifyContent: 'center' }}><FiX size={17} /></button>
@@ -2961,8 +2707,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           )}
 
           {hospitalCredentialsOpen && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-              <div role="dialog" aria-modal="true" style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div role="dialog" aria-modal="true" className="admin-modal-surface" style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                   <div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Admin credentials</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Update login details for {selectedHospitalName}</h3></div>
                   <button type="button" onClick={() => setHospitalCredentialsOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button>
@@ -2986,8 +2732,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           )}
 
           {hospitalActivityOpen && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-              <div role="dialog" aria-modal="true" style={{ width: 'min(900px, 100%)', maxHeight: '85vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div role="dialog" aria-modal="true" className="admin-modal-surface" style={{ width: 'min(900px, 100%)', maxHeight: '85vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                   <div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiActivity color="#0f766e" /><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Hospital activity</div><h3 style={{ margin: '6px 0 0', color: '#0f172a' }}>Audited activity for {selectedHospitalName}</h3></div></div><p style={{ margin: '8px 0 0', color: '#64748b', fontSize: 13 }}>Every audited hospital action by administrators, doctors, nurses, and other staff.</p></div>
                   <button type="button" onClick={() => setHospitalActivityOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button>
@@ -3013,24 +2759,31 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           )}
 
           {workloadPolicyOpen && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-              <div role="dialog" aria-modal="true" style={{ width: 'min(820px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Workload policy</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Configure workload for {selectedHospitalName}</h3><p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Set capacity baselines and acuity weights without leaving Hospital management.</p></div><button type="button" onClick={() => setWorkloadPolicyOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div>
+            <div className="admin-modal-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div role="dialog" aria-modal="true" className="admin-modal-surface workload-policy-modal" style={{ width: 'min(820px, 100%)', maxHeight: '88vh', overflowY: 'auto', minWidth: 0, boxSizing: 'border-box', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 'clamp(14px, 4vw, 22px)' }}>
+                <div className="workload-policy-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Workload policy</div>
+                    <h3 style={{ margin: '8px 0 0', color: '#0f172a', overflowWrap: 'anywhere' }}>Configure workload for {selectedHospitalName}</h3>
+                    <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Set capacity baselines and acuity weights without leaving Hospital management.</p>
+                  </div>
+                  <button type="button" onClick={() => setWorkloadPolicyOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button>
+                </div>
                 {capacityPolicyLoading ? <p style={{ marginTop: 20, color: '#64748b' }}>Loading policy...</p> : <>
-                  <section style={{ marginTop: 18, padding: 16, borderRadius: 12, background: '#f8fbff', border: '1px solid #dbeafe' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(180px, 1fr) auto', gap: 12, alignItems: 'end' }}>
+                  <section style={{ marginTop: 18, padding: 16, borderRadius: 12, background: '#f8fbff', border: '1px solid #dbeafe', minWidth: 0 }}>
+                    <div className="workload-policy-capacity-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12, alignItems: 'end', minWidth: 0 }}>
                       <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Role<select value={capacityRole} onChange={(event) => { const nextRole = event.target.value; setCapacityRole(nextRole); setSavedCapacityValue(capacityConfig?.policies?.defaultCapacityByRole?.[nextRole] ?? null); setCapacityValue(''); }} style={policyInputStyle}><option value="TRIAGE_NURSE">Triage nurse</option><option value="CLINICAL_NURSE">Clinical nurse</option><option value="PHYSICIAN">Physician</option></select></label>
                       <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Capacity in workload units (1 unit = 1 acuity-weighted workload point)<input type="number" min="1" step="1" value={capacityValue} onChange={(event) => setCapacityValue(event.target.value)} placeholder="Enter a capacity value" style={policyInputStyle} /></label>
-                      <button type="button" onClick={saveHospitalCapacity} disabled={capacityPolicySaving} style={policyButtonStyle}><FiSave size={15} /> {capacityPolicySaving ? 'Saving...' : 'Save baseline'}</button>
+                      <button type="button" onClick={saveHospitalCapacity} disabled={capacityPolicySaving} style={{ ...policyButtonStyle, width: '100%' }}><FiSave size={15} /> {capacityPolicySaving ? 'Saving...' : 'Save baseline'}</button>
                     </div>
                     <p style={{ margin: '10px 0 0', color: '#64748b', fontSize: 12 }}>This is the lowest-precedence hospital-wide role default. Select a role to view its current saved baseline, then update it. The current saved value is: <strong>{savedCapacityValue ?? 'not set'}</strong>.</p>
                   </section>
-                  <section style={{ marginTop: 14, padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #dbeafe' }}>
+                  <section style={{ marginTop: 14, padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #dbeafe', minWidth: 0 }}>
                     <h4 style={{ margin: 0, color: '#0f172a' }}>Acuity workload weights</h4>
                     <p style={{ margin: '6px 0 12px', color: '#64748b', fontSize: 13 }}>These multipliers convert active cases into workload units. The required ordering is RED ≥ ORANGE ≥ YELLOW ≥ GREEN.</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(100px, 1fr))', gap: 10 }}>{Object.keys(acuityWeights).map((priority) => <label key={priority} style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>{priority}<input type="number" min="0.1" step="0.1" value={acuityWeights[priority]} onChange={(event) => setAcuityWeights((current) => ({ ...current, [priority]: event.target.value }))} style={policyInputStyle} /></label>)}</div>
+                    <div className="workload-policy-weights-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 100px), 1fr))', gap: 10, minWidth: 0 }}>{Object.keys(acuityWeights).map((priority) => <label key={priority} style={{ display: 'grid', gap: 5, minWidth: 0, fontSize: 12, fontWeight: 700, color: '#334155' }}>{priority}<input type="number" min="0.1" step="0.1" value={acuityWeights[priority]} onChange={(event) => setAcuityWeights((current) => ({ ...current, [priority]: event.target.value }))} style={policyInputStyle} /></label>)}</div>
                     {acuityValidationMessage && <div style={{ marginTop: 12, padding: '8px 10px', borderRadius: 8, background: '#fef2f2', color: '#991b1b', fontSize: 12, fontWeight: 600 }}>{acuityValidationMessage}</div>}
-                    <button type="button" onClick={saveHospitalAcuityWeights} disabled={acuitySaving} style={{ ...policyButtonStyle, marginTop: 14 }}><FiSave size={15} /> {acuitySaving ? 'Saving...' : 'Save acuity weights'}</button>
+                    <button type="button" onClick={saveHospitalAcuityWeights} disabled={acuitySaving} style={{ ...policyButtonStyle, marginTop: 14, maxWidth: '100%' }}><FiSave size={15} /> {acuitySaving ? 'Saving...' : 'Save acuity weights'}</button>
                   </section>
                 </>}
               </div>
@@ -3067,7 +2820,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             {bedConfigurationsLoading ? <div style={{ padding: 28, color: '#64748b' }}>Loading live bed inventory...</div> : !bedConfigurations.length ? <div style={{ marginTop: 14, padding: 18, borderRadius: 8, background: '#f8fafc', color: '#64748b', fontSize: 13 }}>No bed configurations exist for this hospital yet. Add the first bed to establish live capacity.</div> : <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>{bedConfigurations.map((bed) => <div key={bed.bed_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.7fr) minmax(130px, 0.8fr) minmax(120px, 0.8fr) minmax(0, 2fr) auto', gap: 12, alignItems: 'center', padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fbff' }}><div><strong style={{ color: '#0f172a' }}>{bed.bed_id}</strong><div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>Bed identifier</div></div><div><strong style={{ color: '#334155', fontSize: 12 }}>{bed.ward_unit}</strong><div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{bed.sub_unit || 'No sub-unit'}</div></div><div><strong style={{ color: '#334155', fontSize: 12 }}>{bed.room_number || bed.schedule?.roomNumber || 'No room'}</strong><div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>Room</div></div><div><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(bed.equipment_baseline || []).length ? bed.equipment_baseline.map((item) => <span key={item} style={{ padding: '5px 8px', borderRadius: 6, background: '#fff', border: '1px solid #cbd5e1', color: '#334155', fontSize: 11 }}>{item}</span>) : <span style={{ color: '#94a3b8', fontSize: 12 }}>No equipment configured</span>}</div><span style={{ display: 'inline-block', marginTop: 6, padding: '4px 7px', borderRadius: 999, background: (bed.schedule?.status || '').toUpperCase() === 'OCCUPIED' ? '#fee2e2' : '#dcfce7', color: (bed.schedule?.status || '').toUpperCase() === 'OCCUPIED' ? '#991b1b' : '#166534', fontSize: 10, fontWeight: 800 }}>{bed.schedule?.status || bed.status || 'Available'}</span></div><div style={{ display: 'flex', gap: 6 }}><button type="button" onClick={() => setBedEditor({ ...bed, originalBedId: bed.bed_id, equipmentText: (bed.equipment_baseline || []).join(', '), characteristicsText: (bed.special_characteristics || []).join(', ') })} style={secondaryButtonStyle}>Edit</button><button type="button" onClick={() => deleteBedConfiguration(bed)} style={removeRowButtonStyle}>Delete</button></div></div>)}</div>}
           </div>
 
-          {bedEditor && <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}><form onSubmit={saveBedConfiguration} style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 14, padding: 22, border: '1px solid #dbeafe', boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, color: '#0f766e', fontWeight: 800, textTransform: 'uppercase' }}>{bedEditor.originalBedId ? 'Edit configuration' : 'New configuration'}</div><h3 style={{ margin: '7px 0 0', color: '#0f172a' }}>{bedEditor.originalBedId ? `Configure ${bedEditor.originalBedId}` : 'Add a hospital bed'}</h3></div><button type="button" onClick={() => setBedEditor(null)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div><div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}><label style={adminFieldStyle}>Bed ID<input value={bedEditor.bed_id} disabled={Boolean(bedEditor.originalBedId)} onChange={(event) => setBedEditor((current) => ({ ...current, bed_id: event.target.value }))} style={policyInputStyle} /></label><label style={adminFieldStyle}>Ward<select value={bedEditor.ward_unit} onChange={(event) => setBedEditor((current) => ({ ...current, ward_unit: event.target.value }))} style={policyInputStyle}>{['ICU', 'NICU', 'PICU', 'HDU', 'Medical Ward', 'Surgical Ward', 'Pediatric Ward', 'Maternity Ward', 'Psychiatric Ward', 'Infectious Disease Ward'].map((ward) => <option key={ward} value={ward}>{ward}</option>)}</select></label><label style={adminFieldStyle}>Sub-unit<input value={bedEditor.sub_unit || ''} onChange={(event) => setBedEditor((current) => ({ ...current, sub_unit: event.target.value }))} style={policyInputStyle} /></label><label style={adminFieldStyle}>Infection control<select value={bedEditor.infection_control_tier || 'Standard'} onChange={(event) => setBedEditor((current) => ({ ...current, infection_control_tier: event.target.value }))} style={policyInputStyle}>{['Standard', 'Contact', 'Droplet', 'Airborne', 'Enhanced Precautions'].map((tier) => <option key={tier} value={tier}>{tier}</option>)}</select></label><label style={{ ...adminFieldStyle, gridColumn: '1 / -1' }}>Equipment, comma separated<input value={bedEditor.equipmentText} onChange={(event) => setBedEditor((current) => ({ ...current, equipmentText: event.target.value }))} placeholder="Cardiac Monitor, Oxygen Delivery, Infusion Pump" style={policyInputStyle} /></label><label style={{ ...adminFieldStyle, gridColumn: '1 / -1' }}>Bed characteristics, comma separated<input value={bedEditor.characteristicsText} onChange={(event) => setBedEditor((current) => ({ ...current, characteristicsText: event.target.value }))} placeholder="Electric Bed, Isolation Capsule" style={policyInputStyle} /></label></div><div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" onClick={() => setBedEditor(null)} style={secondaryButtonStyle}>Cancel</button><button type="submit" disabled={bedConfigurationSaving} style={policyButtonStyle}>{bedConfigurationSaving ? 'Saving...' : bedEditor.originalBedId ? 'Save configuration' : 'Create bed'}</button></div></form></div>}
+          {bedEditor && <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}><form onSubmit={saveBedConfiguration} style={{ width: 'min(680px, 100%)', background: '#fff', borderRadius: 14, padding: 22, border: '1px solid #dbeafe', boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, color: '#0f766e', fontWeight: 800, textTransform: 'uppercase' }}>{bedEditor.originalBedId ? 'Edit configuration' : 'New configuration'}</div><h3 style={{ margin: '7px 0 0', color: '#0f172a' }}>{bedEditor.originalBedId ? `Configure ${bedEditor.originalBedId}` : 'Add a hospital bed'}</h3></div><button type="button" onClick={() => setBedEditor(null)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div><div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}><label style={adminFieldStyle}>Bed ID<input value={bedEditor.bed_id} disabled={Boolean(bedEditor.originalBedId)} onChange={(event) => setBedEditor((current) => ({ ...current, bed_id: event.target.value }))} style={policyInputStyle} /></label><label style={adminFieldStyle}>Ward<select value={bedEditor.ward_unit} onChange={(event) => setBedEditor((current) => ({ ...current, ward_unit: event.target.value }))} style={policyInputStyle}>{['ICU', 'NICU', 'PICU', 'HDU', 'Medical Ward', 'Surgical Ward', 'Pediatric Ward', 'Maternity Ward', 'Psychiatric Ward', 'Infectious Disease Ward'].map((ward) => <option key={ward} value={ward}>{ward}</option>)}</select></label><label style={adminFieldStyle}>Sub-unit<input value={bedEditor.sub_unit || ''} onChange={(event) => setBedEditor((current) => ({ ...current, sub_unit: event.target.value }))} style={policyInputStyle} /></label><label style={adminFieldStyle}>Infection control<select value={bedEditor.infection_control_tier || 'Standard'} onChange={(event) => setBedEditor((current) => ({ ...current, infection_control_tier: event.target.value }))} style={policyInputStyle}>{['Standard', 'Contact', 'Droplet', 'Airborne', 'Enhanced Precautions'].map((tier) => <option key={tier} value={tier}>{tier}</option>)}</select></label><label style={{ ...adminFieldStyle, gridColumn: '1 / -1' }}>Equipment, comma separated<input value={bedEditor.equipmentText} onChange={(event) => setBedEditor((current) => ({ ...current, equipmentText: event.target.value }))} placeholder="Cardiac Monitor, Oxygen Delivery, Infusion Pump" style={policyInputStyle} /></label><label style={{ ...adminFieldStyle, gridColumn: '1 / -1' }}>Bed characteristics, comma separated<input value={bedEditor.characteristicsText} onChange={(event) => setBedEditor((current) => ({ ...current, characteristicsText: event.target.value }))} placeholder="Electric Bed, Isolation Capsule" style={policyInputStyle} /></label></div><div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" onClick={() => setBedEditor(null)} style={secondaryButtonStyle}>Cancel</button><button type="submit" disabled={bedConfigurationSaving} style={policyButtonStyle}>{bedConfigurationSaving ? 'Saving...' : bedEditor.originalBedId ? 'Save configuration' : 'Create bed'}</button></div></form></div>}
         </section>
       );
       */
@@ -3082,7 +2835,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       const accessRows = ehrConfig.accessMatrix || [];
       const deadLetter = ehrConfig.deadLetter || { inboundFailures: 0, retryQueue: 0, failedMessages: [], retryItems: [] };
       return (
-        <section id="ehr-configurations" style={{ display: 'grid', gap: 18, background: '#fff', padding: 22, borderRadius: 8, border: '1px solid #dbeafe' }}>
+        <section id="ehr-configurations" className="ehr-configurations" style={{ display: 'grid', gap: 18, background: '#fff', padding: 22, borderRadius: 8, border: '1px solid #dbeafe' }}>
           {ehrToast && (
             <div role="status" aria-live="polite" style={{ padding: '10px 12px', borderRadius: 10, background: ehrToast.tone === 'warning' ? '#fff7ed' : '#dcfce7', border: `1px solid ${ehrToast.tone === 'warning' ? '#fdba74' : '#86efac'}`, color: ehrToast.tone === 'warning' ? '#9a4d00' : '#166534', fontSize: 12, fontWeight: 700 }}>
               {ehrToast.message}
@@ -3095,12 +2848,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Clinical configuration settings and hospital EHR policy controls live here. The canonical model remains FHIR while adapters translate HL7v2 and future protocol feeds into the same internal representation.</p>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+          <div className="ehr-config-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
             <button type="button" onClick={handleEhrSettingsSave} style={policyButtonStyle}>Save EHR settings</button>
             <button type="button" onClick={() => handleTestConnection('hl7v2')} style={secondaryButtonStyle}>Test HL7v2</button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <div className="ehr-config-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div style={{ padding: 14, borderRadius: 10, border: '1px solid #dbeafe', background: '#f8fbff' }}>
               <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Hospital context</div>
               <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{selectedHospitalName}</div>
@@ -3115,7 +2868,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
+          <div className="ehr-config-panel" style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <FiDatabase color="#0f766e" size={18} />
               <h4 style={{ margin: 0, color: '#0f172a' }}>Protocol-agnostic adapter contract</h4>
@@ -3131,12 +2884,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
+          <div className="ehr-config-panel" style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <FiShield color="#0f766e" size={18} />
               <h4 style={{ margin: 0, color: '#0f172a' }}>Interoperability / protocol status</h4>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <div className="ehr-config-adapters-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               {adapterCards.map((adapter) => (
                 <div key={adapter.id || adapter.protocolName} style={{ border: '1px solid #dbeafe', borderRadius: 12, background: '#f8fbff', padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -3158,12 +2911,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
+          <div className="ehr-config-panel" style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <FiAlertTriangle color="#f59e0b" size={18} />
               <h4 style={{ margin: 0, color: '#0f172a' }}>Clinical configuration and policy controls</h4>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <div className="ehr-config-policy-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               <div style={{ padding: 12, borderRadius: 10, border: '1px solid #dbeafe', background: '#f8fbff' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>SATS protocol</div>
                 <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{ehrConfig.protocolPolicy?.satsVersion || 'SATS v3.1'}</div>
@@ -3179,12 +2932,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
+          <div className="ehr-config-panel" style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
               <h4 style={{ margin: 0, color: '#0f172a' }}>Terminology mapping & review queue</h4>
               <button type="button" onClick={() => handleEhrSettingsSave()} style={secondaryButtonStyle}>Save mappings</button>
             </div>
-            <div style={{ overflowX: 'auto' }}>
+            <div className="ehr-config-table-wrap" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', color: '#334155' }}>
@@ -3215,7 +2968,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+          <div className="ehr-config-secondary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
             <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#fff' }}>
               <h4 style={{ margin: '0 0 12px', color: '#0f172a' }}>Retention policy</h4>
               <div style={{ display: 'grid', gap: 10 }}>
@@ -3278,7 +3031,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          <div style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
+          <div className="ehr-config-panel" style={{ padding: 18, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
             <h4 style={{ margin: '0 0 12px', color: '#0f172a' }}>Dead-letter / retry queue</h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
               <div style={{ padding: 10, borderRadius: 10, background: '#fff', border: '1px solid #dbeafe' }}><strong>Inbound failures</strong><div style={{ marginTop: 6, fontSize: 18, fontWeight: 700 }}>{deadLetter.inboundFailures}</div></div>
@@ -3368,7 +3121,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          {staffOnboardingOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          {staffOnboardingOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div role="dialog" aria-modal="true" style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Staff onboarding</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Onboard new staff</h3><p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Create authenticated staff records for {selectedHospitalName}.</p></div><button type="button" onClick={() => setStaffOnboardingOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div>
           {hospitalStructureLoading && <div role="status" style={{ marginTop: 12, color: '#475569', fontSize: 13 }}>Loading configured hospital departments and specialties...</div>}
@@ -3418,7 +3171,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           </div>
           </div></div>}
 
-          {staffEditorOpen && staffEditor && <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          {staffEditorOpen && staffEditor && <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div role="dialog" aria-modal="true" style={{ width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Existing staff credential</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Edit {staffEditor.firstName} {staffEditor.lastName}</h3></div><button type="button" onClick={() => setStaffEditorOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div>
               {staffEditorError && <div role="alert" style={{ marginTop: 14, padding: 10, borderRadius: 8, background: '#fee2e2', color: '#991b1b', fontSize: 13 }}>{staffEditorError}</div>}
@@ -3804,7 +3557,17 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           .admin-workspace-context { min-width: 0 !important; max-width: 100%; flex: 1 1 260px; }
           .admin-workspace-tabs { min-width: 0; }
           .admin-workspace-tabs > div { min-width: 0; }
+          .admin-shift-session-log-entry { min-width: 0; }
+          .admin-modal-surface { box-sizing: border-box; }
+          .admin-hospital-workspace-content { min-width: 0; }
+          .ehr-configurations,
+          .ehr-configurations * { box-sizing: border-box; }
+          .ehr-configurations { width: 100%; max-width: 100%; min-width: 0; }
+          .ehr-configurations > *,
+          .ehr-configurations [style*="grid-template-columns"] > * { min-width: 0; overflow-wrap: anywhere; }
+          .ehr-config-table-wrap { width: 100%; max-width: 100%; overscroll-behavior-x: contain; }
           @media (max-width: 600px) {
+            .admin-workspace-shell { padding: 8px !important; }
             .admin-workspace-header { padding: 16px !important; border-radius: 10px !important; }
             .admin-workspace-header h1 { font-size: clamp(22px, 8vw, 28px) !important; overflow-wrap: anywhere; }
             .admin-workspace-context { flex-basis: 100%; width: 100%; }
@@ -3819,6 +3582,149 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             .overview-diagnosis-chart,
             .overview-diagnosis-chart svg { width: 130px !important; height: 130px !important; }
             .overview-diagnosis-chart { flex-basis: 130px !important; }
+            .admin-hospital-workspace-content { padding: 10px !important; }
+            .ehr-configurations { padding: 12px !important; gap: 14px !important; }
+            .ehr-configurations h2 { font-size: clamp(22px, 7vw, 28px) !important; line-height: 1.15; overflow-wrap: anywhere; }
+            .ehr-configurations h4 { line-height: 1.3; overflow-wrap: anywhere; }
+            .ehr-configurations .ehr-config-panel { padding: 12px !important; }
+            .ehr-configurations .ehr-config-summary-grid > div { padding: 12px !important; }
+            .ehr-configurations .ehr-config-actions { justify-content: stretch !important; }
+            .ehr-configurations .ehr-config-actions > button { flex: 1 1 140px; min-width: 0; white-space: normal; }
+            .ehr-configurations .ehr-config-summary-grid,
+            .ehr-configurations .ehr-config-adapters-grid,
+            .ehr-configurations .ehr-config-policy-grid,
+            .ehr-configurations .ehr-config-secondary-grid {
+              grid-template-columns: minmax(0, 1fr) !important;
+              min-width: 0;
+            }
+            .ehr-configurations .ehr-config-table-wrap { margin-right: -4px; }
+            .ehr-configurations .ehr-config-table-wrap table { min-width: 520px; }
+            .ehr-configurations button,
+            .ehr-configurations select,
+            .ehr-configurations input { max-width: 100%; }
+            .admin-shift-session-log { padding: 12px !important; }
+            .admin-shift-session-log-entry {
+              grid-template-columns: auto minmax(0, 1fr) !important;
+              align-items: start !important;
+              padding: 8px !important;
+            }
+            .admin-shift-session-log-entry > div { grid-column: 1 / -1; }
+            .admin-shift-session-log-entry time {
+              grid-column: 1 / -1;
+              overflow-wrap: anywhere;
+            }
+            .admin-modal-backdrop {
+              align-items: flex-start !important;
+              overflow-y: auto !important;
+              padding: 12px !important;
+            }
+            .admin-modal-surface {
+              width: 100% !important;
+              max-width: 900px !important;
+              max-height: calc(100vh - 24px) !important;
+              max-height: calc(100dvh - 24px) !important;
+            }
+            .hospital-day-start-dialog {
+              min-width: 0;
+              overflow-x: hidden;
+            }
+            .hospital-day-wizard-content {
+              min-width: 0;
+              padding: 12px !important;
+            }
+            .hospital-day-shift-form,
+            .hospital-day-role-assignments,
+            .hospital-day-staff-grid {
+              grid-template-columns: minmax(0, 1fr) !important;
+              min-width: 0;
+            }
+            .hospital-day-shift-form > *,
+            .hospital-day-role-assignments > *,
+            .hospital-day-staff-grid > * {
+              min-width: 0;
+            }
+            .hospital-day-role-assignments select {
+              width: 100%;
+              min-width: 0;
+            }
+            .hospital-day-staff-selection-header {
+              align-items: stretch !important;
+            }
+            .hospital-day-staff-selection-actions {
+              display: grid !important;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              width: 100%;
+              justify-content: stretch !important;
+            }
+            .hospital-day-staff-selection-actions > strong {
+              grid-column: 1 / -1;
+            }
+            .hospital-day-staff-selection-actions button {
+              width: 100%;
+              min-width: 0;
+              padding-right: 6px !important;
+              padding-left: 6px !important;
+            }
+            .admin-modal-header {
+              align-items: flex-start !important;
+              flex-wrap: wrap !important;
+              gap: 12px !important;
+            }
+            .admin-modal-header > div:first-child,
+            .admin-modal-header-actions {
+              flex: 1 1 100%;
+              min-width: 0;
+            }
+            .admin-modal-header-actions {
+              width: 100%;
+              justify-content: flex-start !important;
+            }
+            .admin-modal-header-actions button {
+              flex: 0 0 auto;
+              max-width: 100%;
+              overflow-wrap: normal;
+              word-break: normal;
+            }
+            .admin-modal-surface > div:first-child {
+              align-items: flex-start !important;
+              flex-wrap: wrap !important;
+            }
+            .admin-modal-surface > div:first-child > div:first-child {
+              flex: 1 1 100%;
+              min-width: 0;
+            }
+            .admin-modal-surface button {
+              min-width: 0;
+              max-width: 100%;
+              overflow-wrap: normal;
+              word-break: normal;
+            }
+            .admin-modal-surface input,
+            .admin-modal-surface select,
+            .admin-modal-surface textarea {
+              min-width: 0;
+              max-width: 100%;
+            }
+            .admin-modal-footer {
+              flex-wrap: wrap !important;
+              gap: 8px !important;
+            }
+            [role="dialog"] > form {
+              width: 100% !important;
+              max-width: 680px;
+              max-height: calc(100vh - 24px);
+              max-height: calc(100dvh - 24px);
+              overflow-y: auto;
+              padding: 16px !important;
+            }
+            [role="dialog"] > form > div:first-child {
+              align-items: flex-start !important;
+              flex-wrap: wrap !important;
+            }
+            [role="dialog"] > form > div:first-child > div:first-child {
+              flex: 1 1 100%;
+              min-width: 0;
+            }
           }
         `}</style>
         {/* Header */}
@@ -4024,8 +3930,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
 
         {isAdmin && (
           <div style={{ display: 'grid', gap: 16 }}>
-            <section style={{ background: '#fff', borderRadius: 18, border: '1px solid #dbeafe', overflow: 'hidden', boxShadow: '0 12px 26px rgba(15, 23, 42, 0.08)' }}>
-              <div style={{ padding: 20 }}>
+            <section className="admin-hospital-workspace" style={{ background: '#fff', borderRadius: 18, border: '1px solid #dbeafe', overflow: 'hidden', boxShadow: '0 12px 26px rgba(15, 23, 42, 0.08)' }}>
+              <div className="admin-hospital-workspace-content" style={{ padding: 20 }}>
                 <div style={{ display: 'grid', gap: 16 }}>
                   {renderMainAdminWorkspaceContent()}
                 </div>
@@ -4033,18 +3939,18 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </section>
 
             {hospitalDayWizardOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 65 }}>
-                <div style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.22)', border: '1px solid #e2e8f0' }}>
-                  <div id="hospital-day-start-panel" style={{ padding: '20px 22px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div className="admin-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 300 }}>
+                    <div role="dialog" aria-modal="true" aria-labelledby="hospital-day-start-title" className="admin-modal-surface hospital-day-start-dialog" style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.22)', border: '1px solid #e2e8f0' }}>
+                      <div id="hospital-day-start-panel" className="admin-modal-header" style={{ padding: '20px 22px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#0f766e' }}>Hospital day startup</div>
-                      <h3 style={{ margin: '8px 0 0', fontSize: 24, color: '#0f172a' }}>Start Hospital Shift</h3>
+                      <h3 id="hospital-day-start-title" style={{ margin: '8px 0 0', fontSize: 24, color: '#0f172a' }}>Start Hospital Shift</h3>
                       <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Activate the hospital operating model, assign the coverage team, and bring specialist services online together.</p>
                     </div>
                     <button type="button" onClick={closeHospitalDayWizard} style={{ ...removeRowButtonStyle, background: '#f8fafc', borderColor: '#cbd5e1', color: '#475569' }}><FiX size={14} /> Close</button>
                   </div>
 
-                  <div style={{ padding: 20 }}>
+                  <div className="hospital-day-wizard-content" style={{ padding: 20 }}>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
                       {['Readiness', 'Workload policy', 'Shift & coverage', 'Synthetic data', 'Review & start'].map((stepLabel, index) => (
                         <div key={stepLabel} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 999, border: index === hospitalDayStep ? '1px solid #0f766e' : '1px solid #dbeafe', background: index === hospitalDayStep ? '#ecfeff' : '#f8fafc', color: index === hospitalDayStep ? '#0f172a' : '#475569', fontWeight: 700, fontSize: 12 }}>
@@ -4208,7 +4114,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                               </select>
                             </label>
                           ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(150px, 1fr) repeat(2, minmax(120px, 0.7fr))', gap: 10, alignItems: 'end' }}>
+                            <div className="hospital-day-shift-form" style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(150px, 1fr) repeat(2, minmax(120px, 0.7fr))', gap: 10, alignItems: 'end' }}>
                               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: '#334155' }}>Shift name<input value={dayShiftName} onChange={(event) => setDayShiftName(event.target.value)} placeholder="e.g. Morning Hospital Shift" style={policyInputStyle} /></label>
                               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: '#334155' }}>Starts<input type="time" value={dayShiftStart} onChange={(event) => setDayShiftStart(event.target.value)} style={policyInputStyle} /></label>
                               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: '#334155' }}>Ends<input type="time" value={dayShiftEnd} onChange={(event) => setDayShiftEnd(event.target.value)} style={policyInputStyle} /></label>
@@ -4263,18 +4169,18 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                         </div>
 
                         <div style={{ display: 'grid', gap: 10, padding: 14, border: '1px solid #99f6e4', borderRadius: 14, background: '#f0fdfa' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <div className="hospital-day-staff-selection-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 800, color: '#134e4a' }}>Staff for this shift</div>
                               <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>Select the fetched roster members who will be assigned when the hospital day starts.</div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <div className="hospital-day-staff-selection-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                               <strong style={{ fontSize: 12, color: '#0f766e' }}>{daySelectedStaffIds.length} selected</strong>
                               <button type="button" onClick={() => setDaySelectedStaffIds((filteredStaff.length ? filteredStaff : staffList).map((person) => String(person._id)))} style={{ ...secondaryButtonStyle, minHeight: 32, padding: '6px 10px', fontSize: 11 }}>Select all staff</button>
                               <button type="button" onClick={() => setDaySelectedStaffIds([])} style={{ ...secondaryButtonStyle, minHeight: 32, padding: '6px 10px', fontSize: 11 }}>Clear selection</button>
                             </div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto', padding: 2 }}>
+                          <div className="hospital-day-staff-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto', padding: 2 }}>
                             {(filteredStaff.length ? filteredStaff : staffList).map((person) => {
                               const personId = String(person._id);
                               const checked = daySelectedStaffIds.includes(personId);
@@ -4291,7 +4197,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                           </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                        <div className="hospital-day-role-assignments" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                           {[
                             { key: 'triageNurseId', label: 'Triage Nurse', defaults: ['TRIAGE_NURSE', 'NURSE', 'EMERGENCY'] },
                             { key: 'clinicalNurseId', label: 'Clinical Nurse', defaults: ['NURSE'] },
@@ -4423,7 +4329,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                       </div>
                     )}
 
-                    <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <div className="admin-modal-footer" style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                       <div>
                         {hospitalDayStep > 0 && <button type="button" onClick={() => setHospitalDayStep((current) => Math.max(current - 1, 0))} style={secondaryButtonStyle}>Back</button>}
                       </div>
@@ -4442,176 +4348,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
               </div>
             )}
 
-            {hospitalSetupOpen && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 60 }}>
-                <div style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 18, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.22)', border: '1px solid #e2e8f0' }}>
-                  <div id="hospital-setup-panel" style={{ padding: '20px 22px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#0f766e' }}>Guided hospital setup</div>
-                      <h3 style={{ margin: '8px 0 0', fontSize: 24, color: '#0f172a' }}>Create a new hospital</h3>
-                      <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Set up the facility, its administrator, and its first clinical team in one reviewed flow.</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button type="button" onClick={autoFillHospitalSetup} style={secondaryButtonStyle}><FiSliders size={14} /> Auto-fill sample</button>
-                      <button type="button" onClick={() => setHospitalSetupOpen(false)} style={{ ...removeRowButtonStyle, background: '#f8fafc', borderColor: '#cbd5e1', color: '#475569' }}><FiX size={14} /> Close</button>
-                    </div>
-                  </div>
-
-                  <div style={{ padding: 20 }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
-                      {['Facility & admin', 'Staff credentials', 'Review & create'].map((stepLabel, index) => (
-                        <div key={stepLabel} style={{
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          padding: '8px 10px', borderRadius: 999,
-                          border: index === setupStep ? '1px solid #0f766e' : '1px solid #dbeafe',
-                          background: index === setupStep ? '#ecfeff' : '#f8fafc',
-                          color: index === setupStep ? '#0f172a' : '#475569',
-                          fontWeight: 700, fontSize: 12
-                        }}>
-                          <span style={{ width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: index === setupStep ? '#0f766e' : '#dbeafe', color: index === setupStep ? '#fff' : '#0f172a' }}>{index + 1}</span>
-                          {stepLabel}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, background: '#f0fdfa', border: '1px solid #99f6e4', color: '#115e59', fontSize: 13 }}>
-                      {setupStep === 0 && 'Start with the hospital identity and the administrator who will own this workspace.'}
-                      {setupStep === 1 && 'Add the first people who can work in this hospital. Each person receives an individual login.'}
-                      {setupStep === 2 && 'Check the generated credentials and operating details before anything is created.'}
-                    </div>
-
-                    {setupStep === 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                        <label style={adminFieldStyle}>Hospital name<input value={hospitalBootstrap.hospitalName} onChange={(event) => setHospitalBootstrap((current) => ({ ...current, hospitalName: event.target.value }))} placeholder="St. Mary’s Hospital" style={policyInputStyle} /></label>
-                        <label style={adminFieldStyle}>Additional admin first name<input value={hospitalBootstrap.managerName} onChange={(event) => setHospitalBootstrap((current) => ({ ...current, managerName: event.target.value }))} placeholder="John" style={policyInputStyle} /></label>
-                        <label style={adminFieldStyle}>Additional admin surname<input value={hospitalBootstrap.managerSurname} onChange={(event) => setHospitalBootstrap((current) => ({ ...current, managerSurname: event.target.value }))} placeholder="Smith" style={policyInputStyle} /></label>
-                        <label style={adminFieldStyle}>Additional admin email<input type="email" value={hospitalBootstrap.managerEmail} onChange={(event) => setHospitalBootstrap((current) => ({ ...current, managerEmail: event.target.value }))} placeholder="admin@hospital.org" style={policyInputStyle} /></label>
-                        <PasswordField
-                          label="Additional admin password"
-                          value={hospitalBootstrap.managerPassword}
-                          onChange={(event) => setHospitalBootstrap((current) => ({ ...current, managerPassword: event.target.value }))}
-                          placeholder="Minimum 8 characters"
-                          style={adminFieldStyle}
-                        />
-                        <label style={adminFieldStyle}>Default department<select value={hospitalBootstrap.department} onChange={(event) => setHospitalBootstrap((current) => ({ ...current, department: event.target.value }))} style={policyInputStyle}><option value="All">All</option><option value="ED">ED</option><option value="ICU">ICU</option><option value="OR">OR</option><option value="OB">OB</option><option value="General Ward">General Ward</option><option value="Pediatrics">Pediatrics</option></select></label>
-                        <label style={adminFieldStyle}>Staff users to seed<input type="number" min="1" max="500" value={setupStaffCount} onChange={(event) => setSetupStaffCount(Math.min(500, Math.max(1, Number(event.target.value) || 1)))} style={policyInputStyle} /></label>
-                        <label style={adminFieldStyle}>Historical encounters<input type="number" min="1" max="1000" value={setupEncounterCount} onChange={(event) => setSetupEncounterCount(Math.min(1000, Math.max(1, Number(event.target.value) || 1)))} style={policyInputStyle} /></label>
-                        <label style={adminFieldStyle}>History spread in days<input type="number" min="0" max="3650" value={setupHistoricalDays} onChange={(event) => setSetupHistoricalDays(Math.min(3650, Math.max(0, Number(event.target.value) || 0)))} style={policyInputStyle} /></label>
-                        <div style={{ gridColumn: '1 / -1', padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', fontSize: 12 }}>Your current administrator account will own and manage this hospital. The additional admin credentials create a separate administrator login. Auto-fill uses these quantities; encounter seeding requires at least one nurse.</div>
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Departments</div>
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {HOSPITAL_DEPARTMENTS.map(({ name: department }) => {
-                              const active = hospitalBootstrap.departments.includes(department);
-                              return (
-                                <button
-                                  key={department}
-                                  type="button"
-                                  onClick={() => setHospitalBootstrap((current) => ({
-                                    ...current,
-                                    departments: active ? current.departments.filter((item) => item !== department) : [...current.departments, department]
-                                  }))}
-                                  style={{
-                                    padding: '7px 10px',
-                                    borderRadius: 999,
-                                    border: '1px solid #bfdbfe',
-                                    background: active ? '#dbeafe' : '#fff',
-                                    color: active ? '#1d4ed8' : '#475569',
-                                    fontWeight: 700,
-                                    fontSize: 12,
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  {department}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {setupStep === 1 && (
-                      <div style={{ display: 'grid', gap: 12 }}>
-                        {bootstrapStaffRows.map((staff, index) => (
-                          <div key={`setup-staff-${index}`} style={{ padding: 16, border: '1px solid #dbeafe', borderRadius: 14, background: '#fff', boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                              <div>
-                                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Team member {index + 1}</div>
-                                <strong style={{ display: 'block', marginTop: 4, color: '#0f172a' }}>{staff.firstName || staff.lastName ? `${staff.firstName} ${staff.lastName}`.trim() : 'New credential'}</strong>
-                              </div>
-                              <span style={{ padding: '5px 8px', borderRadius: 999, background: '#f0fdfa', color: '#0f766e', fontSize: 11, fontWeight: 800 }}>{HOSPITAL_STAFF_ROLES.find((position) => position.code === staff.positionCode)?.label || staff.role}</span>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
-                              <label style={adminFieldStyle}>First name<input value={staff.firstName} onChange={(event) => setBootstrapStaffRows((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, firstName: event.target.value } : row))} style={policyInputStyle} /></label>
-                              <label style={adminFieldStyle}>Last name<input value={staff.lastName} onChange={(event) => setBootstrapStaffRows((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, lastName: event.target.value } : row))} style={policyInputStyle} /></label>
-                              <label style={adminFieldStyle}>Email<input type="email" value={staff.email} onChange={(event) => setBootstrapStaffRows((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, email: event.target.value } : row))} style={policyInputStyle} /></label>
-                              <PasswordField
-                                label="Password"
-                                value={staff.password}
-                                onChange={(event) => setBootstrapStaffRows((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, password: event.target.value } : row))}
-                                style={adminFieldStyle}
-                              />
-                              <label style={adminFieldStyle}>Position / job<select value={staff.positionCode || ''} onChange={(event) => updateBootstrapStaffRow(index, 'positionCode', event.target.value)} style={policyInputStyle}>
-                                <option value="">Select a position</option>
-                                {HOSPITAL_STAFF_ROLES.map((position) => <option key={position.code} value={position.code}>{position.label} — {position.category}</option>)}
-                              </select></label>
-                              <label style={adminFieldStyle}>Department<select value={staff.department} onChange={(event) => updateBootstrapStaffRow(index, 'department', event.target.value)} style={policyInputStyle}>
-                                <option value="">Select a hospital department</option>
-                                {hospitalBootstrap.departments.map((department) => <option key={department} value={department}>{department}</option>)}
-                              </select></label>
-                              <label style={adminFieldStyle}>Specialty (added to this department)<select value={staff.specialty} onChange={(event) => updateBootstrapStaffRow(index, 'specialty', event.target.value)} style={policyInputStyle}>
-                                <option value="">Select a specialty</option>
-                                {HOSPITAL_SPECIALTIES.map((specialty) => <option key={specialty.name} value={specialty.name}>{specialty.name} — {specialty.category}</option>)}
-                              </select></label>
-                            </div>
-                          </div>
-                        ))}
-                        <button type="button" onClick={() => setBootstrapStaffRows((rows) => [...rows, { firstName: '', lastName: '', email: '', password: '', role: 'NURSE', positionCode: 'TRIAGE_NURSE', department: 'ED', specialty: '' }])} style={secondaryButtonStyle}><FiPlus size={15} /> Add another team member</button>
-                        {setupAutoFilled && <div style={{ fontSize: 12, color: '#64748b' }}>Sample credentials are randomized for this setup session. Replace them with real credentials before creating the hospital if needed.</div>}
-                      </div>
-                    )}
-
-                    {setupStep === 2 && (
-                      <div style={{ display: 'grid', gap: 14 }}>
-                        <div style={{ padding: 14, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Summary</div>
-                          <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{hospitalBootstrap.hospitalName || 'Unnamed hospital'}</div>
-                          <div style={{ marginTop: 8, color: '#475569' }}>{hospitalBootstrap.managerName || 'Manager'} {hospitalBootstrap.managerSurname || ''} • {hospitalBootstrap.managerEmail || 'admin@hospital.org'}</div>
-                          <div style={{ marginTop: 8, color: '#0f766e', fontSize: 13, fontWeight: 700 }}>{bootstrapStaffRows.filter((row) => row.firstName || row.lastName || row.email).length} staff users • {setupEncounterCount} historical encounters • {setupHistoricalDays} day history</div>
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                          {hospitalBootstrap.departments.map((department) => (
-                            <span key={department} style={{ padding: '7px 10px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', fontWeight: 700, fontSize: 12 }}>{department}</span>
-                          ))}
-                        </div>
-                        <div style={{ display: 'grid', gap: 8 }}>
-                          {bootstrapStaffRows.filter((row) => row.firstName || row.lastName || row.email).map((staff, index) => (
-                            <div key={`review-${index}`} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff' }}>
-                              <strong>{staff.firstName || 'New'} {staff.lastName || 'team member'}</strong>
-                              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{HOSPITAL_STAFF_ROLES.find((position) => position.code === staff.positionCode)?.label || staff.role} • {staff.department} • {staff.specialty || 'No specialty'} • {staff.email || 'No email'}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                      <div>
-                        {setupStep > 0 && <button type="button" onClick={() => setSetupStep((current) => Math.max(current - 1, 0))} style={secondaryButtonStyle}>Back</button>}
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                        {setupStep < 2 ? (
-                          <button type="button" onClick={() => setSetupStep((current) => Math.min(current + 1, 2))} style={policyButtonStyle}>Continue</button>
-                        ) : (
-                          <button type="button" onClick={async () => { await submitHospitalBootstrap(); }} disabled={managedHospitalLoading} style={policyButtonStyle}>{managedHospitalLoading ? 'Creating...' : 'Create hospital'}</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 

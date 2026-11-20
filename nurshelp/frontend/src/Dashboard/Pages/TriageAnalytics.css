@@ -1,0 +1,14 @@
+.analytics-workforce-cards {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .analytics-workforce-table {
+    display: none !important;
+  }
+
+  .analytics-workforce-cards {
+    display: grid !important;
+    gap: 10px;
+  }
+}

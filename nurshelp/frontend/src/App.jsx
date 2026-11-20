@@ -29,7 +29,6 @@ import EHRLibrary from "./Dashboard/Pages/EHRLibrary.jsx";
 import TriagedPatients from "./Dashboard/Pages/TriagedPatients.jsx";
 import BedsAllocation from "./Dashboard/Pages/BedsAllocation.jsx";
 import StaffScheduleManager from "./Dashboard/Pages/StaffScheduleManager.jsx";
-import StaffStatusPage from "./Dashboard/Pages/StaffStatusPage.jsx";
 import StaffTeamPage from "./Dashboard/Pages/StaffTeamPage.jsx";
 import Pharmacy from "./Dashboard/Pages/Pharmacy.jsx";
 import PharmacyPublic from "./Dashboard/Pages/PharmacyPublic.jsx";
@@ -306,8 +305,6 @@ function App() {
 
           {/* Clock Management Routes */}
           <Route path="/clock-in-out" element={<ClockInOutBoard token={localStorage.getItem('token')} user={JSON.parse(localStorage.getItem('user') || '{}')} />} />
-          <Route path="/staff-status" element={<StaffStatusPage token={localStorage.getItem('token')} />} />
-          <Route path="/dashboard/staff-status" element={<StaffStatusPage token={localStorage.getItem('token')} />} />
           <Route path="/approvals" element={<ManagerApprovalPage token={localStorage.getItem('token')} userRole={JSON.parse(localStorage.getItem('user') || '{}').role} />} />
           <Route path="/statistics" element={<StatisticsPage token={localStorage.getItem('token')} />} />
           <Route path="/admin-settings" element={<AdminSettingsPage token={localStorage.getItem('token')} />} />

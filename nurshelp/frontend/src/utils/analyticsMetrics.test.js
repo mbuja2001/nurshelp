@@ -6,6 +6,7 @@ import {
   getBreachPriorityOrder,
   getMetricConfidenceState,
   getVisualizationDataState,
+  summarizeStaffWorkload,
 } from './analyticsMetrics';
 import { getAdminWorkspaceViewRegistration } from './adminDashboardViews';
 import { resolveShiftDashboardContext } from './shiftDashboardContext';
@@ -13,9 +14,21 @@ import { resolveShiftDashboardContext } from './shiftDashboardContext';
 describe('analytics metrics', () => {
   it('keeps live patient metrics visible when records exist, while only the empty sample remains insufficient', () => {
     expect(getMetricConfidenceState(40, 0, 30)).toBe('INSUFFICIENT');
+    expect(getMetricConfidenceState(null, 5, 30)).toBe('INSUFFICIENT');
     expect(getMetricConfidenceState(40, 5, 30)).toBe('LOW_CONFIDENCE');
     expect(getMetricConfidenceState(87.7, 35, 30)).toBe('LOW_CONFIDENCE');
     expect(getMetricConfidenceState(95.2, 120, 30)).toBe('RELIABLE');
+  });
+
+  it('calculates cases per hour only from recorded assignments and worked hours', () => {
+    const summary = summarizeStaffWorkload([
+      { name: 'Clinician', actual: 5, assignedCases: 10 },
+      { name: 'No recorded hours', actual: 0, assignedCases: 4 },
+    ]);
+
+    expect(summary.rows[0].casesPerHour).toBe(2);
+    expect(summary.rows[1].casesPerHour).toBeNull();
+    expect(summary.mean).toBe(2);
   });
 
   it('computes mistriage only from urgency-category mismatch', () => {

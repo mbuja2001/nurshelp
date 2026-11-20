@@ -1,5 +1,6 @@
 import { Encounter } from '../models/encounter.model.js';
 import { ClinicalStaff } from '../models/clinicalstaff.model.js';
+import { StaffClockRecord } from '../models/staffClockRecord.model.js';
 import { AuditLog } from '../models/auditLog.model.js';
 
 const toTitleCase = (value) => {
@@ -12,7 +13,7 @@ const toTitleCase = (value) => {
 };
 
 const normalizePriority = (value) => {
-  if (value === null || value === undefined || value === '') return 'GREEN';
+  if (value === null || value === undefined || value === '') return null;
 
   const raw = String(value).trim();
   const upper = raw.toUpperCase();
@@ -32,11 +33,12 @@ const normalizePriority = (value) => {
   if (upper.includes('YELLOW')) return 'YELLOW';
   if (upper.includes('GREEN')) return 'GREEN';
 
-  return 'GREEN';
+  return null;
 };
 
 const getPriorityLabel = (encounter) => {
   const candidates = [
+    { priorityCode: encounter?.physicianFinalUrgency || encounter?.finalUrgency },
     encounter?.manual_triage_report,
     encounter?.ai_triage_report,
     encounter?.triage,
@@ -67,7 +69,7 @@ const getPriorityLabel = (encounter) => {
     }
   }
 
-  return 'GREEN';
+  return null;
 };
 
 const getDiagnosisLabel = (encounter) => {
@@ -76,8 +78,6 @@ const getDiagnosisLabel = (encounter) => {
     encounter?.manual_triage_report?.diagnosis,
     encounter?.ai_triage_report?.diagnosis,
     encounter?.triage?.diagnosis,
-    encounter?.patient?.symptoms,
-    encounter?.patient?.history,
   ];
 
   for (const candidate of candidates) {
@@ -85,14 +85,16 @@ const getDiagnosisLabel = (encounter) => {
     if (value) return toTitleCase(value);
   }
 
-  return 'General Assessment';
+  return null;
 };
 
 const getWaitMinutes = (encounter) => {
-  const anchor = encounter?.waitStartedAt || encounter?.arrivalAt || encounter?.date || encounter?.createdAt || new Date();
+  const anchor = encounter?.waitStartedAt || encounter?.arrivalAt || encounter?.date || encounter?.createdAt;
+  if (!anchor) return null;
+
   const created = new Date(anchor).getTime();
   const now = Date.now();
-  if (!Number.isFinite(created)) return 0;
+  if (!Number.isFinite(created)) return null;
   return Math.max(0, Math.round((now - created) / 60000));
 };
 
@@ -163,21 +165,25 @@ const buildCaseReview = (encounter) => {
     manual_triage_report: encounter?.manual_triage_report,
   });
 
-  const physicianUrgency = encounter?.physicianFinalUrgency || encounter?.finalUrgency || nurseUrgency;
+  const physicianUrgency = normalizePriority(encounter?.physicianFinalUrgency || encounter?.finalUrgency);
+  if (!aiUrgency || !nurseUrgency) return null;
+
   const aiDiagnosis = getDiagnosisLabel({
     ai_triage_report: encounter?.ai_triage_report,
     triage: encounter?.triage,
-    patient: encounter?.patient,
   });
   const nurseDiagnosis = getDiagnosisLabel({
     manual_triage_report: encounter?.manual_triage_report,
-    patient: encounter?.patient,
   });
-  const physicianDiagnosis = encounter?.diagnosis || getDiagnosisLabel({ patient: encounter?.patient });
+  const physicianDiagnosis = getDiagnosisLabel(encounter);
 
   const mistriageFlag = aiUrgency !== nurseUrgency && aiUrgency !== physicianUrgency;
   const refinementOccurred = aiDiagnosis && physicianDiagnosis && aiDiagnosis.toLowerCase() !== physicianDiagnosis.toLowerCase();
-  const reviewOutcome = mistriageFlag ? 'MISTRIAGE_MAJOR' : refinementOccurred ? 'CORRECT' : 'CORRECT';
+  const reviewOutcome = !physicianUrgency
+    ? 'PENDING_CLINICAL_REVIEW'
+    : mistriageFlag
+      ? 'MISTRIAGE_MAJOR'
+      : 'CORRECT';
 
   return {
     encounterId: String(encounter?._id || encounter?.encounterId || 'unknown'),
@@ -190,7 +196,7 @@ const buildCaseReview = (encounter) => {
     reviewOutcome,
     mistriageFlag,
     refinementOccurred,
-    reviewerNotes: encounter?.physician_notes || encounter?.nurseNotes || 'Hospital review captured from live encounter data',
+    reviewerNotes: encounter?.physician_notes || encounter?.nurseNotes || '',
   };
 };
 
@@ -202,8 +208,10 @@ const toSeverityScale = (priority) => {
       return 'High';
     case 'YELLOW':
       return 'Medium';
-    default:
+    case 'GREEN':
       return 'Low';
+    default:
+      return null;
   }
 };
 
@@ -217,21 +225,29 @@ export const getTriageAnalytics = async (req, res) => {
     const { start, end } = getRange(req.query?.range || 'today');
     const query = {
       hospitalId,
+      syntheticData: { $ne: true },
       date: {
         $gte: start,
         $lte: end,
       },
     };
 
-    const [encounters, staff, auditLogs] = await Promise.all([
+    const [encounters, staffClockRecords, auditLogs] = await Promise.all([
       Encounter.find(query).sort({ date: -1 }).lean(),
-      ClinicalStaff.find({ hospitalId }).select('_id firstName lastName systemRole role assignment').lean(),
+      StaffClockRecord.find({
+        hospitalId,
+        date: { $gte: start, $lte: end },
+        clockInTime: { $type: 'date' },
+        status: { $in: ['CLOCKED_IN', 'ON_BREAK', 'CLOCKED_OUT'] },
+      })
+        .populate({ path: 'staffId', select: 'firstName lastName', model: ClinicalStaff })
+        .lean(),
       AuditLog.find({ hospitalId, timestamp: { $gte: start, $lte: end } }).select('action timestamp hospitalId').lean(),
     ]);
 
     const totalPatients = encounters.length;
-    const waitMinutes = encounters.map(getWaitMinutes);
-    const averageWait = waitMinutes.length ? waitMinutes.reduce((sum, value) => sum + value, 0) / waitMinutes.length : 0;
+    const waitMinutes = encounters.map(getWaitMinutes).filter(Number.isFinite);
+    const averageWait = waitMinutes.length ? waitMinutes.reduce((sum, value) => sum + value, 0) / waitMinutes.length : null;
 
     const priorityBuckets = {
       Critical: { severity: 'Critical', allocated: 15, actual: 0, count: 0 },
@@ -244,20 +260,22 @@ export const getTriageAnalytics = async (req, res) => {
       const priority = getPriorityLabel(encounter);
       const severity = toSeverityScale(priority);
       const bucket = priorityBuckets[severity];
-      if (!bucket) return;
+      const waitMinutes = getWaitMinutes(encounter);
+      if (!bucket || !Number.isFinite(waitMinutes)) return;
 
       bucket.count += 1;
-      bucket.actual += getWaitMinutes(encounter);
+      bucket.actual += waitMinutes;
     });
 
     const waitTimeVsSeverity = Object.values(priorityBuckets).map((bucket) => ({
       ...bucket,
       actual: bucket.count ? Number((bucket.actual / bucket.count).toFixed(1)) : 0,
-    }));
+    })).filter((bucket) => bucket.count > 0);
 
     const diagnosisCounts = new Map();
     encounters.forEach((encounter) => {
       const label = getDiagnosisLabel(encounter);
+      if (!label) return;
       diagnosisCounts.set(label, (diagnosisCounts.get(label) || 0) + 1);
     });
 
@@ -270,38 +288,90 @@ export const getTriageAnalytics = async (req, res) => {
         percentage: totalPatients ? Number(((count / totalPatients) * 100).toFixed(1)) : 0,
       }));
 
-    const caseReviews = encounters
-      .map(buildCaseReview)
-      .filter((item) => item.encounterId !== 'unknown');
+    const caseReviews = encounters.map(buildCaseReview).filter(Boolean);
 
-    const mistriageCount = caseReviews.filter((item) => item.mistriageFlag).length;
-    const correctCount = caseReviews.filter((item) => item.reviewOutcome === 'CORRECT').length;
-    const triageAccuracy = caseReviews.length ? Number(((correctCount / caseReviews.length) * 100).toFixed(1)) : 0;
-    const mistriageRate = caseReviews.length ? Number(((mistriageCount / caseReviews.length) * 100).toFixed(1)) : 0;
+    const reviewedCases = caseReviews.filter((item) => item.reviewOutcome !== 'PENDING_CLINICAL_REVIEW');
+    const mistriageCount = reviewedCases.filter((item) => item.mistriageFlag).length;
+    const correctCount = reviewedCases.filter((item) => item.reviewOutcome === 'CORRECT').length;
+    const triageAccuracy = reviewedCases.length ? Number(((correctCount / reviewedCases.length) * 100).toFixed(1)) : null;
+    const mistriageRate = reviewedCases.length ? Number(((mistriageCount / reviewedCases.length) * 100).toFixed(1)) : null;
 
-    const staffHours = staff.slice(0, 5).map((member, index) => {
-      const memberName = [member?.firstName, member?.lastName].filter(Boolean).join(' ') || member?.name || `Clinician ${index + 1}`;
-      const assignedEncounters = encounters.filter((encounter) => {
-        const assignedIds = [
-          encounter?.assignedPhysicianId,
-          encounter?.assignedNurseId,
-          ...(encounter?.assigned_clinicians || []).map((clinician) => clinician?.id || clinician?._id),
-        ].filter(Boolean).map(String);
-        return assignedIds.includes(String(member?._id));
-      }).length;
+    const assignedCasesByStaff = new Map();
+    encounters.forEach((encounter) => {
+      const assignedIds = new Set([
+        encounter?.assignedPhysicianId,
+        encounter?.assignedNurseId,
+        ...(encounter?.assigned_clinicians || []).map((clinician) => clinician?.id || clinician?._id),
+      ].filter(Boolean).map(String));
 
-      const shift = 8 + (index % 3);
-      const actual = Math.max(6.5, shift - (index === 0 ? 0.5 : 0.25));
-      const weightedCases = assignedEncounters * 4 + (index + 1) * 5;
+      assignedIds.forEach((staffId) => {
+        assignedCasesByStaff.set(staffId, (assignedCasesByStaff.get(staffId) || 0) + 1);
+      });
+    });
 
+    const now = Date.now();
+    const staffHoursById = new Map();
+    staffClockRecords.forEach((record) => {
+      const staffId = record.staffId?._id || record.staffId;
+      const staffKey = staffId?.toString?.();
+      const clockIn = new Date(record.clockInTime).getTime();
+      const clockOut = record.clockOutTime
+        ? new Date(record.clockOutTime).getTime()
+        : Math.min(now, end.getTime());
+      if (!staffKey || !Number.isFinite(clockIn) || !Number.isFinite(clockOut) || clockOut < clockIn) return;
+
+      const shiftMs = record.clockOutTime && Number.isFinite(record.totalShiftDuration)
+        ? record.totalShiftDuration
+        : clockOut - clockIn;
+      const breakStart = record.breakStartTime ? new Date(record.breakStartTime).getTime() : NaN;
+      const breakEnd = record.breakEndTime ? new Date(record.breakEndTime).getTime() : NaN;
+      const recordedBreakMs = Number.isFinite(record.totalBreakTime)
+        ? record.totalBreakTime
+        : Number.isFinite(breakStart) && Number.isFinite(breakEnd) && breakEnd >= breakStart
+          ? breakEnd - breakStart
+          : 0;
+      const ongoingBreakMs = record.status === 'ON_BREAK' && Number.isFinite(breakStart)
+        ? Math.max(0, Math.min(now, end.getTime()) - breakStart)
+        : 0;
+      const breakMs = Math.max(0, recordedBreakMs + ongoingBreakMs);
+      const workMs = record.clockOutTime && Number.isFinite(record.totalWorkTime)
+        ? record.totalWorkTime
+        : Math.max(0, shiftMs - breakMs);
+      const staffName = [record.staffId?.firstName, record.staffId?.lastName].filter(Boolean).join(' ').trim();
+      const current = staffHoursById.get(staffKey) || {
+        name: staffName || 'Staff record unavailable',
+        shiftMs: 0,
+        breakMs: 0,
+        workMs: 0,
+      };
+
+      current.shiftMs += Math.max(0, shiftMs);
+      current.breakMs += Math.max(0, breakMs);
+      current.workMs += Math.max(0, workMs);
+      staffHoursById.set(staffKey, current);
+    });
+
+    const staffHours = [...staffHoursById.entries()].map(([staffId, totals]) => {
+      const actualHours = totals.workMs / 3600000;
+      const actual = Number(actualHours.toFixed(1));
+      const assignedCases = assignedCasesByStaff.get(staffId) || 0;
       return {
-        name: memberName,
-        shift,
-        break: 0.5 + (index % 2 === 0 ? 0.5 : 0),
+        name: totals.name,
+        shift: Number((totals.shiftMs / 3600000).toFixed(1)),
+        break: Number((totals.breakMs / 3600000).toFixed(1)),
         actual,
-        weightedCases,
+        assignedCases,
+        casesPerHour: actualHours > 0 ? Number((assignedCases / actualHours).toFixed(1)) : null,
       };
     });
+    const totalWorkedMilliseconds = [...staffHoursById.values()].reduce((sum, item) => sum + item.workMs, 0);
+    const totalStaffHours = staffHours.length
+      ? Number((totalWorkedMilliseconds / 3600000).toFixed(1))
+      : null;
+    const assignedCasesPerHour = totalWorkedMilliseconds > 0
+      ? Number((staffHours.reduce((sum, item) => sum + item.assignedCases, 0) / (totalWorkedMilliseconds / 3600000)).toFixed(1))
+      : null;
+    const assignedCasesPerHourSampleSize = staffHours.filter((item) => item.actual > 0).length;
 
     const response = {
       success: true,
@@ -314,13 +384,15 @@ export const getTriageAnalytics = async (req, res) => {
       dailyMetrics: {
         totalPatients,
         triageAccuracy,
-        triageAccuracySampleSize: caseReviews.length,
+        triageAccuracySampleSize: reviewedCases.length,
         mistriageRate,
-        mistriageSampleSize: caseReviews.length,
-        avgWaitTime: Number(averageWait.toFixed(1)),
-        workloadCarryRate: totalPatients ? Number(((staffHours.reduce((sum, item) => sum + Number(item.weightedCases || 0), 0) / totalPatients) * 100 / 10).toFixed(1)) : 0,
-        workloadCarrySampleSize: staffHours.length,
-        totalStaffHours: Number(staffHours.reduce((sum, item) => sum + Number(item.actual || 0), 0).toFixed(1)),
+        mistriageSampleSize: reviewedCases.length,
+        avgWaitTime: averageWait === null ? null : Number(averageWait.toFixed(1)),
+        avgWaitTimeSampleSize: waitMinutes.length,
+        assignedCasesPerHour,
+        assignedCasesPerHourSampleSize,
+        totalStaffHours,
+        totalStaffHoursSampleSize: staffHours.length,
       },
       eventSummary: {
         totalHospitalEvents: auditLogs.length + totalPatients,

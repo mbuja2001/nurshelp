@@ -66,6 +66,17 @@ export const calculateTrendDelta = (currentValue, previousValue, { inverse = fal
 };
 
 export const getMetricConfidenceState = (value, sampleSize, minimumN = 30) => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    sampleSize === null ||
+    sampleSize === undefined ||
+    sampleSize === ''
+  ) {
+    return 'INSUFFICIENT';
+  }
+
   const numericValue = Number(value);
   const numericSample = Number(sampleSize);
 
@@ -140,25 +151,22 @@ export const getBreachPriorityOrder = (rows = []) => {
 
 export const summarizeStaffWorkload = (staffRows = []) => {
   const rows = staffRows.map((staff) => {
-    const shiftHours = Number(staff.shift || 0);
-    const breakHours = Number(staff.break || 0);
     const actualHours = Number(staff.actual || 0);
-    const weightedCases = Number(staff.weightedCases || 0);
-    const hoursWorked = Math.max(actualHours, 0.1);
-    const weightedCasesPerHour = shiftHours > 0 ? weightedCases / hoursWorked : 0;
+    const assignedCases = Number(staff.assignedCases || 0);
+    const casesPerHour = actualHours > 0 ? assignedCases / actualHours : null;
 
     return {
       ...staff,
-      weightedCasesPerHour,
-      hoursWorked,
+      assignedCases,
+      casesPerHour,
     };
   });
 
-  const values = rows.map((row) => row.weightedCasesPerHour);
-  const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  const values = rows.map((row) => row.casesPerHour).filter(Number.isFinite);
+  const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const variance = values.length
     ? values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length
-    : 0;
+    : null;
 
   return {
     rows,

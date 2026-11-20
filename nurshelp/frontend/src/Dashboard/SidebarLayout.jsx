@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FiUser, FiFileText, FiHome, FiSettings, FiUsers, FiBarChart2, FiLogOut, FiBell, FiHelpCircle, FiCreditCard, FiMessageCircle, FiClock } from 'react-icons/fi';
+import { FiUser, FiFileText, FiHome, FiSettings, FiUsers, FiBarChart2, FiLogOut, FiBell, FiHelpCircle, FiCreditCard, FiMessageCircle, FiClock, FiTool } from 'react-icons/fi';
 import { FaPills, FaFlask, FaRadiation } from 'react-icons/fa';
 import { MdLibraryBooks } from 'react-icons/md';
 import { FaBed } from 'react-icons/fa';
@@ -33,7 +33,25 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
   const [messageCount, setMessageCount] = useState(0);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [showMessagesDropdown, setShowMessagesDropdown] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showPerformanceDropdown, setShowPerformanceDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const hoverCloseTimeout = useRef(null);
+
+  const clearHeaderHoverClose = () => {
+    if (hoverCloseTimeout.current) {
+      window.clearTimeout(hoverCloseTimeout.current);
+      hoverCloseTimeout.current = null;
+    }
+  };
+
+  const scheduleHeaderHoverClose = (setOpen) => {
+    clearHeaderHoverClose();
+    hoverCloseTimeout.current = window.setTimeout(() => {
+      setOpen(false);
+      hoverCloseTimeout.current = null;
+    }, 500);
+  };
 
   // Extract user info from JWT token
   useEffect(() => {
@@ -125,6 +143,10 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => () => {
+    if (hoverCloseTimeout.current) window.clearTimeout(hoverCloseTimeout.current);
+  }, []);
+
   // Fetch real-time clocked-in physicians as on-call consults
   useEffect(() => {
     if (!hospitalId) return;
@@ -193,12 +215,12 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
   const radiologyPath = normalizedRole === 'RADIOLOGIST' ? '/radiology' : '/lab-requests?specialty=RADIOLOGY';
   const pathologyPath = normalizedRole === 'PATHOLOGIST' ? '/pathology' : '/lab-requests?specialty=PATHOLOGY';
 
-  const isManager = ['ADMIN', 'MANAGER'].includes((decoded?.role || '').toUpperCase());
+  const isAdmin = ['ADMIN', 'ADMINISTRATIVE', 'SUPERUSER'].includes((decoded?.role || '').toUpperCase());
   const isTechnician = (decoded?.role || '').toUpperCase() === 'TECHNICIAN';
 
   const navItems = [
     { id: 'nav-dashboard', label: 'Dashboard', path: '/dashboard', icon: <FiHome size={16} /> },
-    { id: 'nav-dashboard-tools', label: 'Toolbar', path: '/dashboard-tools', icon: <FiBarChart2 size={16} /> },
+    { id: 'nav-dashboard-tools', label: 'Toolbar', path: '/dashboard-tools', icon: <FiTool size={16} /> },
     { id: 'nav-profile', label: 'Profile', path: '/profile', icon: <FiUser size={16} /> },
     { id: 'nav-ehr', label: 'EHR', path: '/ehr', icon: <FiFileText size={16} /> },
     { id: 'nav-pharmacy', label: 'Pharmacy', path: pharmacyPath, icon: <FaPills size={16} /> },
@@ -206,7 +228,6 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
     { id: 'nav-pathology', label: 'Pathology', path: pathologyPath, icon: <FaFlask size={16} /> },
     { id: 'nav-beds', label: 'Beds Allocation', path: '/beds', icon: <FaBed size={16} /> },
     { id: 'nav-shift-management', label: 'Staff Scheduling', path: '/shift-management', icon: <FiClock size={16} /> },
-    ...(isManager ? [{ id: 'nav-staff-status', label: 'Staff Status', path: '/staff-status', icon: <FiUsers size={16} /> }] : []),
     { id: 'nav-staff-team', label: 'Staff Team', path: '/staff-team', icon: <FiUsers size={16} /> },
     { id: 'nav-reference', label: 'Reference Cases Library', path: '/reference-cases', icon: <MdLibraryBooks size={16} /> },
     { id: 'nav-analytics', label: 'Analytics', path: '/analytics', icon: <FiBarChart2 size={16} /> },
@@ -214,9 +235,11 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
     { id: 'nav-licenses', label: 'Clinical Licenses', path: '/licenses', icon: <FiCreditCard size={16} /> },
     { id: 'nav-help', label: 'Help', path: '/help', icon: <FiHelpCircle size={16} /> }
   ];
-  const visibleNavItems = isTechnician
-    ? navItems.filter(({ id }) => ['nav-dashboard', 'nav-profile', 'nav-help'].includes(id))
-    : navItems;
+  const visibleNavItems = navItems.filter(({ id }) => {
+    if (isTechnician) return ['nav-dashboard', 'nav-profile', 'nav-help'].includes(id);
+    if (isAdmin && id === 'nav-shift-management') return false;
+    return true;
+  });
 
   const isActive = (path) => location.pathname === path;
   const isSidebarCollapsed = !sidebarOpen;
@@ -374,6 +397,54 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           cursor: pointer;
           text-align: left;
         }
+        .sidebar-profile-menu {
+          position: relative;
+        }
+        .sidebar-profile-menu-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          z-index: 500;
+          min-width: 150px;
+          padding: 6px;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          background: #ffffff;
+          box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+        }
+        .sidebar-header-hover-menu {
+          position: relative;
+        }
+        .sidebar-header-hover-panel {
+          position: absolute;
+          top: 100%;
+          z-index: 1100;
+        }
+        .sidebar-profile-menu-item {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 9px 10px;
+          border: 0;
+          border-radius: 7px;
+          background: transparent;
+          color: #334155;
+          cursor: pointer;
+          font: inherit;
+          font-size: 13px;
+          text-align: left;
+        }
+        .sidebar-profile-menu-item:hover,
+        .sidebar-profile-menu-item:focus-visible {
+          background: #f1f5f9;
+          color: #0f766e;
+        }
+        .sidebar-profile-menu-item.logout:hover,
+        .sidebar-profile-menu-item.logout:focus-visible {
+          background: #fff1f2;
+          color: #be123c;
+        }
 
         .sidebar-header-control-label {
           overflow: hidden;
@@ -525,15 +596,20 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
         }
 
         @media (max-width: 480px) {
+          .sidebar-messages-panel { right: clamp(-92px, -25vw, -48px) !important; }
+          .sidebar-alerts-panel { right: clamp(-56px, -15vw, -32px) !important; }
           .sidebar-header-brand-copy {
-            display: flex !important;
-            gap: 1px;
+            display: none !important;
           }
-          .sidebar-header-brand-copy h2 {
-            font-size: 14px !important;
+          .sidebar-header-brand {
+            gap: 0 !important;
           }
-          .sidebar-header-brand-copy span {
-            font-size: 9px !important;
+          .sidebar-header-brand img {
+            width: 48px !important;
+            height: 48px !important;
+            object-fit: cover;
+            object-position: center center;
+            border-radius: 50%;
           }
           .sidebar-text-label {
             display: block;
@@ -548,9 +624,6 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
             padding: 5px 4px !important;
           }
 
-          .sidebar-header-brand img {
-            height: 2.2rem !important;
-          }
         }
       `}</style>
 
@@ -824,209 +897,334 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px', marginLeft: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button className="sidebar-header-user" type="button" onClick={() => navigate('/profile')} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '8px 12px',
-                borderRadius: '999px',
-                background: 'rgba(255,255,255,0.12)',
-                border: '1px solid rgba(255,255,255,0.18)',
-                boxShadow: '0 1px 3px rgba(15,23,42,0.12)'
-              }} title="Open profile">
-                <div className="sidebar-header-user-avatar" style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #0f172a 0%, #2563eb 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: 16
-                }}>
-                  {(displayName || 'S').slice(0, 1).toUpperCase()}
-                </div>
-                <div className="sidebar-header-user-copy" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 800, color: '#ffffff', fontSize: 14, letterSpacing: '0.2px', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{displayName}</span>
-                  <span style={{ fontSize: 12, color: '#dbeafe', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{userRole}</span>
-                  <span style={{ fontSize: 11, color: '#86efac', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-                    <FiClock size={11} />
-                    {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </span>
-                </div>
-              </button>
+              <div
+                className="sidebar-profile-menu"
+                onMouseEnter={() => {
+                  clearHeaderHoverClose();
+                  setShowProfileDropdown(true);
+                  setShowMessagesDropdown(false);
+                  setShowNotificationsDropdown(false);
+                  setShowPerformanceDropdown(false);
+                }}
+                onMouseLeave={() => scheduleHeaderHoverClose(setShowProfileDropdown)}
+                onFocus={() => {
+                  setShowProfileDropdown(true);
+                  setShowMessagesDropdown(false);
+                  setShowNotificationsDropdown(false);
+                  setShowPerformanceDropdown(false);
+                }}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setShowProfileDropdown(false);
+                }}
+              >
+                <button
+                  className="sidebar-header-user"
+                  type="button"
+                  onClick={() => navigate('/profile')}
+                  aria-haspopup="menu"
+                  aria-expanded={showProfileDropdown}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '8px 12px',
+                    borderRadius: '999px',
+                    background: 'rgba(255,255,255,0.12)',
+                    border: '1px solid rgba(255,255,255,0.18)',
+                    boxShadow: '0 1px 3px rgba(15,23,42,0.12)'
+                  }}
+                  title="Profile"
+                >
+                  <div className="sidebar-header-user-avatar" style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #0f172a 0%, #2563eb 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 16
+                  }}>
+                    {(displayName || 'S').slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="sidebar-header-user-copy" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2, minWidth: 0 }}>
+                    <span style={{ fontWeight: 800, color: '#ffffff', fontSize: 14, letterSpacing: '0.2px', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{displayName}</span>
+                    <span style={{ fontSize: 12, color: '#dbeafe', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>{userRole}</span>
+                    <span style={{ fontSize: 11, color: '#86efac', display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                      <FiClock size={11} />
+                      {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </button>
+                {showProfileDropdown && (
+                  <div
+                    className="sidebar-profile-menu-dropdown"
+                    role="menu"
+                    aria-label="Profile options"
+                    onMouseEnter={clearHeaderHoverClose}
+                    onMouseLeave={() => scheduleHeaderHoverClose(setShowProfileDropdown)}
+                  >
+                    <button type="button" role="menuitem" className="sidebar-profile-menu-item logout" onClick={logout}>
+                      <FiLogOut size={15} aria-hidden="true" />
+                      Log out
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button className="sidebar-header-control"
+                <div
+                  className="sidebar-header-hover-menu"
                   onMouseEnter={() => {
+                    clearHeaderHoverClose();
                     setShowMessagesDropdown(true);
                     setShowNotificationsDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(false);
                   }}
-                  onMouseLeave={() => setShowMessagesDropdown(false)}
-                  onClick={() => navigate('/staff-chat')}
-                  style={{
-                    position: 'relative',
-                    background: 'rgba(255,255,255,0.16)',
-                    border: '1px solid rgba(255,255,255,0.24)',
-                    color: '#ffffff',
-                    borderRadius: '999px',
-                    padding: '8px 10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: 12,
-                    fontWeight: 700
+                  onMouseLeave={() => scheduleHeaderHoverClose(setShowMessagesDropdown)}
+                  onFocus={() => {
+                    setShowMessagesDropdown(true);
+                    setShowNotificationsDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(false);
                   }}
-                  title="Staff messaging"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setShowMessagesDropdown(false);
+                  }}
                 >
-                  <FiMessageCircle size={16} />
-                  <span className="sidebar-header-control-label">Messages</span>
-                  <span className="sidebar-header-control-badge" style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: '18px',
-                    height: '18px',
-                    padding: '0 4px',
-                    borderRadius: '999px',
-                    background: '#2563eb',
-                    color: '#ffffff',
-                    fontSize: 10,
-                    fontWeight: 700
-                  }}>
-                    {messageCount}
-                  </span>
-                </button>
+                  <button
+                    className="sidebar-header-control"
+                    type="button"
+                    onClick={() => navigate('/staff-chat')}
+                    aria-haspopup="true"
+                    aria-expanded={showMessagesDropdown}
+                    style={{
+                      position: 'relative',
+                      background: 'rgba(255,255,255,0.16)',
+                      border: '1px solid rgba(255,255,255,0.24)',
+                      color: '#ffffff',
+                      borderRadius: '999px',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: 12,
+                      fontWeight: 700
+                    }}
+                    title="Staff messaging"
+                  >
+                    <FiMessageCircle size={16} />
+                    <span className="sidebar-header-control-label">Messages</span>
+                    <span className="sidebar-header-control-badge" style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: '18px',
+                      height: '18px',
+                      padding: '0 4px',
+                      borderRadius: '999px',
+                      background: '#2563eb',
+                      color: '#ffffff',
+                      fontSize: 10,
+                      fontWeight: 700
+                    }}>
+                      {messageCount}
+                    </span>
+                  </button>
+                  {showMessagesDropdown && (
+                    <div className="sidebar-header-hover-panel sidebar-messages-panel" role="region" aria-label="Staff messages" onMouseEnter={clearHeaderHoverClose} onMouseLeave={() => scheduleHeaderHoverClose(setShowMessagesDropdown)} style={{
+                      right: 0,
+                      width: 'min(280px, calc(100vw - 56px))',
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
+                      padding: '12px',
+                      boxSizing: 'border-box'
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Staff messages</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {messages.length === 0 ? (
+                          <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new messages</div>
+                        ) : messages.slice(0, 6).map((item) => (
+                          <div key={item.id} style={{ padding: '8px 10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#334155' }}>
+                            <div style={{ fontWeight: 700 }}>{item.title || 'Staff message'}</div>
+                            <div style={{ color: '#64748b', marginTop: '2px' }}>{item.message || 'New staff update'}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => navigate('/staff-chat')} style={{ marginTop: 10, padding: '7px 10px', border: 0, borderRadius: 7, background: '#ecfeff', color: '#0f766e', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                        Open messages
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                <button className="sidebar-header-control"
+                <div
+                  className="sidebar-header-hover-menu"
                   onMouseEnter={() => {
+                    clearHeaderHoverClose();
                     setShowNotificationsDropdown(true);
                     setShowMessagesDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(false);
                   }}
-                  onMouseLeave={() => setShowNotificationsDropdown(false)}
-                  onClick={() => navigate('/alerts')}
-                  style={{
-                    position: 'relative',
-                    background: alertCount > 0 ? 'rgba(248,113,113,0.18)' : 'rgba(255,255,255,0.16)',
-                    border: `1px solid ${alertCount > 0 ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.24)'}`,
-                    color: '#ffffff',
-                    borderRadius: '999px',
-                    padding: '8px 10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: 12,
-                    fontWeight: 800
+                  onMouseLeave={() => scheduleHeaderHoverClose(setShowNotificationsDropdown)}
+                  onFocus={() => {
+                    setShowNotificationsDropdown(true);
+                    setShowMessagesDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(false);
                   }}
-                  title={`${alertCount} alert${alertCount !== 1 ? 's' : ''}`}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setShowNotificationsDropdown(false);
+                  }}
                 >
-                  <FiBell size={16} />
-                  <span className="sidebar-header-control-label">Alerts</span>
-                  <span className="sidebar-header-control-badge" style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: '18px',
-                    height: '18px',
-                    padding: '0 4px',
-                    borderRadius: '999px',
-                    background: '#dc2626',
-                    color: '#ffffff',
-                    fontSize: 10,
-                    fontWeight: 700
-                  }}>
-                    {alertCount}
-                  </span>
-                </button>
+                  <button
+                    className="sidebar-header-control"
+                    type="button"
+                    onClick={() => navigate('/alerts')}
+                    aria-haspopup="true"
+                    aria-expanded={showNotificationsDropdown}
+                    style={{
+                      position: 'relative',
+                      background: alertCount > 0 ? 'rgba(248,113,113,0.18)' : 'rgba(255,255,255,0.16)',
+                      border: `1px solid ${alertCount > 0 ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.24)'}`,
+                      color: '#ffffff',
+                      borderRadius: '999px',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: 12,
+                      fontWeight: 800
+                    }}
+                    title={`${alertCount} alert${alertCount !== 1 ? 's' : ''}`}
+                  >
+                    <FiBell size={16} />
+                    <span className="sidebar-header-control-label">Alerts</span>
+                    <span className="sidebar-header-control-badge" style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: '18px',
+                      height: '18px',
+                      padding: '0 4px',
+                      borderRadius: '999px',
+                      background: '#dc2626',
+                      color: '#ffffff',
+                      fontSize: 10,
+                      fontWeight: 700
+                    }}>
+                      {alertCount}
+                    </span>
+                  </button>
+                  {showNotificationsDropdown && (
+                    <div className="sidebar-header-hover-panel sidebar-alerts-panel" role="region" aria-label="Live alerts" onMouseEnter={clearHeaderHoverClose} onMouseLeave={() => scheduleHeaderHoverClose(setShowNotificationsDropdown)} style={{
+                      right: 0,
+                      width: 'min(320px, calc(100vw - 56px))',
+                      minWidth: 'min(240px, calc(100vw - 56px))',
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '9px',
+                      boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
+                      padding: '8px',
+                      boxSizing: 'border-box'
+                    }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>Live alerts</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {notifications.length === 0 ? (
+                          <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new alerts</div>
+                        ) : notifications.slice(0, 6).map((item) => (
+                          <div key={item.id || item._id || item.title} style={{ padding: '5px 7px', borderRadius: '6px', background: item.severity === 'CRITICAL' ? '#fef2f2' : '#fff7ed', fontSize: 10, lineHeight: 1.25, color: item.severity === 'CRITICAL' ? '#7f1d1d' : '#7c2d12' }}>
+                            <div style={{ fontWeight: 700, fontSize: 10 }}>{item.title || 'Alert'}</div>
+                            <div style={{ color: 'inherit', marginTop: '1px', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>{item.message || item.body || 'New clinical update'}</div>
+                            {item.patient?.name && <div style={{ marginTop: '2px', color: '#475569', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.patient.name}{item.patient.chiefComplaint ? ` • ${item.patient.chiefComplaint}` : ''}</div>}
+                            {item.action?.route && <button type="button" onClick={() => navigate(item.action.route)} style={{ marginTop: '3px', border: 0, background: 'transparent', padding: 0, color: '#1d4ed8', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>{item.action.label || 'Open'}</button>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-                <button className="sidebar-header-control"
-                  onClick={() => navigate('/system-performance')}
-                  onMouseEnter={() => setShowNotificationsDropdown(false)}
-                  style={{
-                    position: 'relative',
-                    background: 'rgba(255,255,255,0.16)',
-                    border: '1px solid rgba(255,255,255,0.24)',
-                    color: '#ffffff',
-                    borderRadius: '999px',
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
+                <div
+                  className="sidebar-header-hover-menu"
+                  onMouseEnter={() => {
+                    clearHeaderHoverClose();
+                    setShowNotificationsDropdown(false);
+                    setShowMessagesDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(true);
                   }}
-                  title="System performance"
+                  onMouseLeave={() => scheduleHeaderHoverClose(setShowPerformanceDropdown)}
+                  onFocus={() => {
+                    setShowNotificationsDropdown(false);
+                    setShowMessagesDropdown(false);
+                    setShowProfileDropdown(false);
+                    setShowPerformanceDropdown(true);
+                  }}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setShowPerformanceDropdown(false);
+                  }}
                 >
-                  <FiBarChart2 size={16} />
-                  <span className="sidebar-header-control-label">System Performance</span>
-                </button>
+                  <button
+                    className="sidebar-header-control"
+                    type="button"
+                    onClick={() => navigate('/system-performance')}
+                    aria-haspopup="true"
+                    aria-expanded={showPerformanceDropdown}
+                    style={{
+                      position: 'relative',
+                      background: 'rgba(255,255,255,0.16)',
+                      border: '1px solid rgba(255,255,255,0.24)',
+                      color: '#ffffff',
+                      borderRadius: '999px',
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="System performance"
+                  >
+                    <FiBarChart2 size={16} />
+                    <span className="sidebar-header-control-label">System Performance</span>
+                  </button>
+                  {showPerformanceDropdown && (
+                    <div className="sidebar-header-hover-panel sidebar-performance-panel" role="region" aria-label="System performance options" onMouseEnter={clearHeaderHoverClose} onMouseLeave={() => scheduleHeaderHoverClose(setShowPerformanceDropdown)} style={{
+                      right: 0,
+                      width: 'min(280px, calc(100vw - 56px))',
+                      padding: 12,
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 12,
+                      background: '#ffffff',
+                      boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
+                      boxSizing: 'border-box'
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>System status</div>
+                      <div style={{ marginTop: 6, color: '#166534', fontSize: 12, fontWeight: 700 }}>Operational</div>
+                      <p style={{ margin: '4px 0 10px', color: '#64748b', fontSize: 11, lineHeight: 1.4 }}>
+                        Platform availability, clinical feed, and inference service are ready.
+                      </p>
+                      <button type="button" onClick={() => navigate('/system-performance')} style={{ width: '100%', padding: '8px 10px', border: 0, borderRadius: 7, background: '#ecfeff', color: '#0f766e', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                        Open system performance
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
           </div>
-
-          {showMessagesDropdown && (
-            <div style={{
-              position: 'absolute',
-              top: 'calc(100% + 8px)',
-              right: '220px',
-              minWidth: '260px',
-              background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '12px',
-              boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
-              padding: '12px',
-              zIndex: 1100
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Staff messages</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {messages.length === 0 ? (
-                  <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new messages</div>
-                ) : messages.slice(0, 6).map((item) => (
-                  <div key={item.id} style={{ padding: '8px 10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#334155' }}>
-                    <div style={{ fontWeight: 700 }}>{item.title || 'Staff message'}</div>
-                    <div style={{ color: '#64748b', marginTop: '2px' }}>{item.message || 'New staff update'}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {showNotificationsDropdown && (
-            <div style={{
-              position: 'absolute',
-              top: 'calc(100% + 8px)',
-              right: '12px',
-              width: 'min(320px, calc(100vw - 24px))',
-              minWidth: '240px',
-              background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '9px',
-              boxShadow: '0 12px 30px rgba(15,23,42,0.12)',
-              padding: '8px',
-              zIndex: 1100
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', marginBottom: '6px' }}>Live alerts</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {notifications.length === 0 ? (
-                  <div style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', fontSize: 12, color: '#64748b' }}>No new alerts</div>
-                ) : notifications.slice(0, 6).map((item) => (
-                  <div key={item.id || item._id || item.title} style={{ padding: '5px 7px', borderRadius: '6px', background: item.severity === 'CRITICAL' ? '#fef2f2' : '#fff7ed', fontSize: 10, lineHeight: 1.25, color: item.severity === 'CRITICAL' ? '#7f1d1d' : '#7c2d12' }}>
-                    <div style={{ fontWeight: 700, fontSize: 10 }}>{item.title || 'Alert'}</div>
-                    <div style={{ color: 'inherit', marginTop: '1px', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}>{item.message || item.body || 'New clinical update'}</div>
-                    {item.patient?.name && <div style={{ marginTop: '2px', color: '#475569', fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.patient.name}{item.patient.chiefComplaint ? ` • ${item.patient.chiefComplaint}` : ''}</div>}
-                    {item.action?.route && <button type="button" onClick={() => navigate(item.action.route)} style={{ marginTop: '3px', border: 0, background: 'transparent', padding: 0, color: '#1d4ed8', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>{item.action.label || 'Open'}</button>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </header>
 
         {/* Page Content */}
