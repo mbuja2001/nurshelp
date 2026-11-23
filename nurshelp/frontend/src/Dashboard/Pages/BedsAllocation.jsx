@@ -579,10 +579,50 @@ const BedsAllocation = ({ embedded = false }) => {
   // ============ RENDER ============
   const bedManagementContent = (
     <>
-      <div style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', padding: '32px' }}>
+      <div className="bed-management-page" style={{ backgroundColor: '#f5f7fa', minHeight: '100vh', padding: '32px', width: '100%', minWidth: 0 }}>
+        <style>{`
+          .bed-management-page,
+          .bed-management-page * { box-sizing: border-box; }
+          .bed-management-page { min-width: 0; max-width: 100%; }
+          .bed-management-beds-grid > * { min-width: 0; }
+          @media (max-width: 600px) {
+            .bed-management-page { padding: 12px !important; }
+            .bed-management-header { margin-bottom: 20px !important; }
+            .bed-management-header h1 { font-size: 25px !important; overflow-wrap: anywhere; }
+            .bed-management-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; margin-bottom: 18px !important; }
+            .bed-management-stats > div { min-width: 0; padding: 12px !important; }
+            .bed-management-stats p { overflow-wrap: anywhere; }
+            .bed-management-toolbar { padding: 12px !important; margin-bottom: 18px !important; }
+            .bed-management-toolbar-controls { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; gap: 10px !important; }
+            .bed-management-ward-control { width: 100%; min-width: 0 !important; }
+            .bed-management-ward-control select { width: 100%; min-width: 0; }
+            .bed-management-add-button { width: 100%; justify-content: center; }
+            .bed-management-toolbar-spacer { display: none; }
+            .bed-management-filter-controls { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px !important; }
+            .bed-management-filter-controls select { width: 100%; min-width: 0; padding: 8px !important; font-size: 12px !important; }
+            .bed-management-beds-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; margin-bottom: 20px !important; }
+            .bed-management-bed-header { padding: 12px !important; gap: 8px; }
+            .bed-management-bed-header h3 { font-size: 20px !important; overflow-wrap: anywhere; }
+            .bed-management-bed-status { padding: 6px 8px !important; font-size: 11px !important; }
+            .bed-management-bed-content { min-width: 0; padding: 12px !important; }
+            .bed-management-patient-header { flex-wrap: wrap; padding: 10px !important; }
+            .bed-management-patient-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            .bed-management-room-detail-grid,
+            .bed-management-spec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            .bed-management-room-detail-grid > div,
+            .bed-management-spec-grid > div { min-width: 0; overflow-wrap: anywhere; }
+            .bed-management-action-footer { padding: 10px !important; }
+            .bed-management-action-footer button { flex: 1 1 120px; min-width: 0 !important; }
+            .bed-management-modal-backdrop { align-items: flex-start !important; overflow-y: auto !important; padding: 12px !important; z-index: 300 !important; }
+            .bed-management-modal-form { width: 100% !important; max-height: calc(100vh - 24px) !important; max-height: calc(100dvh - 24px) !important; padding: 16px !important; min-width: 0; }
+            .bed-management-modal-fields,
+            .bed-management-equipment-grid { grid-template-columns: minmax(0, 1fr) !important; min-width: 0; }
+            .bed-management-modal-footer { flex-wrap: wrap; }
+          }
+        `}</style>
         
         {/* Professional Header */}
-        <div style={{ marginBottom: '32px' }}>
+        <div className="bed-management-header" style={{ marginBottom: '32px' }}>
           <h1 style={{ margin: '0 0 8px 0', fontSize: '32px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' }}>
             Bed Management System
           </h1>
@@ -606,7 +646,7 @@ const BedsAllocation = ({ embedded = false }) => {
         )}
 
         {/* Professional Stats Grid with Occupancy Visualization */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+        <div className="bed-management-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '32px' }}>
           {[
             { label: 'Total Beds', value: stats.total, color: '#6366f1', bg: '#eef2ff', icon: '🛏️' },
             { label: 'Available', value: stats.available, color: '#10b981', bg: '#ecfdf5', icon: '✓', showBar: true, percent: stats.total > 0 ? Math.round((stats.available / stats.total) * 100) : 0 },
@@ -626,7 +666,7 @@ const BedsAllocation = ({ embedded = false }) => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div style={{ fontSize: '22px' }}>{stat.icon}</div>
                 {stat.showBar && (
-                  <div style={{ 
+                  <div style={{
                     fontSize: '12px', 
                     fontWeight: 700, 
                     color: stat.color,
@@ -663,7 +703,7 @@ const BedsAllocation = ({ embedded = false }) => {
         </div>
 
         {/* Controls - Professional Toolbar */}
-        <div style={{ 
+        <div className="bed-management-toolbar" style={{
           backgroundColor: '#fff', 
           borderRadius: '12px', 
           padding: '20px', 
@@ -671,8 +711,8 @@ const BedsAllocation = ({ embedded = false }) => {
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
         }}>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', minWidth: '280px' }}>
+          <div className="bed-management-toolbar-controls" style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="bed-management-ward-control" style={{ display: 'flex', gap: '8px', alignItems: 'center', minWidth: '280px' }}>
               <label style={{ fontSize: '13px', fontWeight: 700, color: '#475569', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ward:</label>
               <select 
                 value={selectedWard || ''} 
@@ -703,6 +743,7 @@ const BedsAllocation = ({ embedded = false }) => {
             </div>
 
             {canEditBedConfiguration && <button
+              className="bed-management-add-button"
               onClick={openAddModal} 
               disabled={wardsLoading || configurationLoading || !wards.length || !equipmentCatalog.length}
               title={!wards.length ? 'Configure an active ward before adding a bed' : 'Add a bed to the selected ward'}
@@ -726,9 +767,9 @@ const BedsAllocation = ({ embedded = false }) => {
               <FiPlus size={16} /> Add Bed
             </button>}
 
-            <div style={{ flex: 1 }} />
+            <div className="bed-management-toolbar-spacer" style={{ flex: 1 }} />
 
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div className="bed-management-filter-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               <select 
                 value={filter.bedType} 
                 onChange={(e) => setFilter(prev => ({ ...prev, bedType: e.target.value }))} 
@@ -772,7 +813,7 @@ const BedsAllocation = ({ embedded = false }) => {
         </div>
 
         {/* Professional Beds Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        <div className="bed-management-beds-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px', marginBottom: '32px' }}>
           {loading ? (
             <div style={{ gridColumn: '1 / -1', padding: '60px 40px', textAlign: 'center', color: '#94a3b8', backgroundColor: '#fff', borderRadius: '12px' }}>
               <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>Loading Beds...</div>
@@ -789,7 +830,7 @@ const BedsAllocation = ({ embedded = false }) => {
               const isOccupied = bed.status === 'Occupied' && bed.occupant;
               
               return (
-                <div key={bed._id} style={{ 
+                <div key={bed._id} className="bed-management-bed-card" style={{
                   backgroundColor: '#fff', 
                   borderRadius: '12px', 
                   border: isOccupied ? `2px solid ${statusBadge.color}` : '1px solid #e2e8f0',
@@ -809,7 +850,7 @@ const BedsAllocation = ({ embedded = false }) => {
                 }}>
                   
                   {/* Bed Number - Clinical Header */}
-                  <div style={{ 
+                  <div className="bed-management-bed-header" style={{
                     padding: '18px 20px', 
                     backgroundColor: statusBadge.bgColor, 
                     borderBottom: `2px solid ${statusBadge.color}`,
@@ -825,7 +866,7 @@ const BedsAllocation = ({ embedded = false }) => {
                         {bed.bedNumber}
                       </h3>
                     </div>
-                    <span style={{ 
+                    <span className="bed-management-bed-status" style={{
                       padding: '8px 14px', 
                       borderRadius: '8px', 
                       fontSize: '12px', 
@@ -839,9 +880,9 @@ const BedsAllocation = ({ embedded = false }) => {
                   </div>
 
                   {/* Bed Info */}
-                  <div style={{ padding: '16px 20px' }}>
+                  <div className="bed-management-bed-content" style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
-                      <div style={{ 
+                      <div className="bed-management-patient-header" style={{
                         padding: '6px 10px', 
                         backgroundColor: '#f8fafc', 
                         borderRadius: '6px', 
@@ -852,7 +893,7 @@ const BedsAllocation = ({ embedded = false }) => {
                         {bed.bedType}
                       </div>
                       {bed.infectionControl !== 'Standard' && (
-                        <div style={{ 
+                        <div className="bed-management-patient-detail-grid" style={{
                           padding: '6px 10px', 
                           backgroundColor: '#fee2e2', 
                           borderRadius: '6px', 
@@ -1012,7 +1053,7 @@ const BedsAllocation = ({ embedded = false }) => {
 
                     {/* Room Details - Extracted from JSON */}
                     <div style={{ marginBottom: '14px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div className="bed-management-room-detail-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         {/* Room Number */}
                         <div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🚪 Room</div>
@@ -1086,7 +1127,7 @@ const BedsAllocation = ({ embedded = false }) => {
 
                     {/* Bed Specifications - Extracted from JSON */}
                     <div style={{ marginBottom: '14px', padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div className="bed-management-spec-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         {/* Bed Type */}
                         <div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>🛏️ Type</div>
@@ -1124,7 +1165,7 @@ const BedsAllocation = ({ embedded = false }) => {
                   </div>
 
                   {/* Action Buttons - Clinical Footer */}
-                  <div style={{ 
+                  <div className="bed-management-action-footer" style={{
                     padding: '12px 16px', 
                     backgroundColor: '#f8fafc', 
                     borderTop: '1px solid #e2e8f0',
@@ -1310,8 +1351,8 @@ const BedsAllocation = ({ embedded = false }) => {
       </div>
 
       {showModal && canEditBedConfiguration && (modalMode === 'add' || modalMode === 'edit') && (
-        <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <form onSubmit={(event) => { event.preventDefault(); saveBed(); }} style={{ width: 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
+        <div role="dialog" aria-modal="true" className="bed-management-modal-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <form className="bed-management-modal-form" onSubmit={(event) => { event.preventDefault(); saveBed(); }} style={{ width: 'min(760px, 100%)', maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 12, padding: 22, boxShadow: '0 24px 60px rgba(15,23,42,0.25)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', textTransform: 'uppercase' }}>Administrative configuration</div>
@@ -1320,7 +1361,7 @@ const BedsAllocation = ({ embedded = false }) => {
               </div>
               <button type="button" onClick={closeModal} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#475569' }}><FiX size={20} /></button>
             </div>
-            <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            <div className="bed-management-modal-fields" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>Bed ID<input required value={editForm.bedNumber} disabled={modalMode === 'edit'} onChange={(event) => setEditForm((current) => ({ ...current, bedNumber: event.target.value }))} style={{ padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }} /></label>
               <label style={{ display: 'grid', gap: 5, fontSize: 12, fontWeight: 700, color: '#334155' }}>
                 Existing ward
@@ -1368,7 +1409,7 @@ const BedsAllocation = ({ embedded = false }) => {
                 placeholder="Search equipment"
                 style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, border: '1px solid #cbd5e1', borderRadius: 6 }}
               />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, maxHeight: 310, overflowY: 'auto', marginTop: 12, paddingRight: 4 }}>
+              <div className="bed-management-equipment-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, maxHeight: 310, overflowY: 'auto', marginTop: 12, paddingRight: 4 }}>
                 {visibleEquipmentCatalog.map((group) => (
                   <fieldset key={group.category} style={{ minWidth: 0, margin: 0, padding: 10, border: '1px solid #e2e8f0', borderRadius: 8 }}>
                     <legend style={{ padding: '0 5px', color: '#334155', fontSize: 12, fontWeight: 800 }}>{group.category}</legend>
@@ -1399,7 +1440,7 @@ const BedsAllocation = ({ embedded = false }) => {
                 </div>
               )}
             </section>
-            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div className="bed-management-modal-footer" style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button type="button" onClick={closeModal} disabled={configurationSaving} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button type="submit" disabled={configurationSaving || !equipmentCatalog.length} style={{ padding: '9px 14px', border: 'none', borderRadius: 6, background: '#0f766e', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>
                 {configurationSaving ? 'Saving...' : modalMode === 'add' ? 'Create bed' : 'Save configuration'}

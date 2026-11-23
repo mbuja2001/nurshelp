@@ -173,6 +173,12 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   // ============ STATE ============
   const [activeTab, setActiveTab] = useState(isAdmin ? 'hospital-operations' : 'schedule'); // unified shift management view
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0]);
+  const [shiftCalendarOpen, setShiftCalendarOpen] = useState(false);
+  const [shiftCalendarMonth, setShiftCalendarMonth] = useState(() => new Date());
+  const [shiftCalendarShifts, setShiftCalendarShifts] = useState([]);
+  const [shiftCalendarLoading, setShiftCalendarLoading] = useState(false);
+  const [shiftCalendarError, setShiftCalendarError] = useState('');
+  const shiftCalendarRequestRef = useRef(0);
   const [systemMode, setSystemMode] = useState(() => {
     try {
       const fallbackMode = isCompanySuperAdmin ? 'live' : 'mock';
@@ -229,6 +235,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   
   const [selectedStaffForShift, setSelectedStaffForShift] = useState([]);
   const [shiftMessages, setShiftMessages] = useState({ success: '', error: '' });
+  const [scheduleShiftModalOpen, setScheduleShiftModalOpen] = useState(false);
   
   // Per-staff role assignment mapping: { [staffId]: { role: 'TRIAGE_NURSE'|'CLINICAL_NURSE'|'PHYSICIAN', context: 'CLINICAL_NURSE_ER'|... } }
   const [selectedStaffRoles, setSelectedStaffRoles] = useState({});
@@ -1911,6 +1918,60 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     }
   };
 
+  const fetchShiftCalendarMonth = async (monthDate) => {
+    const requestId = ++shiftCalendarRequestRef.current;
+    if (!token) {
+      setShiftCalendarError('You must be signed in to view the shift calendar.');
+      return;
+    }
+
+    setShiftCalendarLoading(true);
+    setShiftCalendarError('');
+    try {
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth() + 1;
+      const response = await fetch(`${BACKEND_URL}/api/shifts/month?year=${year}&month=${month}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `Unable to load shift calendar (${response.status})`);
+      if (!data.success || !Array.isArray(data.shifts)) throw new Error('The shift calendar returned an invalid response.');
+      if (requestId === shiftCalendarRequestRef.current) setShiftCalendarShifts(data.shifts);
+    } catch (error) {
+      if (requestId === shiftCalendarRequestRef.current) {
+        setShiftCalendarError(error.message || 'Unable to load shift calendar.');
+        setShiftCalendarShifts([]);
+      }
+    } finally {
+      if (requestId === shiftCalendarRequestRef.current) setShiftCalendarLoading(false);
+    }
+  };
+
+  const openShiftCalendar = () => {
+    const selectedDate = new Date(`${targetDate}T00:00:00`);
+    const monthDate = Number.isNaN(selectedDate.getTime()) ? new Date() : selectedDate;
+    setShiftCalendarMonth(monthDate);
+    setShiftCalendarOpen(true);
+    fetchShiftCalendarMonth(monthDate);
+  };
+
+  const changeShiftCalendarMonth = (monthOffset) => {
+    const nextMonth = new Date(shiftCalendarMonth.getFullYear(), shiftCalendarMonth.getMonth() + monthOffset, 1);
+    setShiftCalendarMonth(nextMonth);
+    fetchShiftCalendarMonth(nextMonth);
+  };
+
+  const selectShiftCalendarDate = (date) => {
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    setTargetDate(dateKey);
+    setSelectedShiftId('');
+    setAssignmentStaffId('');
+    setAssignmentRole('');
+    setShiftCalendarOpen(false);
+    setWorkspaceView('shifts');
+    setActiveTab('shifts');
+  };
+
   // ============ CREATE SHIFT (Admin only) ============
   // ============ CREATE SHIFT & ASSIGN ROLES ============
   const handleCreateShift = async (e) => {
@@ -2027,6 +2088,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         });
         setSelectedStaffRoles({});
         setSelectedStaffForShift([]);
+        setScheduleShiftModalOpen(false);
 
         // Refresh schedule and return to the unified shift workspace
         await fetchTodaySchedule();
@@ -2169,7 +2231,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   };
 
   const renderStaffActivity = () => (
-    <section style={{ marginTop: 0, padding: 18, borderRadius: 14, border: '1px solid #dbeafe', background: '#f8fbff' }}>
+    <section className="admin-shift-live-attendance" style={{ marginTop: 0, padding: 18, borderRadius: 14, border: '1px solid #dbeafe', background: '#f8fbff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b' }}>Live attendance</div>
@@ -2297,11 +2359,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
               <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{selectedHospitalName}</div>
               <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{decoded?.hospitalId || 'No hospital selected yet'}</div>
             </div>
-            <div style={{ padding: 16, borderRadius: 12, border: '1px solid #dbeafe', background: '#f8fbff' }}>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#475569' }}>Workload policy status</div>
-              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{capacityConfig?.policies?.defaultCapacityByRole ? 'Operational' : 'Needs setup'}</div>
-              <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{capacityConfig?.policies?.defaultCapacityByRole ? 'Clinical workload baseline configured' : 'Set baseline capacity before live utilization metrics are trusted'}</div>
-            </div>
           </div>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -2358,7 +2415,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                 <h3 style={{ margin: '6px 0 0', color: '#0f172a' }}>Next upcoming shift</h3>
                 <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: 12 }}>Review scheduled shifts before approving one with Start Hospital Shift.</p>
               </div>
-              <button type="button" onClick={() => setWorkspaceView('shifts')} style={{ ...secondaryButtonStyle, minHeight: 36, padding: '8px 12px', fontSize: 12 }}>Open shift calendar</button>
+              <button type="button" onClick={openShiftCalendar} style={{ ...secondaryButtonStyle, minHeight: 36, padding: '8px 12px', fontSize: 12 }}>Open shift calendar</button>
             </div>
             <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(7, minmax(90px, 1fr))', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
               {Array.from({ length: 7 }, (_, index) => {
@@ -2379,6 +2436,81 @@ const StaffScheduleManager = ({ onLogout = null }) => {
               })}
             </div>
           </section>
+
+          {shiftCalendarOpen && (
+            <div
+              className="admin-shift-calendar-backdrop"
+              role="presentation"
+              tabIndex={-1}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setShiftCalendarOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setShiftCalendarOpen(false);
+              }}
+              style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'rgba(15, 23, 42, 0.58)' }}
+            >
+              <section
+                className="admin-modal-surface admin-shift-calendar-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="admin-shift-calendar-title"
+                style={{ width: 'min(980px, 100%)', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', padding: 20, border: '1px solid #dbeafe', borderRadius: 14, background: '#fff', boxShadow: '0 28px 80px rgba(15,23,42,.28)' }}
+              >
+                <div className="admin-shift-calendar-header">
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Schedule overview</div>
+                    <h2 id="admin-shift-calendar-title" style={{ margin: '5px 0 0', color: '#0f172a' }}>Shift calendar</h2>
+                    <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: 12 }}>Choose a date to open its roster and attendance.</p>
+                  </div>
+                  <div className="admin-shift-calendar-controls">
+                    <button type="button" onClick={() => changeShiftCalendarMonth(-1)} aria-label="Previous month" style={secondaryButtonStyle}><FiChevronLeft size={15} /> Previous</button>
+                    <button type="button" onClick={() => { const today = new Date(); setShiftCalendarMonth(today); fetchShiftCalendarMonth(today); }} style={secondaryButtonStyle}>Today</button>
+                    <button type="button" onClick={() => changeShiftCalendarMonth(1)} aria-label="Next month" style={secondaryButtonStyle}>Next <FiChevronRight size={15} /></button>
+                    <button type="button" onClick={() => setShiftCalendarOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button>
+                  </div>
+                </div>
+
+                <div className="admin-shift-calendar-month-label" aria-live="polite">
+                  {shiftCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                  {shiftCalendarLoading && <span>Loading shifts...</span>}
+                </div>
+                {shiftCalendarError && <div role="alert" style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: '#fee2e2', color: '#991b1b', fontSize: 12 }}>{shiftCalendarError}</div>}
+
+                <div className="admin-shift-calendar-grid" aria-label="Shift calendar dates">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <div key={day} className="admin-shift-calendar-weekday">{day}</div>)}
+                  {shiftCalendarLeadingDays.map((key) => <div key={key} className="admin-shift-calendar-empty" aria-hidden="true" />)}
+                  {shiftCalendarDays.map((date) => {
+                    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                    const dayShifts = shiftCalendarShifts.filter((shift) => String(shift.date || '').slice(0, 10) === dateKey);
+                    const isSelectedDate = dateKey === targetDate;
+                    const isToday = dateKey === shiftCalendarTodayKey;
+                    return (
+                      <button
+                        key={dateKey}
+                        type="button"
+                        className={`admin-shift-calendar-day${isSelectedDate ? ' selected' : ''}${isToday ? ' today' : ''}`}
+                        aria-label={`${date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}, ${dayShifts.length} shifts`}
+                        onClick={() => selectShiftCalendarDate(date)}
+                      >
+                        <span className="admin-shift-calendar-day-number">{date.getDate()}</span>
+                        <span className="admin-shift-calendar-chips">
+                          {dayShifts.slice(0, 2).map((shift) => (
+                            <span key={shift._id} className="admin-shift-calendar-chip">
+                              <strong>{shift.shiftName}</strong>
+                              <span>{shift.shiftStart}-{shift.shiftEnd}</span>
+                            </span>
+                          ))}
+                          {dayShifts.length > 2 && <span className="admin-shift-calendar-more">+{dayShifts.length - 2} more</span>}
+                          {!dayShifts.length && <span className="admin-shift-calendar-no-shifts">No shifts</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          )}
 
         </div>
       );
@@ -3075,9 +3207,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
 
     if (workspaceView === 'staff') {
       return (
-        <section id="staff-management" style={{ display: 'grid', gap: 16 }}>
-          <div style={{ background: '#fff', padding: 22, borderRadius: 8, border: '1px solid #dbeafe' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <section id="staff-management" className="admin-staff-workspace" style={{ display: 'grid', gap: 16 }}>
+          <div className="admin-staff-panel" style={{ background: '#fff', padding: 22, borderRadius: 8, border: '1px solid #dbeafe' }}>
+            <div className="admin-staff-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#0f766e' }}>Hospital administration</div>
                 <h2 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#0f172a' }}>Staff</h2>
@@ -3086,7 +3218,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
               <button type="button" onClick={() => { setStaffOnboardingOpen(true); fetchHospitalStructure(); }} style={policyButtonStyle}><FiPlus size={15} /> Onboard new staff</button>
             </div>
 
-            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+            <div className="admin-staff-filters" style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: '#334155' }}>Search by name/email</label>
                 <input type="text" placeholder="Search staff..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', color: '#0f172a', fontSize: 14 }} />
@@ -3111,9 +3243,9 @@ const StaffScheduleManager = ({ onLogout = null }) => {
               {searchLoading && <div style={{ padding: 18, color: '#64748b' }}>Loading existing staff...</div>}
               {!searchLoading && filteredStaff.length === 0 && <div style={{ padding: 18, borderRadius: 10, background: '#f8fafc', color: '#64748b', fontSize: 13 }}>No existing staff credentials found for this hospital.</div>}
               {!searchLoading && filteredStaff.map((staff) => (
-                <div key={staff._id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(150px, 1fr) auto auto', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
-                  <div><strong style={{ color: '#0f172a' }}>{staff.firstName || staff.name} {staff.lastName || staff.surname}</strong><div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{staff.email}</div></div>
-                  <div style={{ fontSize: 12, color: '#475569' }}>{staff.positionTitle || HOSPITAL_STAFF_ROLES.find((position) => position.code === staff.positionCode)?.label || staff.systemRole || staff.role} • {staff.assignment?.department || staff.department}<div style={{ marginTop: 3, color: '#64748b' }}>{staff.clinicalSpecialty || staff.specialty || 'No specialty'}{staff.systemRole && <span> • Permission role: {staff.systemRole}</span>}</div></div>
+                <div key={staff._id} className="admin-staff-credential-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(150px, 1fr) auto auto', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+                  <div className="admin-staff-identity"><strong style={{ color: '#0f172a' }}>{staff.firstName || staff.name} {staff.lastName || staff.surname}</strong><div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>{staff.email}</div></div>
+                  <div className="admin-staff-details" style={{ fontSize: 12, color: '#475569' }}>{staff.positionTitle || HOSPITAL_STAFF_ROLES.find((position) => position.code === staff.positionCode)?.label || staff.systemRole || staff.role} • {staff.assignment?.department || staff.department}<div style={{ marginTop: 3, color: '#64748b' }}>{staff.clinicalSpecialty || staff.specialty || 'No specialty'}{staff.systemRole && <span> • Permission role: {staff.systemRole}</span>}</div></div>
                   <button type="button" onClick={() => openStaffEditor(staff)} disabled={hospitalStructureLoading} style={secondaryButtonStyle}><FiSliders size={14} /> Edit credentials</button>
                   <button type="button" onClick={() => deleteStaffMember(staff._id, `${staff.firstName || staff.name} ${staff.lastName || staff.surname}`.trim() || 'this staff member')} style={{ ...removeRowButtonStyle, padding: '8px 12px' }}><FiX size={14} /> Delete</button>
                 </div>
@@ -3121,16 +3253,16 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </div>
 
-          {staffOnboardingOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div role="dialog" aria-modal="true" style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
+          {staffOnboardingOpen && <div className="admin-modal-backdrop admin-staff-modal-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div role="dialog" aria-modal="true" className="admin-modal-surface admin-staff-modal" style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Staff onboarding</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Onboard new staff</h3><p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 13 }}>Create authenticated staff records for {selectedHospitalName}.</p></div><button type="button" onClick={() => setStaffOnboardingOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div>
           {hospitalStructureLoading && <div role="status" style={{ marginTop: 12, color: '#475569', fontSize: 13 }}>Loading configured hospital departments and specialties...</div>}
           {!hospitalStructureLoading && !hospitalStructure.departments.some((department) => department.isActive !== false) && <div role="alert" style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 13 }}>Configure at least one active hospital department before onboarding staff.</div>}
           {!hospitalStructureLoading && hospitalStructure.departments.some((department) => department.isActive !== false) && !hospitalStructure.departments.some((department) => department.isActive !== false && getConfiguredDepartmentSpecialties(hospitalStructure.departments, department.name).length) && <div role="alert" style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 13 }}>Configure at least one specialty for an active department before onboarding staff.</div>}
-          <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+          <div className="admin-staff-onboarding-rows" style={{ display: 'grid', gap: 10, marginTop: 12 }}>
             {hospitalOperationsStaffRows.map((row, index) => (
-              <div key={`staff-${index}`} style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
+              <div key={`staff-${index}`} className="admin-staff-onboarding-row" style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
+                <div className="admin-staff-onboarding-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
                   {[
                     ['firstName', 'First name'], ['lastName', 'Last name'], ['email', 'Work email']
                   ].map(([field, label]) => <label key={field} style={adminFieldStyle}>{label}<input type={field === 'email' ? 'email' : 'text'} value={row[field]} onChange={(event) => updateStaffRow(index, field, event.target.value)} placeholder={label} style={policyInputStyle} /></label>)}
@@ -3171,13 +3303,13 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           </div>
           </div></div>}
 
-          {staffEditorOpen && staffEditor && <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-            <div role="dialog" aria-modal="true" style={{ width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
+          {staffEditorOpen && staffEditor && <div className="admin-modal-backdrop admin-staff-modal-backdrop" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(15, 23, 42, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div role="dialog" aria-modal="true" className="admin-modal-surface admin-staff-modal" style={{ width: 'min(760px, 100%)', maxHeight: '88vh', overflowY: 'auto', background: '#fff', borderRadius: 16, boxShadow: '0 26px 64px rgba(15, 23, 42, 0.24)', border: '1px solid #dbeafe', padding: 22 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><div><div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#0f766e' }}>Existing staff credential</div><h3 style={{ margin: '8px 0 0', color: '#0f172a' }}>Edit {staffEditor.firstName} {staffEditor.lastName}</h3></div><button type="button" onClick={() => setStaffEditorOpen(false)} style={removeRowButtonStyle}><FiX size={14} /> Close</button></div>
               {staffEditorError && <div role="alert" style={{ marginTop: 14, padding: 10, borderRadius: 8, background: '#fee2e2', color: '#991b1b', fontSize: 13 }}>{staffEditorError}</div>}
               {!staffEditor.positionCode && <div role="status" style={{ marginTop: 14, padding: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 13 }}>This legacy record has no specific position. Select the correct job before saving; the permission role alone cannot distinguish triage from clinical nursing.</div>}
               {!staffEditor.positionCode && <div role="alert" style={{ marginTop: 14, padding: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 13 }}>This legacy staff record has no position code. Choose the correct position before saving so its permission role is backfilled accurately.</div>}
-              <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div className="admin-staff-editor-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                 {['firstName', 'lastName', 'email'].map((field) => <label key={field} style={adminFieldStyle}>{field === 'firstName' ? 'First name' : field === 'lastName' ? 'Last name' : 'Work email'}<input type={field === 'email' ? 'email' : 'text'} value={staffEditor[field]} onChange={(event) => updateStaffEditor(field, event.target.value)} style={policyInputStyle} /></label>)}
                 <label style={adminFieldStyle}>Position / job<select value={staffEditor.positionCode} onChange={(event) => updateStaffEditor('positionCode', event.target.value)} style={policyInputStyle}>
                   <option value="">Select a position</option>
@@ -3209,7 +3341,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                 <label style={adminFieldStyle}>NPI number (optional)<input value={staffEditor.npiNumber} onChange={(event) => updateStaffEditor('npiNumber', event.target.value)} style={policyInputStyle} /></label>
                 <label style={adminFieldStyle}>Status<select value={staffEditor.status} onChange={(event) => updateStaffEditor('status', event.target.value)} style={policyInputStyle}><option value="ACTIVE">Active</option><option value="ON_LEAVE">On leave</option><option value="TERMINATED">Terminated</option><option value="PENDING_CREDENTIALING">Pending credentialing</option></select></label>
               </div>
-              <div style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <div className="admin-staff-editor-actions" style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                 <button type="button" onClick={() => deleteStaffMember(staffEditor._id, `${staffEditor.firstName} ${staffEditor.lastName}`.trim() || 'this staff member')} style={{ ...removeRowButtonStyle, padding: '10px 14px' }}><FiX size={15} /> Delete staff</button>
                 <button type="button" onClick={saveStaffEditor} disabled={staffEditorSaving} style={policyButtonStyle}><FiSave size={15} /> {staffEditorSaving ? 'Saving...' : 'Save staff credentials'}</button>
               </div>
@@ -3254,15 +3386,31 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                 <h2 style={{ margin: '7px 0 0', fontSize: 26, color: '#0f172a' }}>Shifts & attendance</h2>
                 <p style={{ margin: '7px 0 0', maxWidth: 620, color: '#64748b', fontSize: 13 }}>Coordinate today’s coverage, see who is currently working, and make schedule changes from one operational view.</p>
               </div>
-              <label style={{ display: 'grid', gap: 6, minWidth: 180, color: '#475569', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Viewing date
-                <input
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
-                  style={{ padding: '10px 12px', border: '1px solid #5eead4', borderRadius: 8, background: '#fff', color: '#0f172a', fontSize: 14, fontWeight: 700 }}
-                />
-              </label>
+              <div className="admin-shift-view-controls" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                <label style={{ display: 'grid', gap: 6, minWidth: 180, color: '#475569', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Viewing date
+                  <input
+                    type="date"
+                    value={targetDate}
+                    onChange={(e) => setTargetDate(e.target.value)}
+                    style={{ padding: '10px 12px', border: '1px solid #5eead4', borderRadius: 8, background: '#fff', color: '#0f172a', fontSize: 14, fontWeight: 700 }}
+                  />
+                </label>
+                {isAdmin && (
+                  <button
+                    className="admin-schedule-shift-trigger"
+                    type="button"
+                    onClick={() => {
+                      setShiftMessages({ success: '', error: '' });
+                      setShiftForm((current) => ({ ...current, shiftDate: targetDate || current.shiftDate }));
+                      setScheduleShiftModalOpen(true);
+                    }}
+                    style={{ ...policyButtonStyle, minHeight: 42, whiteSpace: 'nowrap' }}
+                  >
+                    <FiPlus size={15} /> Schedule Shift
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 18 }}>
               {[
@@ -3280,8 +3428,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             </div>
           </section>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(320px, 0.8fr)', gap: 16, alignItems: 'start' }}>
-          <div style={{ background: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <div className="admin-shift-workspace-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(320px, 0.8fr)', gap: 16, alignItems: 'start' }}>
+          <div className="admin-shift-roster-panel" style={{ background: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' }}>
             <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#0f766e', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Coverage planning</div>
@@ -3347,7 +3495,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                       )}
                     </div>
                     {isSelected && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(150px, 0.7fr) auto', gap: 10, alignItems: 'end', marginTop: 16, paddingTop: 14, borderTop: '1px solid #ccfbf1' }}>
+                      <div className="admin-shift-assignment-controls" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(150px, 0.7fr) auto', gap: 10, alignItems: 'end', marginTop: 16, paddingTop: 14, borderTop: '1px solid #ccfbf1' }}>
                         <label style={{ display: 'grid', gap: 6, minWidth: 0, color: '#334155', fontSize: 12, fontWeight: 800 }}>
                           Add staff to this shift
                           <select value={assignmentStaffId} onChange={(event) => {
@@ -3373,7 +3521,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                             {allowedAssignmentDuties.map((duty) => <option key={duty} value={duty}>{SHIFT_DUTY_LABELS[duty] || duty.replaceAll('_', ' ')}</option>)}
                           </select>
                         </label>
-                        <button type="button" onClick={() => handleAssignStaffToShift(shift.shiftID, assignmentStaffId, assignmentRole)} disabled={!assignmentStaffId || !assignmentRole || (shift.assignedStaff?.length || 0) >= shift.maxStaffRequired} style={{ ...policyButtonStyle, minWidth: 150 }}>
+                        <button type="button" onClick={() => handleAssignStaffToShift(shift.shiftID, assignmentStaffId, assignmentRole)} disabled={!assignmentStaffId || !assignmentRole || (shift.assignedStaff?.length || 0) >= shift.maxStaffRequired} style={{ ...policyButtonStyle, minWidth: 0 }}>
                           {shift.assignedStaff?.length >= shift.maxStaffRequired ? 'Shift fully staffed' : 'Assign staff'}
                         </button>
                       </div>
@@ -3388,9 +3536,20 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           {renderStaffActivity()}
           </div>
 
-          {isAdmin && (
-            <div style={{ background: '#fff', padding: 20, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              <h2 style={{ marginTop: 0, color: '#1e293b', marginBottom: 20 }}>Schedule Shift</h2>
+          {isAdmin && scheduleShiftModalOpen && (
+            <div
+              role="presentation"
+              className="admin-modal-backdrop"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setScheduleShiftModalOpen(false);
+              }}
+              style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'rgba(15, 23, 42, 0.58)' }}
+            >
+            <section role="dialog" aria-modal="true" aria-labelledby="schedule-shift-title" className="admin-modal-surface" style={{ width: 'min(680px, 100%)', maxHeight: 'calc(100vh - 24px)', overflowY: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #cbd5e1', padding: 20, boxShadow: '0 28px 80px rgba(15,23,42,.28)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
+                <h2 id="schedule-shift-title" style={{ margin: 0, color: '#1e293b' }}>Schedule Shift</h2>
+                <button type="button" onClick={() => setScheduleShiftModalOpen(false)} style={secondaryButtonStyle}>Close</button>
+              </div>
               {shiftMessages.success && <div style={{ padding: '12px', background: '#dcfce7', color: '#166534', borderRadius: '4px', marginBottom: '15px' }}>✓ {shiftMessages.success}</div>}
               {shiftMessages.error && <div style={{ padding: '12px', background: '#fee2e2', color: '#991b1b', borderRadius: '4px', marginBottom: '15px' }}>✕ {shiftMessages.error}</div>}
               <form onSubmit={handleCreateShift} style={{ maxWidth: 600 }}>
@@ -3433,6 +3592,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                 </div>
                 <button type="submit" style={{ ...policyButtonStyle, marginTop: '10px' }}>Schedule Shift</button>
               </form>
+            </section>
             </div>
           )}
         </div>
@@ -3531,6 +3691,14 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   });
   const isLiveIntegrationActive = systemMode === 'live' || (hasLiveH7FhirIntegration && !hasSyntheticSeedActivity);
   const isMockSimulationActive = systemMode === 'mock' || !isLiveIntegrationActive;
+  const shiftCalendarToday = new Date();
+  const shiftCalendarTodayKey = `${shiftCalendarToday.getFullYear()}-${String(shiftCalendarToday.getMonth() + 1).padStart(2, '0')}-${String(shiftCalendarToday.getDate()).padStart(2, '0')}`;
+  const shiftCalendarMonthStart = new Date(shiftCalendarMonth.getFullYear(), shiftCalendarMonth.getMonth(), 1);
+  const shiftCalendarDays = Array.from(
+    { length: new Date(shiftCalendarMonth.getFullYear(), shiftCalendarMonth.getMonth() + 1, 0).getDate() },
+    (_, index) => new Date(shiftCalendarMonth.getFullYear(), shiftCalendarMonth.getMonth(), index + 1)
+  );
+  const shiftCalendarLeadingDays = Array.from({ length: shiftCalendarMonthStart.getDay() }, (_, index) => `empty-${index}`);
   const adminWorkspaceItems = [
     { label: 'Overview', target: 'overview' },
     { label: 'Hospital', target: 'hospital' },
@@ -3558,8 +3726,38 @@ const StaffScheduleManager = ({ onLogout = null }) => {
           .admin-workspace-tabs { min-width: 0; }
           .admin-workspace-tabs > div { min-width: 0; }
           .admin-shift-session-log-entry { min-width: 0; }
+          .admin-shift-workspace-grid,
+          .admin-shift-roster-panel,
+          .admin-shift-assignment-controls { min-width: 0; }
+          .admin-shift-workspace-grid > * { min-width: 0; }
+          .admin-shift-view-controls { min-width: 0; max-width: 100%; }
+          .admin-shift-calendar-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+          .admin-shift-calendar-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+          .admin-shift-calendar-month-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 10px; color: #0f172a; font-size: 16px; font-weight: 800; }
+          .admin-shift-calendar-month-label > span { color: #64748b; font-size: 11px; font-weight: 600; }
+          .admin-shift-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+          .admin-shift-calendar-weekday { padding: 6px 2px; color: #64748b; font-size: 11px; font-weight: 800; text-align: center; }
+          .admin-shift-calendar-empty { min-height: 120px; }
+          .admin-shift-calendar-day { display: flex; flex-direction: column; align-items: stretch; gap: 7px; min-width: 0; min-height: 120px; padding: 8px; border: 1px solid #dbeafe; border-radius: 10px; background: #fff; color: #0f172a; cursor: pointer; text-align: left; white-space: normal; }
+          .admin-shift-calendar-day:hover { border-color: #0f766e; background: #f0fdfa; }
+          .admin-shift-calendar-day.today { border-color: #0f766e; background: #ecfeff; }
+          .admin-shift-calendar-day.selected { border: 2px solid #0f766e; background: #ccfbf1; }
+          .admin-shift-calendar-day-number { font-size: 14px; font-weight: 800; line-height: 1.2; }
+          .admin-shift-calendar-chips { display: grid; gap: 4px; min-width: 0; }
+          .admin-shift-calendar-chip { display: grid; gap: 2px; min-width: 0; padding: 4px 5px; border-radius: 6px; background: #dff7f2; color: #115e59; font-size: 9px; line-height: 1.2; }
+          .admin-shift-calendar-chip strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+          .admin-shift-calendar-chip > span { color: #0f766e; font-size: 8px; }
+          .admin-shift-calendar-more { color: #0f766e; font-size: 9px; font-weight: 800; }
+          .admin-shift-calendar-no-shifts { color: #94a3b8; font-size: 9px; }
           .admin-modal-surface { box-sizing: border-box; }
           .admin-hospital-workspace-content { min-width: 0; }
+          .admin-staff-workspace,
+          .admin-staff-workspace > *,
+          .admin-staff-credential-row > *,
+          .admin-staff-modal,
+          .admin-staff-modal * { min-width: 0; }
+          .admin-staff-identity,
+          .admin-staff-details { overflow-wrap: anywhere; }
           .ehr-configurations,
           .ehr-configurations * { box-sizing: border-box; }
           .ehr-configurations { width: 100%; max-width: 100%; min-width: 0; }
@@ -3572,6 +3770,16 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             .admin-workspace-header h1 { font-size: clamp(22px, 8vw, 28px) !important; overflow-wrap: anywhere; }
             .admin-workspace-context { flex-basis: 100%; width: 100%; }
             .admin-workspace-context select { max-width: 100%; }
+            .admin-shift-view-controls { width: 100%; justify-content: flex-start !important; }
+            .admin-shift-view-controls label { flex: 1 1 130px; min-width: 130px !important; }
+            .admin-shift-view-controls input { width: 100%; min-width: 0; }
+            .admin-schedule-shift-trigger { flex: 0 0 auto; max-width: 100%; }
+            .admin-shift-workspace-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; }
+            .admin-shift-roster-panel { padding: 12px !important; }
+            .admin-shift-live-attendance { order: 1; }
+            .admin-shift-roster-panel { order: 2; }
+            .admin-shift-assignment-controls { grid-template-columns: minmax(0, 1fr) !important; }
+            .admin-shift-assignment-controls > button { width: 100%; min-width: 0 !important; }
             .admin-workspace-tabs { padding: 10px !important; margin-bottom: 14px !important; overflow: hidden; }
             .admin-workspace-tabs > div { flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
             .admin-workspace-tabs button { flex: 0 0 auto; white-space: nowrap; }
@@ -3583,6 +3791,42 @@ const StaffScheduleManager = ({ onLogout = null }) => {
             .overview-diagnosis-chart svg { width: 130px !important; height: 130px !important; }
             .overview-diagnosis-chart { flex-basis: 130px !important; }
             .admin-hospital-workspace-content { padding: 10px !important; }
+            .admin-staff-panel { padding: 12px !important; }
+            .admin-staff-header > div { flex: 1 1 100%; }
+            .admin-staff-header > button { width: 100%; justify-content: center; }
+            .admin-staff-filters { grid-template-columns: minmax(0, 1fr) !important; padding: 10px !important; }
+            .admin-staff-credential-row { grid-template-columns: minmax(0, 1fr) !important; gap: 8px !important; padding: 12px !important; }
+            .admin-staff-credential-row > button { width: 100%; justify-content: center; }
+            .admin-staff-modal-backdrop { padding: 8px !important; }
+            .admin-staff-modal { width: 100% !important; max-height: calc(100vh - 16px) !important; max-height: calc(100dvh - 16px) !important; padding: 14px !important; border-radius: 12px !important; }
+            .admin-staff-modal h3 { font-size: 19px; line-height: 1.3; overflow-wrap: anywhere; }
+            .admin-staff-onboarding-row { padding: 10px !important; }
+            .admin-staff-onboarding-grid,
+            .admin-staff-editor-grid { grid-template-columns: minmax(0, 1fr) !important; }
+            .admin-staff-onboarding-grid > *,
+            .admin-staff-editor-grid > * { width: 100%; min-width: 0; }
+            .admin-staff-modal input,
+            .admin-staff-modal select { width: 100%; }
+            .admin-staff-editor-actions { align-items: stretch !important; flex-direction: column-reverse; }
+            .admin-staff-editor-actions > button,
+            .admin-staff-onboarding-rows + div > button { width: 100%; justify-content: center; }
+            .admin-shift-calendar-backdrop { align-items: flex-start !important; overflow-y: auto !important; padding: 8px !important; }
+            .admin-shift-calendar-modal { width: 100% !important; max-height: calc(100vh - 16px) !important; max-height: calc(100dvh - 16px) !important; padding: 12px !important; }
+            .admin-shift-calendar-header { flex-direction: column; gap: 10px; }
+            .admin-shift-calendar-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+            .admin-shift-calendar-controls > button { min-width: 0; padding: 7px 4px !important; font-size: 11px !important; }
+            .admin-shift-calendar-month-label { margin-top: 12px; font-size: 14px; }
+            .admin-shift-calendar-grid { gap: 3px; }
+            .admin-shift-calendar-weekday { padding: 4px 0; font-size: 9px; }
+            .admin-shift-calendar-empty { min-height: 76px; }
+            .admin-shift-calendar-day { min-height: 76px; padding: 4px 3px; gap: 4px; border-radius: 7px; }
+            .admin-shift-calendar-day-number { font-size: 11px; }
+            .admin-shift-calendar-chips { gap: 2px; }
+            .admin-shift-calendar-chip { padding: 3px; font-size: 8px; }
+            .admin-shift-calendar-chip strong { font-size: 8px; }
+            .admin-shift-calendar-chip > span,
+            .admin-shift-calendar-no-shifts { display: none; }
+            .admin-shift-calendar-more { font-size: 8px; }
             .ehr-configurations { padding: 12px !important; gap: 14px !important; }
             .ehr-configurations h2 { font-size: clamp(22px, 7vw, 28px) !important; line-height: 1.15; overflow-wrap: anywhere; }
             .ehr-configurations h4 { line-height: 1.3; overflow-wrap: anywhere; }

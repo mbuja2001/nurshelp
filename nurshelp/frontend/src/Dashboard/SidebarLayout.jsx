@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FiUser, FiFileText, FiHome, FiSettings, FiUsers, FiBarChart2, FiLogOut, FiBell, FiHelpCircle, FiCreditCard, FiMessageCircle, FiClock, FiTool } from 'react-icons/fi';
+import { FiUser, FiFileText, FiHome, FiSettings, FiUsers, FiBarChart2, FiLogOut, FiBell, FiHelpCircle, FiCreditCard, FiMessageCircle, FiClock, FiTool, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { FaPills, FaFlask, FaRadiation } from 'react-icons/fa';
 import { MdLibraryBooks } from 'react-icons/md';
 import { FaBed } from 'react-icons/fa';
@@ -364,6 +364,48 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           cursor: pointer;
           transition: all 200ms ease;
         }
+        .sidebar-menu-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #94a3b8 #f1f5f9;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar {
+          width: 6px;
+          height: 0;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-button {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-thumb {
+          border-radius: 999px;
+          background: #94a3b8;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-track {
+          background: #f1f5f9;
+        }
+        .sidebar-menu-scroll .sidebar-icon-button {
+          width: 30px;
+          height: 30px;
+          min-height: 30px;
+          margin: 4px auto;
+          padding: 0;
+        }
+        .sidebar-collapse-toggle {
+          display: flex;
+          flex: 0 0 30px;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          min-height: 30px;
+          margin: 0 auto;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: #64748b;
+          cursor: pointer;
+        }
         .sidebar-icon-button svg {
           width: 18px !important;
           height: 18px !important;
@@ -411,6 +453,10 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           border-radius: 10px;
           background: #ffffff;
           box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+        }
+        .sidebar-profile-panel {
+          width: min(280px, calc(100vw - 56px));
+          padding: 12px;
         }
         .sidebar-header-hover-menu {
           position: relative;
@@ -598,6 +644,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
         @media (max-width: 480px) {
           .sidebar-messages-panel { right: clamp(-92px, -25vw, -48px) !important; }
           .sidebar-alerts-panel { right: clamp(-56px, -15vw, -32px) !important; }
+          .sidebar-profile-panel { right: clamp(-156px, -40vw, -105px) !important; }
           .sidebar-header-brand-copy {
             display: none !important;
           }
@@ -625,6 +672,12 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           }
 
         }
+
+        @supports (height: 100dvh) {
+          .sidebar-container {
+            height: 100dvh !important;
+          }
+        }
       `}</style>
 
       {isCompactViewport && sidebarOpen && (
@@ -649,7 +702,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
         padding: isSidebarCollapsed ? 2 : 16,
         boxSizing: 'border-box',
         backgroundColor: '#fff',
-        overflowY: 'auto',
+        overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
@@ -678,7 +731,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
           />
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, minHeight: 24 }}>
+        <div style={{ display: 'flex', justifyContent: isSidebarCollapsed ? 'center' : 'space-between', alignItems: 'center', marginBottom: 12, minHeight: 24 }}>
           {!isSidebarCollapsed && (
             <button
               type="button"
@@ -690,23 +743,20 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
             </button>
           )}
           <button
+            type="button"
             onClick={toggleSidebar}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              fontSize: 16,
-              color: '#64748b',
-              padding: '4px 8px',
-              marginLeft: 'auto'
-            }}
+            className="sidebar-collapse-toggle"
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-expanded={sidebarOpen}
+            style={!isSidebarCollapsed ? { marginLeft: 'auto' } : undefined}
           >
-            {sidebarOpen ? '◀' : '▶'}
+            {sidebarOpen ? <FiChevronLeft size={16} /> : <FiChevronRight size={16} />}
           </button>
         </div>
 
         {isSidebarCollapsed ? (
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <div className="sidebar-menu-scroll" style={{ width: '100%', display: 'flex', flex: 1, minHeight: 0, flexDirection: 'column', alignItems: 'center', gap: 2, overflowX: 'hidden', overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
             {visibleNavItems.map(item => (
               <button
                 key={item.id}
@@ -718,18 +768,9 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
                 {item.icon}
               </button>
             ))}
-            <button
-              type="button"
-              title="Log out"
-              className="sidebar-icon-button logout"
-              onClick={logout}
-              style={{ marginTop: '8px' }}
-            >
-              <FiLogOut size={16} />
-            </button>
           </div>
         ) : (
-          <div style={{ width: '100%' }}>
+          <div className="sidebar-menu-scroll" style={{ width: '100%', flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
             {/* Navigation Links */}
             <nav style={{ marginBottom: 20 }}>
               {visibleNavItems.map(item => (
@@ -832,43 +873,64 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
                 )}
               </div>
             </section>
-
-            {/* Logout Button */}
-            <section style={{ marginTop: 20 }}>
-              <button
-                onClick={logout}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #e2e8f0',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  color: '#64748b',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  transition: 'all 200ms ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#ef4444';
-                  e.currentTarget.style.color = '#ef4444';
-                  e.currentTarget.style.backgroundColor = '#fff5f5';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#e2e8f0';
-                  e.currentTarget.style.color = '#64748b';
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <FiLogOut size={16} />
-                Log out
-              </button>
-            </section>
           </div>
         )}
+        <section
+          aria-label="Account actions"
+          style={{
+            flexShrink: 0,
+            marginTop: 'auto',
+            padding: `8px 0 calc(8px + env(safe-area-inset-bottom, 0px))`,
+            borderTop: '1px solid #e6edf3',
+            backgroundColor: '#fff',
+          }}
+        >
+          {isSidebarCollapsed ? (
+            <button
+              type="button"
+              title="Log out"
+              aria-label="Log out"
+              className="sidebar-icon-button logout"
+              onClick={logout}
+              style={{ marginTop: 0, marginBottom: 0 }}
+            >
+              <FiLogOut size={16} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={logout}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 8px',
+                borderRadius: 6,
+                border: '1px solid #e2e8f0',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: '#64748b',
+                fontSize: 14,
+                fontWeight: 500,
+                transition: 'all 200ms ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#ef4444';
+                e.currentTarget.style.color = '#ef4444';
+                e.currentTarget.style.backgroundColor = '#fff5f5';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e2e8f0';
+                e.currentTarget.style.color = '#64748b';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <FiLogOut size={16} />
+              Log out
+            </button>
+          )}
+        </section>
       </aside>
 
       {/* Main Content */}
@@ -921,7 +983,7 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
                   className="sidebar-header-user"
                   type="button"
                   onClick={() => navigate('/profile')}
-                  aria-haspopup="menu"
+                  aria-haspopup="true"
                   aria-expanded={showProfileDropdown}
                   style={{
                     display: 'flex',
@@ -960,13 +1022,19 @@ const SidebarLayout = ({ children, username = "Staff", handleLogout = null }) =>
                 </button>
                 {showProfileDropdown && (
                   <div
-                    className="sidebar-profile-menu-dropdown"
-                    role="menu"
-                    aria-label="Profile options"
+                    className="sidebar-profile-menu-dropdown sidebar-profile-panel"
+                    role="region"
+                    aria-label="Profile information"
                     onMouseEnter={clearHeaderHoverClose}
                     onMouseLeave={() => scheduleHeaderHoverClose(setShowProfileDropdown)}
                   >
-                    <button type="button" role="menuitem" className="sidebar-profile-menu-item logout" onClick={logout}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Profile</div>
+                    <div style={{ color: '#0f172a', fontSize: 13, fontWeight: 700 }}>{displayName}</div>
+                    <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{userRole}</div>
+                    <button type="button" className="sidebar-profile-menu-item" onClick={() => navigate('/profile')}>
+                      Open profile
+                    </button>
+                    <button type="button" className="sidebar-profile-menu-item logout" onClick={logout}>
                       <FiLogOut size={15} aria-hidden="true" />
                       Log out
                     </button>
