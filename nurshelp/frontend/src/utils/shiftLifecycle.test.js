@@ -26,15 +26,20 @@ describe('shift lifecycle scheduling', () => {
     expect(getFuturePublishedShifts(shifts, now)).toEqual([shifts[0]]);
   });
 
-  it('allows a scheduled shift to start after its start time but before its end', () => {
+  it('allows published shifts to start within five minutes of their start until their end', () => {
     const now = new Date(2030, 9, 14, 12, 0);
     const shifts = [
       { status: 'PUBLISHED', date: '2030-10-14', shiftStart: '08:00', shiftEnd: '16:00' },
+      { status: 'PUBLISHED', date: '2030-10-14', shiftStart: '13:00', shiftEnd: '21:00' },
       { status: 'PUBLISHED', date: '2030-10-14', shiftStart: '07:00', shiftEnd: '11:00' },
       { status: 'IN_PROGRESS', date: '2030-10-14', shiftStart: '08:00', shiftEnd: '16:00' },
     ];
 
     expect(getStartablePublishedShifts(shifts, now)).toEqual([shifts[0]]);
+    expect(getStartablePublishedShifts([shifts[0]], new Date(2030, 9, 14, 7, 54, 59))).toEqual([]);
+    expect(getStartablePublishedShifts([shifts[0]], new Date(2030, 9, 14, 7, 55))).toEqual([shifts[0]]);
+    expect(getStartablePublishedShifts([shifts[0]], new Date(2030, 9, 14, 8, 0))).toEqual([shifts[0]]);
+    expect(getStartablePublishedShifts([shifts[0]], new Date(2030, 9, 14, 16, 0))).toEqual([]);
   });
 
   it('rejects invalid calendar dates and clock times', () => {

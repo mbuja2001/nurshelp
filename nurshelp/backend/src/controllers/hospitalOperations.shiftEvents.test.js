@@ -35,14 +35,17 @@ const getTomorrow = () => {
 
 describe('hospital shift lifecycle events', () => {
   it('starts a persisted shift referenced by its database ID', async () => {
+    const now = new Date();
+    const scheduledEnd = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+    const formatTime = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     const shift = {
       _id: 'shift-document-id',
       shiftID: 'SHIFT-001',
       shiftName: 'Hospital Day Shift',
       status: 'PUBLISHED',
       date: new Date(),
-      shiftStart: '08:00',
-      shiftEnd: '23:59',
+      shiftStart: formatTime(now),
+      shiftEnd: formatTime(scheduledEnd),
       assignedStaff: [{ status: 'ASSIGNED' }],
       save: async () => {},
     };
@@ -90,6 +93,64 @@ describe('hospital shift lifecycle events', () => {
     assert.equal(response.statusCode, 409);
     assert.match(response.body.message, /past its scheduled end/i);
     assert.equal(shift.status, 'PUBLISHED');
+  });
+
+  it('rejects starting a published shift more than five minutes before its scheduled start', async () => {
+    const now = new Date();
+    const scheduledStart = new Date(now.getTime() + 6 * 60 * 1000);
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const shift = {
+      _id: 'not-ready-shift',
+      shiftID: 'SHIFT-NOT-READY',
+      shiftName: 'Not-ready shift',
+      status: 'PUBLISHED',
+      date,
+      shiftStart: `${String(scheduledStart.getHours()).padStart(2, '0')}:${String(scheduledStart.getMinutes()).padStart(2, '0')}`,
+      shiftEnd: `${String((scheduledStart.getHours() + 8) % 24).padStart(2, '0')}:${String(scheduledStart.getMinutes()).padStart(2, '0')}`,
+      assignedStaff: [{ status: 'ASSIGNED' }],
+      save: async () => {},
+    };
+    Shift.findOne = async () => shift;
+    const response = createResponse();
+
+    await recordHospitalShiftEvent({
+      hospitalId: 'hospital-1',
+      user: { id: 'manager-1' },
+      body: { event: 'STARTED', shift: { id: shift._id } },
+    }, response);
+
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.message, /within five minutes/i);
+    assert.equal(shift.status, 'PUBLISHED');
+  });
+
+  it('allows starting a published shift at the five-minute early boundary', async () => {
+    const now = new Date();
+    const scheduledStart = new Date(now.getTime() + 5 * 60 * 1000);
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const shift = {
+      _id: 'early-start-shift',
+      shiftID: 'SHIFT-EARLY-START',
+      shiftName: 'Early-start shift',
+      status: 'PUBLISHED',
+      date,
+      shiftStart: `${String(scheduledStart.getHours()).padStart(2, '0')}:${String(scheduledStart.getMinutes()).padStart(2, '0')}`,
+      shiftEnd: `${String((scheduledStart.getHours() + 8) % 24).padStart(2, '0')}:${String(scheduledStart.getMinutes()).padStart(2, '0')}`,
+      assignedStaff: [{ status: 'ASSIGNED' }],
+      save: async () => {},
+    };
+    Shift.findOne = async () => shift;
+    AuditLog.create = async (event) => ({ _id: 'audit-early-start', ...event });
+    const response = createResponse();
+
+    await recordHospitalShiftEvent({
+      hospitalId: 'hospital-1',
+      user: { id: 'manager-1' },
+      body: { event: 'STARTED', shift: { id: shift._id } },
+    }, response);
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(shift.status, 'IN_PROGRESS');
   });
 
   it('does not allow an active shift to be started a second time', async () => {

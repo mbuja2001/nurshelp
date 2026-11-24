@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 
 const appointmentSchema = new mongoose.Schema(
   {
+    hospitalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital', default: null, index: true },
     patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true, index: true },
     physicianId: { type: mongoose.Schema.Types.ObjectId, ref: 'ClinicalStaff', required: true },
     facilityId: String,

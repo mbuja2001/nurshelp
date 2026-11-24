@@ -1,3 +1,5 @@
+export const SCHEDULED_SHIFT_START_GRACE_MS = 5 * 60 * 1000;
+
 export const getScheduledShiftWindow = (shift) => {
   if (!shift?.date || !shift?.shiftStart || !shift?.shiftEnd) return null;
 
@@ -52,6 +54,7 @@ export const getStartablePublishedShifts = (shifts, now = new Date()) => (
   (shifts || []).filter((shift) => {
     if (shift.status !== 'PUBLISHED') return false;
     const window = getScheduledShiftWindow(shift);
-    return Boolean(window && window.endAt > now);
+    const earliestStartAt = window && window.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS;
+    return Boolean(window && earliestStartAt <= now.getTime() && window.endAt > now);
   })
 );

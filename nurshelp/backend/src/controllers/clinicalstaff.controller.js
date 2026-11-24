@@ -3,7 +3,7 @@ import { NurseClockRecord } from "../models/staffClockRecord.model.js";
 import { NurseSchedule } from "../models/nurseSchedule.model.js";
 import { Shift } from "../models/shift.model.js";
 import { isShiftApprovedForClockIn, isStaffAssignedToShift } from "../utils/staffShiftAccess.js";
-import { getScheduledShiftAutoEndAt, getScheduledShiftWindow, isPrematureAutoClockOut } from "../utils/scheduledShiftEnd.js";
+import { getScheduledShiftAutoEndAt, getScheduledShiftWindow, isPrematureAutoClockOut, SCHEDULED_SHIFT_START_GRACE_MS } from "../utils/scheduledShiftEnd.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
@@ -159,7 +159,7 @@ export const clockIn = async (req, res) => {
       });
     }
 
-    const fiveMinsBeforeStart = new Date(shiftWindow.startAt.getTime() - 5 * 60000);
+    const fiveMinsBeforeStart = new Date(shiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
     if (now < fiveMinsBeforeStart) {
       const minsUntil = Math.ceil((fiveMinsBeforeStart - now) / 60000);
       console.log(`  ❌ TIMING ERROR: Shift hasn't started yet. Clock-in available in ${minsUntil} minutes`);
@@ -273,7 +273,7 @@ export const clockIn = async (req, res) => {
       const [hours, minutes] = shift.shiftStart.split(":").map(Number);
       const scheduledStartDate = new Date();
       scheduledStartDate.setHours(hours, minutes, 0, 0);
-      const fiveMinsBeforeStart = new Date(scheduledStartDate.getTime() - 5 * 60000);
+      const fiveMinsBeforeStart = new Date(scheduledStartDate.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
       const tenMinsAfterStart = new Date(scheduledStartDate.getTime() + 10 * 60000);
 
       // 1. EARLY_CLOCKIN: if clocking in more than 5 mins before shift start

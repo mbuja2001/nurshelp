@@ -26,7 +26,7 @@ import {
   resolveStaffPositionCode
 } from '../../utils/hospitalStaffOnboarding';
 import { ehrConfigurationBlueprint, protocolAdapterInterface } from './ehrConfigBlueprint';
-import { getScheduledShiftWindow, getStartablePublishedShifts } from '../../utils/shiftLifecycle';
+import { getFuturePublishedShifts, getScheduledShiftWindow, getStartablePublishedShifts, SCHEDULED_SHIFT_START_GRACE_MS } from '../../utils/shiftLifecycle';
 import { getHospitalDayShiftSchedule } from '../../utils/shiftSchedule';
 
 const OverviewDiagnosisPieChart = ({ data }) => {
@@ -283,6 +283,7 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     }));
   const [hospitalDayWizardOpen, setHospitalDayWizardOpen] = useState(false);
   const [hospitalDayStarting, setHospitalDayStarting] = useState(false);
+  const [hospitalDayClock, setHospitalDayClock] = useState(() => Date.now());
   const hospitalDayStartLockRef = useRef(false);
   const hospitalDayStartRequestRef = useRef(null);
   const [hospitalDayStep, setHospitalDayStep] = useState(0);
@@ -311,6 +312,17 @@ const StaffScheduleManager = ({ onLogout = null }) => {
   const [dayClockedInStaff, setDayClockedInStaff] = useState([]);
   const [staffActivityLoading, setStaffActivityLoading] = useState(false);
   const [hospitalDayPatientRows, setHospitalDayPatientRows] = useState([]);
+  const selectedHospitalDayShift = todaySchedule.find((shift) => String(shift._id) === String(daySelectedShiftId));
+  const selectedHospitalDayShiftWindow = getScheduledShiftWindow(selectedHospitalDayShift);
+  const selectedHospitalDayEarliestStart = selectedHospitalDayShiftWindow
+    ? selectedHospitalDayShiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS
+    : null;
+  const hospitalDayStartReady = dayShiftMode === 'new' || Boolean(
+    selectedHospitalDayShift?.status === 'PUBLISHED' &&
+    selectedHospitalDayShiftWindow &&
+    selectedHospitalDayEarliestStart <= hospitalDayClock &&
+    selectedHospitalDayShiftWindow.endAt.getTime() > hospitalDayClock
+  );
   const activeShiftSession = shiftSession || (hospitalDayRunning ? {
     shiftName: 'Active hospital shift',
     department: 'Hospital operations',
@@ -536,7 +548,13 @@ const StaffScheduleManager = ({ onLogout = null }) => {
 
       const roster = staffResults?.length ? staffResults : (filteredStaff.length ? filteredStaff : staffList);
       const availableShifts = shifts || todaySchedule;
-      const activeShift = availableShifts.find((shift) => shift.status === 'IN_PROGRESS');
+      const now = new Date();
+      const activeShift = availableShifts.find((shift) => {
+        if (shift.status !== 'IN_PROGRESS') return false;
+        const window = getScheduledShiftWindow(shift);
+        const earliestStartAt = window && window.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS;
+        return Boolean(window && earliestStartAt <= now.getTime() && window.endAt > now);
+      });
       if (activeShift) {
         setHospitalDayRunning(true);
         setShiftSession({
@@ -555,6 +573,8 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       }
       const currentShift = getStartablePublishedShifts(availableShifts).find((shift) => (
         shift.status === 'PUBLISHED' && String(shift.date || '').slice(0, 10) === String(targetDate || '').slice(0, 10)
+      )) || getFuturePublishedShifts(availableShifts).find((shift) => (
+        String(shift.date || '').slice(0, 10) === String(targetDate || '').slice(0, 10)
       ));
       console.log('[HOSPITAL DAY] Readiness data loaded', {
         staffCount: roster.length,
@@ -741,6 +761,10 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         if (existingShift.status !== 'PUBLISHED' || !existingShiftWindow || existingShiftWindow.endAt <= new Date()) {
           throw new Error('Only a published shift that has not passed its scheduled end can be started.');
         }
+        const earliestStartAt = new Date(existingShiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
+        if (earliestStartAt > new Date()) {
+          throw new Error(`This shift can be started from ${earliestStartAt.toLocaleString()}.`);
+        }
         console.log('[HOSPITAL DAY] Reusing scheduled shift', {
           id: existingShift._id,
           shiftID: existingShift.shiftID,
@@ -842,10 +866,24 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     try {
       const persistedShift = await createCoverageShiftSchedule();
       console.log('[HOSPITAL DAY] Schedule/assignment result', { shiftId: persistedShift?._id, shiftID: persistedShift?.shiftID });
-      if (!persistedShift) {
-        console.warn('[HOSPITAL DAY] Start aborted because schedule setup failed');
-        setHospitalDayWizardOpen(false);
-        setHospitalDayStep(0);
+      if (!persistedShift) return;
+
+      const shiftWindow = getScheduledShiftWindow(persistedShift);
+      if (!shiftWindow || shiftWindow.endAt <= new Date()) {
+        throw new Error('The selected shift window is invalid or has already ended. Refresh the schedule before starting the hospital day.');
+      }
+      const earliestStartAt = new Date(shiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
+      if (earliestStartAt > new Date()) {
+        setDayShiftMode('existing');
+        setDaySelectedShiftId(String(persistedShift._id));
+        setDayShiftName(persistedShift.shiftName || dayShiftName || 'Hospital Day Coverage');
+        setDayShiftStart(persistedShift.shiftStart || dayShiftStart);
+        setDayShiftEnd(persistedShift.shiftEnd || dayShiftEnd);
+        setMessages({
+          success: `Shift scheduled. Hospital Day can be started from ${earliestStartAt.toLocaleString()}.`,
+          error: ''
+        });
+        await fetchTodaySchedule();
         return;
       }
 
@@ -889,8 +927,6 @@ const StaffScheduleManager = ({ onLogout = null }) => {
     } catch (error) {
       console.error('[HOSPITAL DAY] Shift start failed', error);
       setMessages({ success: '', error: error.message || 'Unable to start the hospital day.' });
-      setHospitalDayWizardOpen(false);
-      setHospitalDayStep(0);
     } finally {
       hospitalDayStartLockRef.current = false;
       setHospitalDayStarting(false);
@@ -937,6 +973,14 @@ const StaffScheduleManager = ({ onLogout = null }) => {
       setMessages({ success: event === 'CANCELLED' ? 'Active shift was cancelled.' : 'Hospital shift ended.', error: `Shift state was recorded, but staff clock-out failed: ${error.message}` });
     }
   };
+
+  useEffect(() => {
+    if (!hospitalDayWizardOpen) return undefined;
+    const refreshClock = () => setHospitalDayClock(Date.now());
+    refreshClock();
+    const timer = window.setInterval(refreshClock, 1000);
+    return () => window.clearInterval(timer);
+  }, [hospitalDayWizardOpen]);
 
   useEffect(() => {
     if (!hospitalDayRunning || !shiftSession?.autoClockOutAt) return undefined;
@@ -1209,8 +1253,18 @@ const StaffScheduleManager = ({ onLogout = null }) => {
         'HOSPITAL_SHIFT_CANCELLED',
         'HOSPITAL_SHIFT_AUTO_ENDED'
       ].includes(event.action));
-      if (latestShiftEvent?.action === 'HOSPITAL_SHIFT_STARTED') {
-        const session = latestShiftEvent.changeDetails || {};
+      const session = latestShiftEvent?.changeDetails || {};
+      const shiftWindow = getScheduledShiftWindow(session);
+      const now = new Date();
+      const earliestStartAt = shiftWindow
+        ? new Date(shiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS)
+        : null;
+      if (
+        latestShiftEvent?.action === 'HOSPITAL_SHIFT_STARTED' &&
+        shiftWindow &&
+        earliestStartAt <= now &&
+        shiftWindow.endAt > now
+      ) {
         setHospitalDayRunning(true);
         setShiftSession({
           ...session,
@@ -4352,6 +4406,13 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                               Select scheduled shift
                               <select value={daySelectedShiftId} onChange={(event) => { const next = todaySchedule.find((shift) => String(shift._id) === String(event.target.value)); setDaySelectedShiftId(event.target.value); if (next) { setDayShiftName(next.shiftName || 'Hospital Day Coverage'); setDayShiftStart(next.shiftStart || '08:00'); setDayShiftEnd(next.shiftEnd || '16:00'); } }} style={{ ...policyInputStyle, background: '#fff' }}>
                                 <option value="">Choose a scheduled shift</option>
+                                {getFuturePublishedShifts(todaySchedule)
+                                  .filter((shift) => String(shift._id) === String(daySelectedShiftId))
+                                  .map((shift) => {
+                                    const startAt = getScheduledShiftWindow(shift)?.startAt;
+                                    const earliestStartAt = startAt && new Date(startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
+                                    return <option key={shift._id} value={shift._id}>{shift.shiftName} • {shift.shiftStart}-{shift.shiftEnd} • available {earliestStartAt?.toLocaleString()}</option>;
+                                  })}
                                 {getStartablePublishedShifts(todaySchedule)
                                   .filter((shift) => String(shift.date || '').slice(0, 10) === String(targetDate || '').slice(0, 10))
                                   .map((shift) => <option key={shift._id} value={shift._id}>{shift.shiftName} • {shift.shiftStart}-{shift.shiftEnd} • {shift.assignedStaff?.length || 0}/{shift.maxStaffRequired} assigned</option>)}
@@ -4577,11 +4638,16 @@ const StaffScheduleManager = ({ onLogout = null }) => {
                       <div>
                         {hospitalDayStep > 0 && <button type="button" onClick={() => setHospitalDayStep((current) => Math.max(current - 1, 0))} style={secondaryButtonStyle}>Back</button>}
                       </div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {dayShiftMode === 'existing' && selectedHospitalDayEarliestStart && !hospitalDayStartReady && (
+                          <span role="status" style={{ color: '#92400e', fontSize: 12, fontWeight: 700 }}>
+                            Shift can start at {new Date(selectedHospitalDayEarliestStart).toLocaleString()}.
+                          </span>
+                        )}
                         {hospitalDayStep < 4 ? (
                           <button type="button" onClick={() => setHospitalDayStep((current) => Math.min(current + 1, 4))} style={policyButtonStyle}>Continue</button>
                         ) : (
-                          <button type="button" onClick={startHospitalDay} disabled={hospitalDayStarting} style={{ ...policyButtonStyle, background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)', opacity: hospitalDayStarting ? 0.7 : 1 }}>
+                          <button type="button" onClick={startHospitalDay} disabled={hospitalDayStarting || !hospitalDayStartReady} style={{ ...policyButtonStyle, background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)', opacity: hospitalDayStarting || !hospitalDayStartReady ? 0.7 : 1 }}>
                             {hospitalDayStarting ? 'Starting shift...' : 'Start Hospital Shift'}
                           </button>
                         )}

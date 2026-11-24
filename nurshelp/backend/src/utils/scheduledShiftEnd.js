@@ -1,4 +1,5 @@
 export const SCHEDULED_SHIFT_END_GRACE_MS = 5 * 60 * 1000;
+export const SCHEDULED_SHIFT_START_GRACE_MS = 5 * 60 * 1000;
 
 export const getScheduledShiftWindow = (shift) => {
   if (!shift?.date || !shift?.shiftStart || !shift?.shiftEnd) return null;

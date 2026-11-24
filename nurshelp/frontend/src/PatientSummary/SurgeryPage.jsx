@@ -183,6 +183,10 @@ const SurgeryPage = () => {
 
           <section style={{ marginBottom: 28 }}>
             <h3 style={{ margin: "0 0 16px 0", fontSize: 14, fontWeight: 700, color: "#111827", textTransform: "uppercase", letterSpacing: "0.05em" }}>Surgery request details</h3>
+            <div role="status" style={{ marginBottom: 12, padding: 14, borderRadius: 10, background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
+              Surgery creation and updates are temporarily disabled while the approved scheduling workflow is implemented. Emergency care must continue through existing clinical procedures and records.
+            </div>
+            <fieldset disabled style={{ border: 0, padding: 0, margin: 0 }}>
             <div style={{ padding: 16, background: "#f9fafb", borderRadius: 12, border: "1px solid #e5e7eb" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <select
@@ -297,6 +301,7 @@ const SurgeryPage = () => {
                 {submitting ? "Saving surgery workflow…" : "Save surgery workflow"}
               </button>
             </div>
+            </fieldset>
           </section>
 
           {message && <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "#dcfce7", color: "#166534" }}>✓ {message}</div>}
@@ -312,10 +317,10 @@ const SurgeryPage = () => {
             <div style={{ display: "grid", gap: 10, marginTop: 20 }}>
               <button
                 onClick={handleSubmit}
-                disabled={submitting || !form.procedure_name.trim()}
-                style={{ padding: "14px 16px", borderRadius: 10, border: "none", background: "#14b8a6", color: "white", fontWeight: 700, cursor: submitting ? "wait" : "pointer", fontSize: 13 }}
+                disabled
+                style={{ padding: "14px 16px", borderRadius: 10, border: "none", background: "#94a3b8", color: "white", fontWeight: 700, cursor: "not-allowed", fontSize: 13 }}
               >
-                {submitting ? "Saving…" : "📝 Save surgery record"}
+                Surgery writes disabled
               </button>
               <button
                 onClick={() => navigate(-1)}

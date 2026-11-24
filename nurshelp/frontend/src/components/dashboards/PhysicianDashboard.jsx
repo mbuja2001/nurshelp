@@ -1364,7 +1364,7 @@ Update medications, procedures, or notes there.`);
   };
 
   // ============ SURGERY ADMINISTRATION ============
-  const handleAdministerSurgery = (encounterId, patientName) => {
+  const handleViewSurgeryRecords = (encounterId, patientName) => {
     if (!encounterId) {
       alert('Unable to open surgery workflow: missing encounter identifier');
       return;
@@ -3322,7 +3322,7 @@ Update medications, procedures, or notes there.`);
                             ...(can('orderMedication') ? [{ label: 'Order Medication', icon: '💊', handler: () => handleOrderMedication(), disabled: !bedModalData }] : []),
                             ...(can('requestLabs') ? [{ label: 'Request Labs', icon: '🧪', handler: () => handleRequestLabs(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }] : []),
                             ...(can('administerMedication') ? [{ label: 'Administer medication', icon: '💉', handler: () => handleOpenMedicationRequest(), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
-                            ...(can('manageSurgery') ? [{ label: 'Administer Surgery', icon: '🏥', handler: () => handleAdministerSurgery(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
+                            ...(can('manageSurgery') ? [{ label: 'View surgery records', icon: '🏥', handler: () => handleViewSurgeryRecords(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }] : []),
                             ...(can('discharge') ? [{ label: 'Discharge Patient', icon: '🚪', handler: () => handleDischarge(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData || bedModalData.status === 'DISCHARGED' }] : []),
                             ...(can('transferCare') ? [{ label: 'Transfer Specialty Care', icon: '🩺', handler: () => handleTransferSpecialtyCare(bedModalData?._id, bedModalData?.patientName || 'Patient'), disabled: !bedModalData }] : [])
                           ].map((item, idx) => (

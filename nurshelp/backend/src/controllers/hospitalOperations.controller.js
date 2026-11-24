@@ -14,7 +14,7 @@ import {
   validateHospitalShiftCoverage
 } from '../utils/hospitalShiftCoverage.js';
 import { createSyntheticHistoricalEncounter, historicalEncounterDate, normalizeHistoricalDays } from '../utils/syntheticHistoricalEncounter.js';
-import { getScheduledShiftAutoEndAt, getScheduledShiftEndAt, getScheduledShiftWindow } from '../utils/scheduledShiftEnd.js';
+import { getScheduledShiftAutoEndAt, getScheduledShiftEndAt, getScheduledShiftWindow, SCHEDULED_SHIFT_START_GRACE_MS } from '../utils/scheduledShiftEnd.js';
 import { departmentCodeFromName, resolveConfiguredDepartment } from '../utils/hospitalDepartment.js';
 import { getAllowedShiftDuties } from '../config/hospitalStaffRoleCatalog.js';
 import { normalizeShiftAssignmentRole } from '../utils/shiftTeamAssignment.js';
@@ -389,6 +389,10 @@ export const recordHospitalShiftEvent = async (req, res) => {
       const operatingDate = occurredAt.toISOString().slice(0, 10);
       if (shiftDay !== operatingDate) {
         return res.status(409).json({ success: false, message: 'A shift can only be started on its scheduled date' });
+      }
+      const earliestStartAt = new Date(shiftWindow.startAt.getTime() - SCHEDULED_SHIFT_START_GRACE_MS);
+      if (occurredAt < earliestStartAt) {
+        return res.status(409).json({ success: false, message: 'This shift can only be started within five minutes of its scheduled start time.' });
       }
       shift.status = 'IN_PROGRESS';
       shift.approvedBy = actorId;

@@ -11,6 +11,7 @@ import { buildLongitudinalHistoryContext } from "../utils/longitudinalPatientHis
 import { Prescription } from "../models/pharmacy.model.js";
 import { canAccessReport, REPORT_TYPES } from "../utils/reportAccess.js";
 import { getTodayShiftAssignmentRole, isSelfAssignmentAllowed } from "../utils/assignmentDutyRole.js";
+import { hasPhaseZeroClinicalRole, identityValue, isAssignedSurgeon } from "../utils/phaseZeroCalendarScope.js";
 
 /** Safe transcript parser used across functions */
 const parseTranscript = (transcript) => {
@@ -1927,150 +1928,19 @@ export const recordMedicationAdministration = async (req, res) => {
 };
 
 export const createSurgeryRecord = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      procedure_name,
-      surgery_type = 'ELECTIVE',
-      rationale,
-      priority = 'MEDIUM',
-      scheduled_at,
-      surgeon,
-      surgical_team = [],
-      notes
-    } = req.body;
-
-    if (!id || !procedure_name) {
-      return res.status(400).json({ message: 'Encounter ID and procedure name are required' });
-    }
-
-    const encounter = await Encounter.findById(id);
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
-    }
-
-    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.SURGERY, action: 'edit' })) {
-      return res.status(403).json({ message: 'Access denied to this encounter' });
-    }
-
-    if (!encounter.surgery_records) {
-      encounter.surgery_records = [];
-    }
-
-    const surgeryRecord = {
-      _id: new mongoose.Types.ObjectId(),
-      procedure_name,
-      surgery_type,
-      rationale: rationale || '',
-      priority,
-      scheduled_at: scheduled_at ? new Date(scheduled_at) : null,
-      surgeon: surgeon || req.user?.name || 'Unknown',
-      surgical_team: Array.isArray(surgical_team) ? surgical_team : [String(surgical_team).trim()].filter(Boolean),
-      requested_by: req.user?.name || 'Physician',
-      requested_at: new Date(),
-      status: scheduled_at ? 'SCHEDULED' : 'PENDING',
-      recorded_by: req.user?.name || 'Physician',
-      recorded_at: new Date(),
-      updated_at: new Date(),
-      notes: notes || ''
-    };
-
-    encounter.surgery_records.push(surgeryRecord);
-
-    if (!encounter.status_history) {
-      encounter.status_history = [];
-    }
-    encounter.status_history.push({
-      status: 'SURGERY_REQUESTED',
-      changed_by: req.user._id,
-      changed_at: new Date(),
-      notes: `Surgery requested: ${procedure_name}`
-    });
-
-    await encounter.save();
-
-    return res.status(201).json({
-      message: 'Surgery record created successfully',
-      encounter: encounter.toObject(),
-      surgeryRecord
-    });
-  } catch (err) {
-    console.error('Create Surgery Record Error:', err);
-    return res.status(500).json({
-      message: 'Failed to create surgery record',
-      error: err.message
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    code: 'LEGACY_SURGERY_WRITES_DISABLED',
+    message: 'Surgery writes are temporarily disabled while the approved scheduling workflow is implemented.'
+  });
 };
 
 export const updateSurgeryRecord = async (req, res) => {
-  try {
-    const { id, surgeryId } = req.params;
-    const {
-      status,
-      outcome,
-      findings,
-      complications,
-      performed_at,
-      scheduled_at,
-      surgeon,
-      surgical_team,
-      notes
-    } = req.body;
-
-    if (!id || !surgeryId) {
-      return res.status(400).json({ message: 'Encounter ID and surgery ID are required' });
-    }
-
-    const encounter = await Encounter.findById(id);
-    if (!encounter) {
-      return res.status(404).json({ message: 'Encounter not found' });
-    }
-
-    if (!canAccessReport({ user: req.user, encounter, reportType: REPORT_TYPES.SURGERY, action: 'edit' })) {
-      return res.status(403).json({ message: 'Access denied to this encounter' });
-    }
-
-    const surgeryRecord = encounter.surgery_records?.find(sr => sr._id?.toString() === surgeryId);
-    if (!surgeryRecord) {
-      return res.status(404).json({ message: 'Surgery record not found' });
-    }
-
-    if (status) surgeryRecord.status = status;
-    if (outcome) surgeryRecord.outcome = outcome;
-    if (findings) surgeryRecord.findings = findings;
-    if (complications) surgeryRecord.complications = complications;
-    if (performed_at) surgeryRecord.performed_at = new Date(performed_at);
-    if (scheduled_at) surgeryRecord.scheduled_at = new Date(scheduled_at);
-    if (surgeon) surgeryRecord.surgeon = surgeon;
-    if (surgical_team) surgeryRecord.surgical_team = Array.isArray(surgical_team) ? surgical_team : [String(surgical_team).trim()].filter(Boolean);
-    if (notes) surgeryRecord.notes = notes;
-    surgeryRecord.updated_at = new Date();
-
-    if (!encounter.status_history) {
-      encounter.status_history = [];
-    }
-    encounter.status_history.push({
-      status: `SURGERY_${(status || surgeryRecord.status).replace(/\s+/g, '_')}`,
-      changed_by: req.user._id,
-      changed_at: new Date(),
-      notes: `Surgery ${surgeryRecord.procedure_name} updated to ${surgeryRecord.status}`
-    });
-
-    await encounter.save();
-
-    return res.status(200).json({
-      message: 'Surgery record updated successfully',
-      encounter: encounter.toObject(),
-      surgeryRecord
-    });
-  } catch (err) {
-    console.error('Update Surgery Record Error:', err);
-    return res.status(500).json({
-      message: 'Failed to update surgery record',
-      error: err.message
-    });
-  }
+  return res.status(410).json({
+    success: false,
+    code: 'LEGACY_SURGERY_WRITES_DISABLED',
+    message: 'Surgery writes are temporarily disabled while the approved scheduling workflow is implemented.'
+  });
 };
 
 export const getSurgeryRecords = async (req, res) => {
@@ -2109,38 +1979,51 @@ export const getSurgeryRecords = async (req, res) => {
 export const getSurgeriesForPhysician = async (req, res) => {
   try {
     const { status } = req.query;
-    const hospitalId = req.user?.hospitalId || req.hospitalId;
+    const userId = identityValue(req.user?._id || req.user?.id);
+    const hospitalId = identityValue(req.hospitalId);
+    const userHospitalId = identityValue(req.user?.hospitalId);
 
-    if (!hospitalId) {
-      return res.status(400).json({ message: 'Hospital ID not found' });
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId) || !hospitalId || !mongoose.Types.ObjectId.isValid(hospitalId)) {
+      return res.status(401).json({ message: 'Authenticated staff and hospital context are required' });
+    }
+    if (userHospitalId && String(userHospitalId) !== String(hospitalId)) {
+      return res.status(403).json({ message: 'Hospital context mismatch' });
+    }
+    if (!hasPhaseZeroClinicalRole(req.user?.role || req.userRole)) {
+      return res.status(200).json({ count: 0, surgeries: [] });
     }
 
-    // Build query to find encounters with surgeries
+    const hospitalObjectId = new mongoose.Types.ObjectId(hospitalId);
+    const physicianObjectId = new mongoose.Types.ObjectId(userId);
+
     const query = {
-      hospitalId: hospitalId,
-      'surgery_records.0': { $exists: true } // has at least one surgery record
+      hospitalId: hospitalObjectId,
+      surgery_records: {
+        $elemMatch: {
+          surgeon_id: physicianObjectId,
+          ...(status ? { status } : {})
+        }
+      }
     };
 
-    // Add status filter if provided
-    if (status) {
-      query['surgery_records.status'] = status;
-    }
-
-    // Find encounters with surgery records
-    const encounters = await Encounter.find(query).lean();
+    const encounters = await Encounter.find(query)
+      .select('patient surgery_records diagnosis assigned_ward')
+      .lean();
 
     // Flatten surgeries with encounter context
     const surgeries = [];
     encounters.forEach(encounter => {
+      if (String(identityValue(encounter.hospitalId)) !== String(hospitalObjectId)) return;
       let surgeryRecords = encounter.surgery_records || [];
 
-      // Apply status filter
-      if (status) {
-        surgeryRecords = surgeryRecords.filter(s => s.status === status);
-      }
+      surgeryRecords = surgeryRecords.filter((surgery) => (
+        isAssignedSurgeon(surgery, physicianObjectId)
+        && (!status || surgery.status === status)
+      ));
 
       surgeryRecords.forEach(surgery => {
         surgeries.push({
+          id: String(surgery._id || surgery.surgery_id),
           _id: surgery._id,
           encounterId: encounter._id,
           procedure_name: surgery.procedure_name || 'Surgery',
